@@ -135,8 +135,7 @@ public class McpSkillBridge {
         s.setId(virtualIdFor(server));
         s.setName(slugify(server.getName()));
         s.setNameEn(displayName(server));
-        s.setNameZh(server.getDescription() != null && !server.getDescription().isBlank()
-                ? displayName(server) : null);
+        s.setNameZh(displayName(server));
         s.setDescription(buildDescription(server));
         s.setSkillType("mcp");
         s.setIcon(iconFor(server));
