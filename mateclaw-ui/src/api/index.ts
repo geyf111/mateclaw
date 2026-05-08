@@ -768,3 +768,122 @@ export const hotCacheApi = {
   regenerate: (kbId: number) => http.post(`/wiki/hot-cache/${kbId}/regenerate`),
   reset: (kbId: number) => http.delete(`/wiki/hot-cache/${kbId}`),
 }
+
+// ==================== Workflow ====================
+
+export interface WorkflowSummary {
+  id: number
+  workspaceId: number
+  name: string
+  description?: string
+  enabled: boolean
+  draftJson?: string
+  draftUpdatedAt?: string
+  latestRevisionId?: number
+  createTime: string
+  updateTime: string
+}
+
+export interface WorkflowCompileError {
+  code: string
+  path: string
+  message: string
+}
+
+export interface WorkflowCompileFailure {
+  errorCount: number
+  errors: WorkflowCompileError[]
+}
+
+export interface WorkflowRun {
+  id: number
+  workflowId: number
+  revisionId: number
+  workspaceId: number
+  state: string
+  triggeredBy?: string
+  initialInputRef?: string
+  finalOutputRef?: string
+  errorMessage?: string
+  startedAt?: string
+  completedAt?: string
+}
+
+export interface WorkflowRunStep {
+  id: number
+  runId: number
+  stepIndex: number
+  iterationIndex?: number
+  stepName?: string
+  state: string
+  outputRef?: string
+  outputSummary?: string
+  outputContentType?: string
+  errorMessage?: string
+  durationMs?: number
+  startedAt?: string
+  completedAt?: string
+}
+
+export const workflowApi = {
+  list: (workspaceId: number) =>
+    http.get<WorkflowSummary[]>('/workflows', { params: { workspaceId } }),
+  get: (id: number) => http.get<WorkflowSummary>(`/workflows/${id}`),
+  create: (data: Partial<WorkflowSummary>) =>
+    http.post<WorkflowSummary>('/workflows', data),
+  update: (id: number, data: Partial<WorkflowSummary>) =>
+    http.put<WorkflowSummary>(`/workflows/${id}`, data),
+  delete: (id: number) => http.delete(`/workflows/${id}`),
+  saveDraft: (id: number, draftJson: string, userId?: number) =>
+    http.put(`/workflows/${id}/draft`, { draftJson }, { params: userId ? { userId } : {} }),
+  compile: (id: number) => http.post(`/workflows/${id}/compile`),
+  publish: (id: number, note?: string, userId?: number) =>
+    http.post(`/workflows/${id}/publish`,
+      note ? { note } : {},
+      { params: userId ? { userId } : {} }),
+  runs: (id: number, limit = 50) =>
+    http.get<WorkflowRun[]>(`/workflows/${id}/runs`, { params: { limit } }),
+  runDetail: (runId: number) =>
+    http.get<{ run: WorkflowRun; steps: WorkflowRunStep[] }>(`/workflows/runs/${runId}`),
+}
+
+// ==================== Trigger ====================
+
+export interface TriggerSummary {
+  id: number
+  workspaceId: number
+  name?: string
+  patternType: string
+  patternJson: string
+  targetType: string
+  targetId: number
+  payloadTemplate?: string
+  rateLimitPerMin: number
+  dedupWindowSecs: number
+  botSelfFilter: boolean
+  enabled: boolean
+  fireCount: number
+  maxFires: number
+  lastFiredAt?: string
+  patternVersion: number
+  createTime: string
+  updateTime: string
+}
+
+export const triggerApi = {
+  list: (workspaceId: number) =>
+    http.get<TriggerSummary[]>('/triggers', { params: { workspaceId } }),
+  get: (id: number) => http.get<TriggerSummary>(`/triggers/${id}`),
+  create: (data: Partial<TriggerSummary>) =>
+    http.post<TriggerSummary>('/triggers', data),
+  update: (id: number, data: Partial<TriggerSummary>) =>
+    http.put<TriggerSummary>(`/triggers/${id}`, data),
+  delete: (id: number) => http.delete(`/triggers/${id}`),
+  ingestEvent: (envelope: {
+    workspaceId: number
+    patternType: string
+    eventId?: string
+    senderId?: string
+    data?: Record<string, unknown>
+  }) => http.post('/triggers/events', envelope),
+}
