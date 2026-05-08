@@ -28,6 +28,7 @@ import dagre from 'dagre'
 
 export interface RawStep {
   name?: string
+  agentId?: number
   agentName?: string
   mode?: { type?: string; expression?: string; [k: string]: unknown }
   promptTemplate?: string
@@ -44,6 +45,7 @@ export interface StepNodeData {
   index: number
   name: string
   modeType: string
+  agentId?: number
   agentName?: string
   promptTemplate?: string
   expression?: string
@@ -100,6 +102,7 @@ export function buildGraph(json: string): { nodes: Node<StepNodeData>[]; edges: 
       index: idx,
       name: step?.name?.trim() || fallbackName(idx),
       modeType,
+      agentId: typeof step?.agentId === 'number' ? step.agentId : undefined,
       agentName: step?.agentName,
       promptTemplate: step?.promptTemplate,
       expression: typeof step?.mode?.expression === 'string' ? step.mode!.expression : undefined,

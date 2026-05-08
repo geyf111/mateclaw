@@ -8,13 +8,13 @@
           <span class="visually-hidden">{{ t('workflows.canvas.addNode') }}</span>
           <select :value="''" class="canvas-add-select" @change="onAddNode">
             <option value="" disabled>{{ t('workflows.canvas.addNode') }}</option>
-            <option value="sequential">+ sequential</option>
-            <option value="fan_out">+ fan_out</option>
-            <option value="collect">+ collect</option>
-            <option value="conditional">+ conditional</option>
-            <option value="await_approval">+ await_approval</option>
-            <option value="dispatch_channel">+ dispatch_channel</option>
-            <option value="write_memory">+ write_memory</option>
+            <option value="sequential">+ {{ modeOptionLabel('sequential') }}</option>
+            <option value="fan_out">+ {{ modeOptionLabel('fan_out') }}</option>
+            <option value="collect">+ {{ modeOptionLabel('collect') }}</option>
+            <option value="conditional">+ {{ modeOptionLabel('conditional') }}</option>
+            <option value="await_approval">+ {{ modeOptionLabel('await_approval') }}</option>
+            <option value="dispatch_channel">+ {{ modeOptionLabel('dispatch_channel') }}</option>
+            <option value="write_memory">+ {{ modeOptionLabel('write_memory') }}</option>
           </select>
         </label>
         <button class="canvas-btn" :class="{ active: direction === 'LR' }" @click="direction = 'LR'">
@@ -140,6 +140,12 @@ function onAddNode(e: Event) {
 }
 
 const { t } = useI18n()
+
+function modeOptionLabel(type: string): string {
+  const key = `workflows.canvas.modeLabels.${type}`
+  const localized = t(key, '')
+  return localized && localized !== key ? localized : type
+}
 
 const direction = ref<'LR' | 'TB'>('LR')
 const jsonRef = computed(() => props.modelValue)

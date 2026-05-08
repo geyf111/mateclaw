@@ -72,6 +72,7 @@
                     :step="selectedStep"
                     :index="canvasSelection.index"
                     :available-agents="availableAgents"
+                    :available-channels="availableChannels"
                     @patch="onStepPatch"
                     @duplicate="onStepDuplicate"
                     @delete="onStepDelete"
@@ -97,11 +98,10 @@
                 </label>
                 <span class="json-hint" :class="jsonHintKind">{{ jsonHint }}</span>
               </div>
-              <textarea
+              <WorkflowJsonEditor
                 v-model="draftJson"
-                class="editor-body"
-                spellcheck="false"
-                :placeholder="t('workflows.bodyPlaceholder')"
+                :compile-errors="compileErrors"
+                :file-path="`inmemory://workflow-${selected.id}.json`"
               />
             </div>
 
@@ -215,6 +215,7 @@ import { mcConfirm } from '@/components/common/useConfirm'
 import { ElMessage } from 'element-plus'
 import {
   agentApi,
+  channelApi,
   workflowApi,
   type WorkflowSummary,
   type WorkflowRun,
@@ -224,9 +225,11 @@ import {
   type PausedRunSummary,
   type ResumeOutcome,
 } from '@/api'
+import type { Channel } from '@/types'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import WorkflowCanvas from '@/components/workflow/WorkflowCanvas.vue'
 import StepPropertyPanel from '@/components/workflow/StepPropertyPanel.vue'
+import WorkflowJsonEditor from '@/components/workflow/WorkflowJsonEditor.vue'
 import CreateWorkflowDialog from '@/components/workflow/CreateWorkflowDialog.vue'
 import PublishDialog from '@/components/workflow/PublishDialog.vue'
 import type { StepNodeData, RawStep } from '@/composables/useWorkflowGraph'
@@ -260,6 +263,13 @@ const resumingId = ref<number | null>(null)
 // exist. Loaded once on mount and on workspace switch.
 interface AgentOption { id: number; name: string; title?: string }
 const availableAgents = ref<AgentOption[]>([])
+interface ChannelOption {
+  id: number | string
+  name: string
+  channelType: string
+  enabled?: boolean
+}
+const availableChannels = ref<ChannelOption[]>([])
 
 const templateChoice = ref('')
 
@@ -326,25 +336,20 @@ const jsonHintKind = computed(() => (jsonHint.value === t('workflows.jsonOk') ? 
 const STEP_TEMPLATES: Record<string, object> = {
   sequential: {
     name: 'step-sequential',
-    agentName: 'agent-name',
     mode: { type: 'sequential' },
     promptTemplate: 'Process: {{ inputs.payload }}',
   },
   fan_out: {
     name: 'step-fan',
-    agentName: 'agent-name',
     mode: { type: 'fan_out' },
     promptTemplate: 'Branch task',
   },
   collect: {
     name: 'step-collect',
-    agentName: 'agent-name',
     mode: { type: 'collect' },
-    promptTemplate: 'Combine: {{ inputs.payload }}',
   },
   conditional: {
     name: 'step-conditional',
-    agentName: 'agent-name',
     mode: { type: 'conditional', expression: '{{ inputs.payload != null }}' },
     promptTemplate: 'Run only when condition holds',
   },
@@ -366,8 +371,8 @@ const STEP_TEMPLATES: Record<string, object> = {
     name: 'step-dispatch',
     mode: {
       type: 'dispatch_channel',
-      channels: ['feishu'],
-      targets: { feishu: 'group-id-here' },
+      channels: [],
+      targets: {},
       content: 'Notification: {{ inputs.payload }}',
     },
   },
@@ -496,6 +501,23 @@ async function reloadAgents() {
   }
 }
 
+async function reloadChannels() {
+  try {
+    const res = await channelApi.list()
+    const rows = (res.data as unknown as Channel[]) ?? []
+    availableChannels.value = rows
+      .filter((c) => c && c.channelType && c.enabled !== false)
+      .map((c) => ({
+        id: c.id,
+        name: c.name || c.channelType,
+        channelType: c.channelType,
+        enabled: c.enabled,
+      }))
+  } catch (e) {
+    console.error('listChannels failed', e)
+  }
+}
+
 function truncateToken(token: string | undefined): string {
   if (!token) return '-'
   return token.length <= 14 ? token : token.slice(0, 6) + '…' + token.slice(-4)
@@ -553,7 +575,6 @@ async function onCreateSubmit(payload: { name: string; description: string }) {
           steps: [
             {
               name: 'first-step',
-              agentName: 'agent-name',
               mode: { type: 'sequential' },
               promptTemplate: 'Hello {{ inputs.payload }}',
             },
@@ -695,11 +716,13 @@ onMounted(async () => {
   await reload()
   await reloadPausedRuns()
   await reloadAgents()
+  await reloadChannels()
 })
 watch(workspaceId, async () => {
   await reload()
   await reloadPausedRuns()
   await reloadAgents()
+  await reloadChannels()
 })
 </script>
 

@@ -39,41 +39,22 @@
 
       <label class="panel-field" v-if="modeNeedsAgent">
         <span class="field-label">{{ t('workflows.canvas.nodeAgent') }}</span>
-        <!-- Agent picker — drops down the workspace's agents and falls
-             back to a free-text input when the operator wants to type a
-             name that isn't in the list (legacy drafts, agent created in
-             a different workspace by an admin, etc.). -->
+        <!-- Digital employee picker. Agent steps persist agentId so the
+             workflow cannot drift when an employee is renamed. -->
         <div class="agent-picker">
           <select
-            v-if="!useFreeAgentName"
             class="mc-input"
             :value="agentSelectValue"
             @change="onAgentSelect"
           >
             <option value="">{{ t('workflows.canvas.fields.agentPlaceholder') }}</option>
-            <option v-for="a in availableAgents" :key="a.id" :value="a.name">
+            <option v-for="a in availableAgents" :key="a.id" :value="String(a.id)">
               {{ a.name }}<template v-if="a.title"> — {{ a.title }}</template>
             </option>
-            <option v-if="agentNotInList" :value="step.agentName ?? ''" disabled>
-              {{ t('workflows.canvas.fields.agentMissing', { name: step.agentName }) }}
+            <option v-if="agentNotInList" :value="agentSelectValue" disabled>
+              {{ t('workflows.canvas.fields.agentMissing', { name: step.agentName || step.agentId }) }}
             </option>
-            <option value="__custom__">{{ t('workflows.canvas.fields.agentUseCustom') }}</option>
           </select>
-          <input
-            v-else
-            class="mc-input"
-            :value="step.agentName ?? ''"
-            @input="patch({ agentName: ($event.target as HTMLInputElement).value })"
-            spellcheck="false"
-            :placeholder="t('workflows.canvas.fields.agentPlaceholder')"
-          />
-          <button
-            v-if="useFreeAgentName"
-            type="button"
-            class="agent-toggle"
-            :title="t('workflows.canvas.fields.agentBackToList')"
-            @click="useFreeAgentName = false"
-          >×</button>
         </div>
       </label>
 
@@ -109,7 +90,6 @@
           >
             <option value="text">text</option>
             <option value="json">json</option>
-            <option value="bytes">bytes</option>
           </select>
         </label>
       </div>
@@ -189,14 +169,40 @@
 
       <!-- dispatch_channel -->
       <template v-if="modeType === 'dispatch_channel'">
-        <label class="panel-field">
+        <div class="panel-field">
           <span class="field-label">{{ t('workflows.canvas.fields.channels') }}</span>
+          <div class="channel-picker" v-if="availableDispatchChannels.length">
+            <label
+              v-for="channel in availableDispatchChannels"
+              :key="channel.channelType"
+              class="channel-option"
+            >
+              <input
+                type="checkbox"
+                :checked="selectedChannelTypes.includes(channel.channelType)"
+                @change="onDispatchChannelToggle(channel.channelType, ($event.target as HTMLInputElement).checked)"
+              />
+              <span class="channel-name">{{ channel.name }}</span>
+              <code class="channel-type">{{ channel.channelType }}</code>
+            </label>
+          </div>
+          <p v-else class="panel-hint">{{ t('workflows.canvas.fields.channelsEmptyHint') }}</p>
+          <p v-if="unknownSelectedChannels.length" class="panel-hint danger">
+            {{ t('workflows.canvas.fields.channelsUnknown', { channels: unknownSelectedChannels.join(', ') }) }}
+          </p>
+        </div>
+        <label
+          v-for="channelType in selectedChannelTypes"
+          :key="`target-${channelType}`"
+          class="panel-field"
+        >
+          <span class="field-label">{{ t('workflows.canvas.fields.dispatchTarget', { channel: channelLabel(channelType) }) }}</span>
           <input
             class="mc-input"
-            :value="(modeField('channels', []) as string[]).join(', ')"
-            @change="patchMode({ channels: parseList(($event.target as HTMLInputElement).value) })"
+            :value="dispatchTarget(channelType)"
+            @input="onDispatchTargetInput(channelType, ($event.target as HTMLInputElement).value)"
             spellcheck="false"
-            placeholder="feishu, dingtalk"
+            :placeholder="t('workflows.canvas.fields.dispatchTargetPlaceholder')"
           />
         </label>
         <label class="panel-field">
@@ -271,7 +277,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { RawStep } from '@/composables/useWorkflowGraph'
 
@@ -283,6 +289,12 @@ export interface AgentOption {
   name: string
   title?: string
 }
+export interface ChannelOption {
+  id: number | string
+  name: string
+  channelType: string
+  enabled?: boolean
+}
 
 interface Props {
   /** The step the panel currently edits, or null. */
@@ -291,10 +303,13 @@ interface Props {
   index: number
   /** Workspace-scoped agent list rendered as a dropdown. */
   availableAgents?: AgentOption[]
+  /** Workspace-scoped enabled channels rendered as a multi-select picker. */
+  availableChannels?: ChannelOption[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
   availableAgents: () => [],
+  availableChannels: () => [],
 })
 const emit = defineEmits<{
   (e: 'patch', payload: { index: number; patch: Partial<RawStep> }): void
@@ -317,9 +332,9 @@ function modeOptionLabel(type: string): string {
 }
 
 const modeNeedsAgent = computed(() => {
-  // fan_out / collect / await_approval / dispatch_channel / write_memory
+  // collect / await_approval / dispatch_channel / write_memory
   // don't take an agent — the runtime calls a service adapter instead.
-  return ['sequential', 'conditional'].includes(modeType.value)
+  return ['sequential', 'fan_out', 'conditional'].includes(modeType.value)
 })
 
 const rawJson = computed(() => {
@@ -364,21 +379,89 @@ function onDuplicate() {
   emit('duplicate', { index: props.index })
 }
 
-// Agent picker support — toggles between dropdown and free-text input.
-const useFreeAgentName = ref(false)
 const agentNotInList = computed(() => {
+  if (props.step?.agentId != null) {
+    return !props.availableAgents.some((a) => String(a.id) === String(props.step?.agentId))
+  }
   const n = props.step?.agentName
   if (!n) return false
   return !props.availableAgents.some((a) => a.name === n)
 })
-const agentSelectValue = computed(() => props.step?.agentName ?? '')
+const agentSelectValue = computed(() => {
+  if (props.step?.agentId != null) return String(props.step.agentId)
+  const byName = props.availableAgents.find((a) => a.name === props.step?.agentName)
+  return byName ? String(byName.id) : (props.step?.agentName ?? '')
+})
 function onAgentSelect(e: Event) {
   const v = (e.target as HTMLSelectElement).value
-  if (v === '__custom__') {
-    useFreeAgentName.value = true
+  if (!v) {
+    patch({ agentId: undefined, agentName: undefined })
     return
   }
-  patch({ agentName: v })
+  const id = Number(v)
+  const selected = props.availableAgents.find((a) => String(a.id) === v)
+  patch({
+    agentId: Number.isFinite(id) ? id : undefined,
+    // Kept as a denormalized label for the canvas node; runtime resolves by agentId.
+    agentName: selected?.name,
+  })
+}
+
+const availableDispatchChannels = computed(() => {
+  const seen = new Set<string>()
+  const rows: ChannelOption[] = []
+  for (const channel of props.availableChannels) {
+    if (!channel?.channelType || channel.enabled === false) continue
+    if (seen.has(channel.channelType)) continue
+    seen.add(channel.channelType)
+    rows.push({
+      id: channel.id,
+      name: channel.name || channel.channelType,
+      channelType: channel.channelType,
+      enabled: channel.enabled,
+    })
+  }
+  return rows
+})
+const selectedChannelTypes = computed(() => {
+  const raw = modeField('channels', []) as unknown
+  if (!Array.isArray(raw)) return []
+  return raw.map((v) => String(v)).filter(Boolean)
+})
+const unknownSelectedChannels = computed(() => {
+  const known = new Set(availableDispatchChannels.value.map((c) => c.channelType))
+  return selectedChannelTypes.value.filter((c) => !known.has(c))
+})
+function channelLabel(channelType: string): string {
+  const row = availableDispatchChannels.value.find((c) => c.channelType === channelType)
+  return row ? `${row.name} (${row.channelType})` : channelType
+}
+function dispatchTargets(): Record<string, string> {
+  const raw = modeField('targets', {}) as unknown
+  return raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? { ...(raw as Record<string, string>) }
+    : {}
+}
+function dispatchTarget(channelType: string): string {
+  return dispatchTargets()[channelType] ?? ''
+}
+function onDispatchChannelToggle(channelType: string, checked: boolean) {
+  const next = new Set(selectedChannelTypes.value)
+  const targets = dispatchTargets()
+  if (checked) {
+    next.add(channelType)
+  } else {
+    next.delete(channelType)
+    delete targets[channelType]
+  }
+  patchMode({ channels: Array.from(next), targets })
+}
+function onDispatchTargetInput(channelType: string, raw: string) {
+  const targets = dispatchTargets()
+  const value = raw.trim()
+  if (value) targets[channelType] = value
+  else delete targets[channelType]
+  patchMode({ targets })
 }
 </script>
 
@@ -502,6 +585,35 @@ function onAgentSelect(e: Event) {
   gap: 4px;
 }
 .agent-picker .mc-input { flex: 1; min-width: 0; }
+.channel-picker {
+  display: grid;
+  gap: 6px;
+}
+.channel-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 6px 8px;
+  border: 1px solid var(--mc-border, rgba(0, 0, 0, 0.12));
+  border-radius: 6px;
+  background: var(--mc-bg, transparent);
+  cursor: pointer;
+}
+.channel-option input {
+  flex: 0 0 auto;
+}
+.channel-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.channel-type {
+  font-size: 10.5px;
+  color: var(--mc-text-tertiary, #888);
+}
 .agent-toggle {
   width: 24px;
   height: 28px;
@@ -521,6 +633,9 @@ function onAgentSelect(e: Event) {
   color: var(--mc-text-tertiary, #888);
   font-style: italic;
   margin: 0;
+}
+.panel-hint.danger {
+  color: var(--mc-danger, #c0392b);
 }
 .raw-section summary {
   font-size: 11px;

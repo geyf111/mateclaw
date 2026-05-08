@@ -74,7 +74,11 @@ const targetPosition = computed(() => props.targetPosition ?? Position.Left)
 
 const data = computed(() => props.data as StepNodeData)
 
-const agentSlug = computed(() => data.value.agentName?.trim() || '')
+const agentSlug = computed(() => {
+  const name = data.value.agentName?.trim()
+  if (name) return name
+  return data.value.agentId != null ? `#${data.value.agentId}` : ''
+})
 
 const approverHint = computed(() => {
   if (data.value.modeType !== 'await_approval') return ''

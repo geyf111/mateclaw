@@ -66,85 +66,92 @@
           </tbody>
         </table>
 
-        <!-- Inline form (replaces modal for v0 simplicity) -->
-        <section v-if="formOpen" class="form-card mc-surface-card">
-          <header>
-            <strong>{{ editing?.id ? t('triggers.formTitleEdit') : t('triggers.formTitleNew') }}</strong>
-            <button class="btn-ghost" @click="closeForm">{{ t('triggers.actions.close') }}</button>
-          </header>
-          <div class="form-grid">
-            <label>{{ t('triggers.fields.name') }}
-              <input v-model="formState.name" :placeholder="t('triggers.fields.namePlaceholder')" />
-            </label>
-            <label>{{ t('triggers.fields.patternType') }}
-              <select v-model="formState.patternType">
-                <option value="cron">cron</option>
-                <option value="channel_message">channel_message</option>
-                <option value="content_match">content_match</option>
-                <option value="agent_lifecycle">agent_lifecycle</option>
-                <option value="workflow_completion">workflow_completion</option>
-                <option value="webhook">webhook</option>
-              </select>
-            </label>
-            <div class="span-2">
-              <span class="form-grid-label">{{ t('triggers.fields.patternJson') }}</span>
-              <TriggerPatternForm
-                v-model="formState.patternJson"
-                :pattern-type="formState.patternType"
-                :available-workflows="availableWorkflows"
-                @validation="onPatternValidation"
-              />
-            </div>
-            <label>{{ t('triggers.fields.targetType') }}
-              <!-- v0 only ships the workflow dispatcher; agent target is
-                   reserved for v1 and rejected by the API to avoid the
-                   "looks enabled, never fires" trap. -->
-              <select v-model="formState.targetType" disabled>
-                <option value="workflow">workflow</option>
-              </select>
-            </label>
-            <label>{{ t('triggers.fields.targetId') }}
-              <select v-model.number="formState.targetId">
-                <option v-if="!availableWorkflows.length" :value="0">
-                  {{ t('triggers.targetWorkflowEmpty') }}
-                </option>
-                <option v-else v-for="wf in availableWorkflows" :key="wf.id" :value="wf.id">
-                  #{{ wf.id }} — {{ wf.name || t('triggers.unnamed') }}
-                </option>
-              </select>
-            </label>
-            <label>{{ t('triggers.fields.ratePerMin') }}
-              <input v-model.number="formState.rateLimitPerMin" type="number" />
-            </label>
-            <label>{{ t('triggers.fields.dedupWindowSecs') }}
-              <input v-model.number="formState.dedupWindowSecs" type="number" />
-            </label>
-            <label>{{ t('triggers.fields.maxFires') }}
-              <input v-model.number="formState.maxFires" type="number" />
-            </label>
-            <label>
-              <input type="checkbox" v-model="formState.botSelfFilter" />
-              {{ t('triggers.fields.botSelfFilter') }}
-            </label>
-            <label class="span-2">{{ t('triggers.fields.payloadTemplate') }}
-              <textarea v-model="formState.payloadTemplate" rows="3"
-                :placeholder="t('triggers.fields.payloadTemplatePlaceholder')" />
-            </label>
-            <label class="span-2">
-              <input type="checkbox" v-model="formState.enabled" />
-              {{ t('triggers.fields.enabled') }}
-            </label>
+        <Teleport to="body">
+          <div v-if="formOpen" class="trigger-modal-overlay" @click.self="closeForm">
+            <section class="trigger-modal" role="dialog" aria-modal="true">
+              <header class="trigger-modal-header">
+                <strong>{{ editing?.id ? t('triggers.formTitleEdit') : t('triggers.formTitleNew') }}</strong>
+                <button class="btn-ghost" @click="closeForm">{{ t('triggers.actions.close') }}</button>
+              </header>
+
+              <div class="trigger-modal-body">
+                <div class="form-grid">
+                  <label>{{ t('triggers.fields.name') }}
+                    <input v-model="formState.name" :placeholder="t('triggers.fields.namePlaceholder')" />
+                  </label>
+                  <label>{{ t('triggers.fields.patternType') }}
+                    <select v-model="formState.patternType">
+                      <option value="cron">cron</option>
+                      <option value="channel_message">channel_message</option>
+                      <option value="content_match">content_match</option>
+                      <option value="agent_lifecycle">agent_lifecycle</option>
+                      <option value="workflow_completion">workflow_completion</option>
+                      <option value="webhook">webhook</option>
+                    </select>
+                  </label>
+                  <div class="span-2">
+                    <span class="form-grid-label">{{ t('triggers.fields.patternJson') }}</span>
+                    <TriggerPatternForm
+                      v-model="formState.patternJson"
+                      :pattern-type="formState.patternType"
+                      :available-workflows="availableWorkflows"
+                      @validation="onPatternValidation"
+                    />
+                  </div>
+                  <label>{{ t('triggers.fields.targetType') }}
+                    <!-- v0 only ships the workflow dispatcher; agent target is
+                         reserved for v1 and rejected by the API to avoid the
+                         "looks enabled, never fires" trap. -->
+                    <select v-model="formState.targetType" disabled>
+                      <option value="workflow">workflow</option>
+                    </select>
+                  </label>
+                  <label>{{ t('triggers.fields.targetId') }}
+                    <select v-model.number="formState.targetId">
+                      <option v-if="!availableWorkflows.length" :value="0">
+                        {{ t('triggers.targetWorkflowEmpty') }}
+                      </option>
+                      <option v-else v-for="wf in availableWorkflows" :key="wf.id" :value="wf.id">
+                        #{{ wf.id }} — {{ wf.name || t('triggers.unnamed') }}
+                      </option>
+                    </select>
+                  </label>
+                  <label>{{ t('triggers.fields.ratePerMin') }}
+                    <input v-model.number="formState.rateLimitPerMin" type="number" />
+                  </label>
+                  <label>{{ t('triggers.fields.dedupWindowSecs') }}
+                    <input v-model.number="formState.dedupWindowSecs" type="number" />
+                  </label>
+                  <label>{{ t('triggers.fields.maxFires') }}
+                    <input v-model.number="formState.maxFires" type="number" />
+                  </label>
+                  <label class="checkbox-field">
+                    <input type="checkbox" v-model="formState.botSelfFilter" />
+                    <span>{{ t('triggers.fields.botSelfFilter') }}</span>
+                  </label>
+                  <label class="span-2">{{ t('triggers.fields.payloadTemplate') }}
+                    <textarea v-model="formState.payloadTemplate" rows="3"
+                      :placeholder="t('triggers.fields.payloadTemplatePlaceholder')" />
+                  </label>
+                  <label class="span-2 checkbox-field">
+                    <input type="checkbox" v-model="formState.enabled" />
+                    <span>{{ t('triggers.fields.enabled') }}</span>
+                  </label>
+                </div>
+              </div>
+
+              <footer class="trigger-modal-footer">
+                <button class="btn-ghost" @click="closeForm">{{ t('triggers.actions.cancel') }}</button>
+                <button
+                  class="btn-primary"
+                  :disabled="busy || patternHasErrors"
+                  :title="patternHasErrors ? Object.values(patternErrors).join('; ') : ''"
+                  @click="save"
+                >{{ t('triggers.actions.save') }}</button>
+              </footer>
+            </section>
           </div>
-          <footer>
-            <button class="btn-ghost" @click="closeForm">{{ t('triggers.actions.cancel') }}</button>
-            <button
-              class="btn-primary"
-              :disabled="busy || patternHasErrors"
-              :title="patternHasErrors ? Object.values(patternErrors).join('; ') : ''"
-              @click="save"
-            >{{ t('triggers.actions.save') }}</button>
-          </footer>
-        </section>
+        </Teleport>
       </div>
     </div>
   </div>
@@ -456,19 +463,49 @@ watch(workspaceId, reload)
   display: flex;
   gap: 6px;
 }
-.form-card {
-  padding: 16px;
+.trigger-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(17, 12, 8, 0.42);
+  backdrop-filter: blur(6px);
 }
-.form-card header {
+.trigger-modal {
+  width: min(1120px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--mc-border, rgba(0, 0, 0, 0.12));
+  border-radius: 12px;
+  background: var(--mc-bg-elevated, #fff);
+  color: var(--mc-text-primary, inherit);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+}
+:global(html.dark) .trigger-modal {
+  background: #1f1713;
+}
+.trigger-modal-header {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 12px;
   align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--mc-border, rgba(0, 0, 0, 0.08));
+  flex: 0 0 auto;
+}
+.trigger-modal-body {
+  padding: 16px 20px 20px;
+  overflow: auto;
 }
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  gap: 14px 16px;
 }
 .form-grid .span-2 {
   grid-column: span 2;
@@ -490,10 +527,13 @@ watch(workspaceId, reload)
   color: inherit;
   font-family: inherit;
   font-size: 13px;
+  min-height: 38px;
 }
 .form-grid textarea {
   font-family: 'JetBrains Mono', Consolas, monospace;
   font-size: 12px;
+  min-height: 96px;
+  resize: vertical;
 }
 .pattern-hint {
   display: block;
@@ -511,11 +551,27 @@ watch(workspaceId, reload)
   margin-bottom: 4px;
   color: var(--mc-text-secondary, inherit);
 }
-.form-card footer {
-  margin-top: 12px;
+.checkbox-field {
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 38px;
+  padding-top: 20px;
+}
+.checkbox-field input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  flex: 0 0 auto;
+}
+.trigger-modal-footer {
+  flex: 0 0 auto;
+  padding: 14px 20px;
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  border-top: 1px solid var(--mc-border, rgba(0, 0, 0, 0.08));
+  background: var(--mc-bg-elevated, #fff);
 }
 .btn-primary,
 .btn-ghost,
