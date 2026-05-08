@@ -97,6 +97,20 @@ public class TriggerPatternMatcher {
         if (wantSender != null && !wantSender.equals(envelope.senderId())) {
             return false;
         }
+        // contentContains is the keyword filter the templates relied on
+        // — without it a "feishu + 发票" trigger would fire on every
+        // feishu message. Matches case-insensitively against
+        // envelope.data.content, the same field content_match uses.
+        // Keeping the field on channel_message also folds the redundant
+        // content_match pattern type into the more general channel one;
+        // content_match remains supported for backwards compatibility
+        // via {@link #matchesContent}.
+        String wantContains = textOrNull(pattern, "contentContains");
+        if (wantContains != null) {
+            Object content = envelope.data() == null ? null : envelope.data().get("content");
+            if (!(content instanceof String body)) return false;
+            if (!body.toLowerCase().contains(wantContains.toLowerCase())) return false;
+        }
         return true;
     }
 

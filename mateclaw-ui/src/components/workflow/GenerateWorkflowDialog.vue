@@ -8,6 +8,22 @@
         </div>
         <div class="modal-body">
           <p class="hint">{{ t('workflows.generate.hint') }}</p>
+
+          <!-- Template picker — for the common patterns the LLM
+               roundtrip is overkill. Selecting one drops the canonical
+               draft + triggerDrafts straight into the result panel,
+               skipping the model call entirely. -->
+          <div v-if="templates.length" class="template-picker">
+            <span class="picker-label">{{ t('workflows.generate.applyTemplate') }}</span>
+            <select v-model="selectedTemplateId" class="picker-select" @change="onTemplatePick">
+              <option value="">{{ t('workflows.generate.applyTemplatePlaceholder') }}</option>
+              <option v-for="tpl in templates" :key="tpl.id" :value="tpl.id">
+                {{ tpl.label }}
+              </option>
+            </select>
+            <p v-if="selectedTemplate" class="picker-desc">{{ selectedTemplate.description }}</p>
+          </div>
+
           <textarea
             ref="descRef"
             v-model="description"
@@ -41,6 +57,16 @@
                 <span class="result-tag warn">{{ t('workflows.generate.warning') }}</span> {{ w }}
               </li>
             </ul>
+            <div v-if="result.triggerDrafts.length" class="trigger-drafts">
+              <header>{{ t('workflows.generate.triggersTitle') }} ({{ result.triggerDrafts.length }})</header>
+              <ul>
+                <li v-for="(td, i) in result.triggerDrafts" :key="`td-${i}`">
+                  <code>{{ td.patternType }}</code>
+                  <span class="td-name">{{ td.name || '—' }}</span>
+                </li>
+              </ul>
+              <p class="trigger-hint">{{ t('workflows.generate.triggersHint') }}</p>
+            </div>
             <details class="result-raw">
               <summary>{{ t('workflows.generate.previewDraft') }}</summary>
               <pre>{{ result.draftJson }}</pre>
@@ -72,10 +98,10 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { workflowApi, type GeneratedDraft } from '@/api'
+import { workflowApi, type GeneratedDraft, type WorkflowDraftTemplate } from '@/api'
 
 interface Props {
   modelValue: boolean
@@ -94,6 +120,64 @@ const loading = ref(false)
 const result = ref<GeneratedDraft | null>(null)
 const descRef = ref<HTMLTextAreaElement | null>(null)
 
+const templates = ref<WorkflowDraftTemplate[]>([])
+const selectedTemplateId = ref('')
+const selectedTemplate = computed(() =>
+  templates.value.find((t) => t.id === selectedTemplateId.value) ?? null
+)
+
+async function loadTemplates() {
+  try {
+    const res = await workflowApi.listDraftTemplates()
+    templates.value = (res.data as unknown as WorkflowDraftTemplate[]) ?? []
+  } catch (e) {
+    // Templates are a nice-to-have — falling back to free-form description
+    // is fine if the endpoint isn't available (e.g. older deployment).
+    console.warn('listDraftTemplates failed', e)
+    templates.value = []
+  }
+}
+
+/**
+ * Apply a template directly without going through the LLM. The template
+ * already carries a known-good {steps:[...]} JSON + triggerDraftsJson;
+ * we synthesise a GeneratedDraft so the rest of the result-panel UI
+ * (compile pill / missing fields / triggers) keeps working.
+ */
+function onTemplatePick() {
+  const tpl = selectedTemplate.value
+  if (!tpl) {
+    result.value = null
+    return
+  }
+  let triggerDrafts: Array<Record<string, unknown>> = []
+  try {
+    const parsed = JSON.parse(tpl.triggerDraftsJson || '[]')
+    if (Array.isArray(parsed)) triggerDrafts = parsed
+  } catch (e) {
+    console.warn('template triggerDraftsJson parse failed', e)
+  }
+  // Templates ship with TODO_* placeholders — list them in missingFields
+  // so the operator notices before clicking Accept.
+  const missing: string[] = []
+  const todoMatches = tpl.draftJson.match(/TODO_[A-Z_]+/g) ?? []
+  for (const m of new Set(todoMatches)) missing.push(`${m} (template placeholder)`)
+  result.value = {
+    name: tpl.id,
+    description: tpl.description,
+    draftJson: tpl.draftJson,
+    triggerDrafts,
+    warnings: [],
+    missingFields: missing,
+    confidence: 1.0,
+    compileOk: true,
+    compileErrors: [],
+  }
+  // Pre-fill the description box too so the operator can edit + re-run
+  // through the LLM if the template's prose isn't quite right.
+  if (!description.value.trim()) description.value = tpl.description
+}
+
 watch(
   () => props.modelValue,
   async (open) => {
@@ -102,6 +186,8 @@ watch(
       description.value = ''
       result.value = null
       loading.value = false
+      selectedTemplateId.value = ''
+      await loadTemplates()
       await nextTick()
       descRef.value?.focus()
       document.addEventListener('keydown', onKey)
@@ -205,6 +291,40 @@ function onAccept() {
   color: var(--mc-text-secondary);
   line-height: 1.5;
 }
+.template-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  background: var(--mc-bg-sunken);
+  border: 1px solid var(--mc-border-light);
+  border-radius: 8px;
+}
+.picker-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mc-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+:lang(zh-CN) .picker-label {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.picker-select {
+  padding: 7px 9px;
+  border: 1px solid var(--mc-border);
+  border-radius: 6px;
+  background: var(--mc-bg-elevated);
+  color: var(--mc-text-primary);
+  font-size: 13px;
+}
+.picker-desc {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--mc-text-tertiary);
+  line-height: 1.4;
+}
 .form-input,
 .form-textarea {
   width: 100%;
@@ -264,6 +384,45 @@ function onAccept() {
   letter-spacing: 0.04em;
 }
 .result-tag.warn { background: rgba(245, 158, 11, 0.16); color: #b45309; }
+.trigger-drafts {
+  border-top: 1px dashed var(--mc-border-light);
+  padding-top: 8px;
+  font-size: 12px;
+}
+.trigger-drafts header {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.trigger-drafts ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.trigger-drafts li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.trigger-drafts code {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 11px;
+  background: var(--mc-bg-muted);
+  padding: 1px 6px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+.trigger-drafts .td-name {
+  opacity: 0.85;
+}
+.trigger-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--mc-text-tertiary);
+}
 .result-raw summary {
   font-size: 11px;
   color: var(--mc-text-tertiary);

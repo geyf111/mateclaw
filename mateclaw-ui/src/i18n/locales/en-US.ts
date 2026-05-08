@@ -2036,6 +2036,12 @@ export default {
       warning: 'warning',
       previewDraft: 'Preview generated JSON',
       failed: 'Generate failed: {msg}',
+      acceptedWithTriggers: 'Draft saved and {count} trigger(s) created (disabled by default)',
+      acceptedSomeTriggersFailed: 'Draft saved; {ok} trigger(s) created, {fail} failed',
+      triggersTitle: 'Suggested triggers',
+      triggersHint: 'Created with enabled=false; toggle them on later from the Triggers page.',
+      applyTemplate: 'Apply template (skip the AI roundtrip)',
+      applyTemplatePlaceholder: '— Pick a canonical pattern —',
     },
     paused: {
       header: 'Paused runs ({count})',

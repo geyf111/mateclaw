@@ -247,8 +247,8 @@
             @change="patchMode({ mergeStrategy: ($event.target as HTMLSelectElement).value })"
           >
             <option value="append">append</option>
-            <option value="prepend">prepend</option>
             <option value="replace_section">replace_section</option>
+            <option value="upsert_kv">upsert_kv</option>
             <option value="overwrite">overwrite</option>
           </select>
         </label>

@@ -221,6 +221,8 @@ import {
   agentApi,
   channelApi,
   workflowApi,
+  triggerApi,
+  type TriggerSummary,
   type WorkflowSummary,
   type WorkflowRun,
   type WorkflowRunStep,
@@ -345,15 +347,60 @@ async function onGenerateAccept(draft: GeneratedDraft) {
       enabled: true,
     })
     const created = res.data as unknown as WorkflowSummary
-    if (created?.id) {
-      await workflowApi.saveDraft(created.id, draft.draftJson)
-      await reload()
-      await select(created.id)
-      // If the generator's preview compile failed, surface the errors
-      // inline so the operator sees them immediately on first load.
-      if (!draft.compileOk && draft.compileErrors.length) {
-        compileErrors.value = draft.compileErrors
+    if (!created?.id) {
+      ElMessage.error(t('workflows.generate.failed', { msg: 'workflow row not returned' }))
+      return
+    }
+    await workflowApi.saveDraft(created.id, draft.draftJson)
+
+    // Persist suggested trigger drafts. The generator returned them with
+    // enabled=false and (typically) targetId placeholders — bind each to
+    // the new workflow id and persist as a real trigger row. Operators
+    // see them appear in the Triggers list and turn them on after they
+    // finish the workflow's TODOs.
+    let triggersCreated = 0
+    let triggersSkipped = 0
+    if (Array.isArray(draft.triggerDrafts)) {
+      for (const td of draft.triggerDrafts) {
+        try {
+          await triggerApi.create({
+            workspaceId: workspaceId.value,
+            name: typeof td.name === 'string' ? td.name : `from-${draft.name}`,
+            patternType: typeof td.patternType === 'string' ? td.patternType : '',
+            // patternJson can come from the LLM as either a string or
+            // a nested object — normalise to the string the API wants.
+            patternJson: typeof td.patternJson === 'string'
+                ? td.patternJson
+                : JSON.stringify(td.patternJson ?? {}),
+            targetType: 'workflow',
+            // Bind to the just-created workflow regardless of what the
+            // generator put in targetId (it usually inserted a TODO_*).
+            targetId: created.id,
+            enabled: false,
+            payloadTemplate: typeof td.payloadTemplate === 'string'
+                ? td.payloadTemplate : undefined,
+          } as unknown as TriggerSummary)
+          triggersCreated++
+        } catch (e) {
+          console.warn('triggerDraft create failed', td, e)
+          triggersSkipped++
+        }
       }
+    }
+
+    await reload()
+    await select(created.id)
+    // If the generator's preview compile failed, surface the errors
+    // inline so the operator sees them immediately on first load.
+    if (!draft.compileOk && draft.compileErrors.length) {
+      compileErrors.value = draft.compileErrors
+    }
+    if (triggersCreated > 0 && triggersSkipped === 0) {
+      ElMessage.success(t('workflows.generate.acceptedWithTriggers', { count: triggersCreated }))
+    } else if (triggersSkipped > 0) {
+      ElMessage.warning(t('workflows.generate.acceptedSomeTriggersFailed',
+          { ok: triggersCreated, fail: triggersSkipped }))
+    } else {
       ElMessage.success(t('workflows.generate.compileOk'))
     }
   } catch (e) {

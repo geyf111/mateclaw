@@ -2048,6 +2048,12 @@ export default {
       warning: '警告',
       previewDraft: '预览生成的 JSON',
       failed: '生成失败：{msg}',
+      acceptedWithTriggers: '已生成草稿并创建 {count} 个触发器（默认未启用）',
+      acceptedSomeTriggersFailed: '已生成草稿，{ok} 个触发器创建成功，{fail} 个失败',
+      triggersTitle: '建议的触发器',
+      triggersHint: '默认 enabled=false；可在 Triggers 页面随时启用或调整。',
+      applyTemplate: '套用模板（直接生成，跳过 AI）',
+      applyTemplatePlaceholder: '— 选择一个常用模板 —',
     },
     paused: {
       header: '待恢复运行 ({count})',

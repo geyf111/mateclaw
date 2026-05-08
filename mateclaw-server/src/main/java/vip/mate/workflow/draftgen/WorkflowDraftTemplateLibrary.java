@@ -160,7 +160,7 @@ public class WorkflowDraftTemplateLibrary {
                 [{"name":"daily-memory-cron","patternType":"cron","enabled":false,
                   "patternJson":{"cron":"0 0 22 * * ?","timezone":"Asia/Shanghai"},
                   "targetType":"workflow",
-                  "payloadTemplate":"{\\"topic\\":\\"工作\\",\\"date\\":\\"{{ trigger.firedAt }}\\"}"}]"""
+                  "payloadTemplate":"{\\"topic\\":\\"工作\\",\\"date\\":\\"{{ event.firedAt }}\\"}"}]"""
         );
     }
 

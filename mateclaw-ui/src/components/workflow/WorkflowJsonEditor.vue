@@ -137,7 +137,7 @@ const WORKFLOW_SCHEMA = {
               content: { type: 'string' },
               employeeId: { type: 'string' },
               file: { type: 'string' },
-              mergeStrategy: { type: 'string', enum: ['append', 'prepend', 'replace_section', 'overwrite'] },
+              mergeStrategy: { type: 'string', enum: ['append', 'replace_section', 'upsert_kv', 'overwrite'] },
             },
             additionalProperties: true,
           },

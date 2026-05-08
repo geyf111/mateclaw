@@ -83,7 +83,7 @@ public class WorkflowDraftGenerator {
             conditional — mode.expression 必填（Pebble 子集，如 {{ outputs.x.approved == true }}）；agentId/agentName + promptTemplate 必填。
             await_approval — approvalKind + approverChannels[] + approvalMessage 必填；可选 timeoutSecs；不要 agentId / agentName / promptTemplate。
             dispatch_channel — channels[] + targets{} + content 必填；不要 agentId / agentName / promptTemplate。
-            write_memory — employeeId + file + mergeStrategy(append/prepend/replace_section/upsert_kv/overwrite) + content 必填；不要 agentId / agentName / promptTemplate。
+            write_memory — employeeId + file + mergeStrategy(append/replace_section/upsert_kv/overwrite) + content 必填；不要 agentId / agentName / promptTemplate。
 
             # 不支持
 
@@ -214,13 +214,33 @@ public class WorkflowDraftGenerator {
         }
 
         // --- 6. trigger drafts -----------------------------------------
+        // patternType allowlist mirrors what TriggerService accepts at
+        // create time. The generator prompt forbids agent_lifecycle and
+        // content_match; we filter defensively here too because models
+        // occasionally hallucinate trigger types under low confidence,
+        // and we don't want a future UI / tool that calls /draft/generate
+        // and trusts the response to silently re-introduce dropped types.
+        java.util.Set<String> allowedPatternTypes = java.util.Set.of(
+                "cron", "channel_message", "workflow_completion", "webhook");
         List<Map<String, Object>> triggerDrafts = new ArrayList<>();
         if (root.has("triggerDrafts") && root.get("triggerDrafts").isArray()) {
-            triggerDrafts = objectMapper.convertValue(root.get("triggerDrafts"),
+            List<Map<String, Object>> candidates = objectMapper.convertValue(root.get("triggerDrafts"),
                     new TypeReference<List<Map<String, Object>>>() {});
-            for (Map<String, Object> td : triggerDrafts) {
+            int dropped = 0;
+            for (Map<String, Object> td : candidates) {
+                String pt = td.get("patternType") instanceof String s ? s : null;
+                if (pt == null || !allowedPatternTypes.contains(pt)) {
+                    dropped++;
+                    continue;
+                }
                 // Belt-and-suspenders: never trust the LLM to honor enabled=false.
                 td.put("enabled", false);
+                triggerDrafts.add(td);
+            }
+            if (dropped > 0) {
+                warnings = appendWarning(warnings,
+                        "dropped " + dropped + " unsupported triggerDraft entr" + (dropped == 1 ? "y" : "ies")
+                                + " (allowed: " + String.join(", ", allowedPatternTypes) + ")");
             }
         }
 
