@@ -200,6 +200,36 @@ export interface MessageMetadata {
     durationMs: number
     timestamp: number
   }>
+  /**
+   * Multimodal sidecar routing snapshot for this turn — written by the backend
+   * when the user uploaded an image / video the primary model couldn't handle
+   * natively. The chat bubble renders a "primary 🔀 sidecar" badge from this.
+   */
+  routing?: RoutingMeta
+}
+
+export interface RoutingMeta {
+  /** "none" | "sidecar" | "native" — lowercased on the wire to keep the JSON small. */
+  strategy: 'none' | 'sidecar' | 'native'
+  sidecarModelId?: number
+  sidecarModel?: string
+  sidecarProvider?: string
+  /** Modality names like ["VISION"] / ["VIDEO"] / ... — uppercase to match the backend enum. */
+  requiredModalities?: string[]
+  primaryMissing?: string[]
+  skipped?: Array<{ type: string; fileName?: string; reason: string }>
+}
+
+export interface AgentCapabilities {
+  agentId: number
+  modelName: string
+  providerId: string
+  /** Modality enum values: TEXT / VISION / VIDEO / AUDIO. */
+  modalities: string[]
+  defaultVisionModelId?: number | null
+  defaultVisionModelLabel?: string | null
+  defaultVideoModelId?: number | null
+  defaultVideoModelLabel?: string | null
 }
 
 export interface MessageContentPart {

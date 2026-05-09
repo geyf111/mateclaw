@@ -343,6 +343,12 @@
             class="action-model"
             :title="replyModelTitle"
           >{{ replyModel }}</span>
+          <!-- Multimodal sidecar routing badge (assistant only, when sidecar fired) -->
+          <span
+            v-if="role === 'assistant' && routingBadge"
+            class="action-routing"
+            :title="routingBadge.tooltip"
+          >🔀 {{ routingBadge.label }}</span>
           <!-- 时间戳（inline） -->
           <span class="action-time">{{ formattedTime }}</span>
         </div>
@@ -724,6 +730,30 @@ const replyModelTitle = computed(() => {
   const provider = props.message.runtimeProvider
   const base = t('chat.replyModel', { model: replyModel.value })
   return provider ? `${base} (${provider})` : base
+})
+
+// Multimodal routing badge: rendered only when a sidecar actually fired this
+// turn (strategy=sidecar, sidecarModel populated). Skipped for the legacy
+// "primary handled it natively" case so non-routed turns stay clean.
+const routingBadge = computed(() => {
+  const r = props.message.metadata?.routing
+  if (!r || r.strategy !== 'sidecar' || !r.sidecarModel) return null
+  // Count routed attachments by required modality. We summarize as "1 image"
+  // / "2 images" rather than naming each file to keep the chip compact.
+  const required = r.requiredModalities || []
+  const kind = required.includes('VISION')
+    ? t('chat.routing.kind.image')
+    : required.includes('VIDEO')
+      ? t('chat.routing.kind.video')
+      : t('chat.routing.kind.media')
+  const label = `${r.sidecarModel} (${kind})`
+  const tooltip = t('chat.routing.tooltip', {
+    primary: replyModel.value || '?',
+    sidecar: r.sidecarModel,
+    sidecarProvider: r.sidecarProvider || '',
+    kind,
+  })
+  return { label, tooltip }
 })
 
 const formatFileSize = (size: number) => {
@@ -1501,6 +1531,19 @@ watch(isGenerating, (generating) => {
   font-family: var(--mc-mono-font, ui-monospace, "SF Mono", Menlo, monospace);
   user-select: text;
   white-space: nowrap;
+}
+
+.action-routing {
+  font-size: 11px;
+  color: var(--mc-primary, #d96d46);
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--mc-primary-bg, rgba(217, 109, 70, 0.1));
+  font-family: var(--mc-mono-font, ui-monospace, "SF Mono", Menlo, monospace);
+  user-select: text;
+  white-space: nowrap;
+  font-weight: 500;
 }
 
 /* ==================== 主内容区域 ==================== */

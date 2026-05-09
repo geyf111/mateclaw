@@ -4,6 +4,8 @@ export default {
   },
   common: {
     save: '保存',
+    saving: '保存中...',
+    saved: '已保存',
     cancel: '取消',
     reset: '重置',
     edit: '编辑',
@@ -22,6 +24,8 @@ export default {
     close: '关闭',
     add: '添加',
     search: '搜索',
+    noResults: '没有匹配项',
+    noOptions: '暂无可选项',
     clear: '清除',
     expandSidebar: '展开侧边栏',
     collapseSidebar: '折叠侧边栏',
@@ -149,6 +153,22 @@ export default {
     copied: '已复制',
     regenerate: '重新生成',
     replyModel: '本条回复模型: {model}',
+    routing: {
+      kind: {
+        image: '图片',
+        video: '视频',
+        media: '附件',
+      },
+      tooltip: '本轮对话由「{primary}」处理；图片附件先经「{sidecar}」（{sidecarProvider}）转成文字后再交给主模型。',
+      hint: {
+        willRoute: '检测到{kind}附件。当前 Agent 模型「{primary}」不支持{kind}输入，将自动调用「{sidecar}」识别（旁路模式，不影响主模型）。',
+        notConfigured: '检测到{kind}附件。当前 Agent 模型不支持{kind}输入，且尚未配置旁路模型。',
+        videoReserved: '检测到视频附件。当前版本暂未接入视频旁路（已预留「{sidecar}」），建议切换到具备视频能力的多模态主模型。',
+        action: {
+          gotoSettings: '前往配置',
+        },
+      },
+    },
     ttsPlay: '朗读',
     ttsStop: '停止朗读',
     conversations: '会话列表',
@@ -391,6 +411,25 @@ export default {
       featureFlags: '功能开关',
       about: '关于',
       advanced: '高级',
+    },
+    models: {
+      sidecar: {
+        title: '多模态旁路',
+        hint: '当主模型不支持图片/视频时，自动用下面配置的模型先把附件转成文字，再交给主模型回答。',
+        notConfigured: '未配置（不路由附件）',
+        idle: '未启用',
+        reserved: '预留',
+        vision: {
+          label: '视觉旁路模型',
+          desc: '用户上传图片时调用一次，把图片转成结构化描述。主对话模型不变。',
+          empty: '尚未发现支持图片输入的模型。请到上方"云端模型"中先添加一个视觉模型。',
+        },
+        video: {
+          label: '视频旁路模型（预留）',
+          desc: '用于未来版本：当用户上传视频时，由该模型负责拆帧和描述。当前版本暂不接入路由。',
+          empty: '尚未发现支持视频输入的模型。',
+        },
+      },
     },
     featureFlags: {
       title: '功能开关',
