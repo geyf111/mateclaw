@@ -64,6 +64,10 @@ public class ToolGuardRuleService {
      * 新增自定义规则
      */
     public ToolGuardRuleEntity createRule(ToolGuardRuleEntity rule) {
+        if (rule == null || rule.getRuleId() == null || rule.getRuleId().isBlank()) {
+            throw new IllegalArgumentException("Rule ID is required");
+        }
+        rule.setRuleId(rule.getRuleId().trim());
         rule.setBuiltin(false);
         ruleMapper.insert(rule);
         ruleRegistry.reload();

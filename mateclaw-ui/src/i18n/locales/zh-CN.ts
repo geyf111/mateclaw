@@ -1238,6 +1238,10 @@ export default {
         remediation: '修复建议',
         priority: '优先级',
       },
+      messages: {
+        ruleIdRequired: '规则 ID 不能为空',
+        saveFailed: '保存规则失败',
+      },
     },
     fileGuard: {
       title: '文件防护',

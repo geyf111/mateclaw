@@ -1340,6 +1340,10 @@ export default {
         remediation: 'Remediation',
         priority: 'Priority',
       },
+      messages: {
+        ruleIdRequired: 'Rule ID is required',
+        saveFailed: 'Failed to save rule',
+      },
     },
     fileGuard: {
       title: 'File Guard',
