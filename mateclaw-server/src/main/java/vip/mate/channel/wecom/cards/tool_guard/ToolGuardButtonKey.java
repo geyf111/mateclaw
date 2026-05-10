@@ -18,11 +18,10 @@ import java.util.Map;
  * minimal context we need to recover the pending approval (the
  * {@code pendingId} alone is enough — mateclaw's
  * {@code ApprovalService.findById} resolves the rest, including the
- * original requester). QwenPaw's approach also stuffs sender/chat
- * context for offline-render reasons; mateclaw doesn't need that
- * because the inbound handler runs in-process and can do a synchronous
- * DB lookup, leaving headroom in the 1024-byte budget for long
- * tool names / Chinese characters.
+ * original requester). Sender/chat context is intentionally not packed
+ * — the inbound handler runs in-process and can do a synchronous DB
+ * lookup, leaving headroom in the 1024-byte budget for long tool names
+ * / Chinese characters.
  *
  * <p>Encoding is stable (LinkedHashMap → consistent key order so byte-
  * length is predictable). Decoding tolerates extra fields — useful if

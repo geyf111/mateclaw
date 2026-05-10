@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
  * the eventual {@code finish=true} chunk is silently rejected — the
  * user sees "🤔 思考中..." stuck forever. RFC-32 §2.1.2 (R-7 / B-5).
  *
- * <p><b>Constants</b> (verified against QwenPaw {@code channel.py:66-67,986-1031}):
+ * <p><b>Constants</b> (chosen empirically based on observed slot lifetime):
  * <ul>
  *   <li>20s refresh interval — well under the observed 60s minimum drop</li>
  *   <li>180s force-finish ceiling — bound the worst-case "stuck" UX even

@@ -12,8 +12,7 @@ import java.util.Map;
  * Build the WeCom {@code button_interaction} approval card payload from
  * an {@link ApprovalNotice}.
  *
- * <p>Card structure (verified against QwenPaw {@code tool_guard.py:107-140}
- * + WeCom official protocol):
+ * <p>Card structure (matches the WeCom official protocol):
  * <pre>
  * {
  *   "card_type": "button_interaction",
