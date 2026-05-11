@@ -403,6 +403,11 @@ public class AgentBindingService {
             "image_generate",
             "music_generate",
             "video_generate",
+            // HTML → PNG rasteriser. Closes the loop for HTML-producing skills
+            // (architecture-diagram, infographics, dashboards) so IM channels
+            // can deliver the artifact as a native image instead of a file or
+            // a dead markdown link.
+            "render_html_image",
             // Universal capabilities the global system prompts (SOUL.md /
             // AGENTS.md / "Web Search Capability" / "File Reading Guidelines")
             // explicitly tell the LLM exist. Pre-Phase-2b they were globally
