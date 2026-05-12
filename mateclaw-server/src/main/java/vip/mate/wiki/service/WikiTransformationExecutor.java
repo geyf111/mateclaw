@@ -144,11 +144,15 @@ public class WikiTransformationExecutor {
 
             ChatResponse resp = chatModel.call(new Prompt(List.of(
                     new SystemMessage(systemPrompt), new UserMessage(userPrompt))));
-            String output = (resp == null || resp.getResult() == null
+            String rawOutput = (resp == null || resp.getResult() == null
                     || resp.getResult().getOutput() == null)
                     ? null : resp.getResult().getOutput().getText();
-            if (output == null || output.isBlank()) {
+            if (rawOutput == null || rawOutput.isBlank()) {
                 throw new IllegalStateException("LLM returned empty output");
+            }
+            String output = cleanLlmOutput(rawOutput);
+            if (output.isBlank()) {
+                throw new IllegalStateException("LLM output was empty after cleanup");
             }
             // Honour a mid-flight cancel: the cancel endpoint flipped the run
             // row to 'cancelled' while the LLM was still working. Drop the
@@ -250,6 +254,51 @@ public class WikiTransformationExecutor {
     private static String safeTitle(WikiRawMaterialEntity raw) {
         String t = raw.getTitle();
         return (t == null || t.isBlank()) ? ("raw#" + raw.getId()) : t;
+    }
+
+    /** Recognises the conversational openers LLMs sometimes prepend even when
+     *  the system prompt told them not to. Lines matching this pattern at the
+     *  very start of the output are dropped. */
+    private static final java.util.regex.Pattern PREAMBLE_PATTERN =
+            java.util.regex.Pattern.compile(
+                    "^\\s*(以下是|下面是|这是|根据您的要求|Sure(?:!|,)?|Of course[!,]?|Here(?:'s| is| are)|Certainly[!,]?|Got it[!,]?)[^\\n]*[:：][^\\n]*\\n+",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Normalise raw LLM output before persisting:
+     * <ul>
+     *   <li>strip an outer markdown / language code fence (```markdown ... ``` or ``` ... ```)</li>
+     *   <li>drop a conversational opener line ending with a colon</li>
+     *   <li>trim whitespace</li>
+     * </ul>
+     * Conservative — only trims when the heuristic match is unambiguous,
+     * because over-trimming on a structured response would corrupt content.
+     */
+    static String cleanLlmOutput(String text) {
+        if (text == null) return "";
+        String result = text.trim();
+
+        // Outer code fence ```lang? ... ```
+        if (result.startsWith("```")) {
+            int firstNewline = result.indexOf('\n');
+            if (firstNewline > 0 && result.endsWith("```")) {
+                String header = result.substring(3, firstNewline).trim();
+                // Only strip when the header is empty or looks like a language tag
+                // (markdown / md / json / yaml / text / plaintext) — never strip
+                // when the LLM used ``` as actual fenced content inside.
+                if (header.isEmpty() || header.matches("(?i)markdown|md|text|plaintext|json|yaml|yml|html?")) {
+                    result = result.substring(firstNewline + 1, result.length() - 3).trim();
+                }
+            }
+        }
+
+        // Conversational opener line ending with a colon, followed by content.
+        java.util.regex.Matcher m = PREAMBLE_PATTERN.matcher(result);
+        if (m.find()) {
+            result = result.substring(m.end()).trim();
+        }
+
+        return result;
     }
 
     // ==================== Save-as-page ====================
