@@ -199,6 +199,10 @@ public class WikiTransformationExecutor {
      * Shared prompt-render + LLM-call + output-cleanup stage used by both
      * raw-input and page-input entry points. Sets {@code run.modelId} as a
      * side-effect so the run row reflects which model produced the output.
+     * <p>
+     * When the template declares {@code outputFormat=json}, the response is
+     * parsed as JSON; on parse failure the LLM is asked once more with a
+     * stricter "return only JSON" reminder before the run is failed.
      */
     private String renderAndCallLlm(WikiTransformationEntity transformation, Long kbId,
                                      String sourceTitle, String sourceText,
@@ -207,7 +211,10 @@ public class WikiTransformationExecutor {
                 ? sourceText.substring(0, MAX_INPUT_CHARS) + "\n…(truncated)"
                 : sourceText;
 
-        String systemPrompt = PromptLoader.loadPrompt("wiki/transformation-system");
+        boolean wantJson = "json".equalsIgnoreCase(transformation.getOutputFormat());
+
+        String systemPrompt = PromptLoader.loadPrompt(
+                wantJson ? "wiki/transformation-system-json" : "wiki/transformation-system");
         String instruction = (transformation.getPromptTemplate() == null ? "" : transformation.getPromptTemplate())
                 .replace("{input_text}", trimmedInput)
                 .replace("{title}", sourceTitle);
@@ -220,6 +227,31 @@ public class WikiTransformationExecutor {
         ChatModel chatModel = buildChatModel(resolvedModelId);
         run.setModelId(resolvedModelId);
 
+        String output = callOnce(chatModel, systemPrompt, userPrompt);
+        if (wantJson) {
+            String coerced = coerceToJson(output);
+            if (coerced != null) {
+                // Wrap in a fenced block so UI rendering and save-as-page
+                // keep the existing markdown contract. The raw JSON is the
+                // first thing inside the block, so downstream tools can grep.
+                return "```json\n" + coerced + "\n```";
+            }
+            // One retry with an explicit nudge.
+            log.info("[WikiTransformation] JSON parse failed for template={}; retrying with stricter reminder",
+                    transformation.getName());
+            String retryUserPrompt = userPrompt + "\n\n---\n\n上一次回复不是合法 JSON。请只返回一个合法 JSON 文档，前后不要有任何文字或代码块标记。";
+            String retry = callOnce(chatModel, systemPrompt, retryUserPrompt);
+            String coercedRetry = coerceToJson(retry);
+            if (coercedRetry != null) {
+                return "```json\n" + coercedRetry + "\n```";
+            }
+            throw new IllegalStateException("LLM output is not valid JSON after one retry");
+        }
+        return output;
+    }
+
+    /** One LLM call, returns the cleaned output. Throws when the call yields blank. */
+    private String callOnce(ChatModel chatModel, String systemPrompt, String userPrompt) {
         ChatResponse resp = chatModel.call(new Prompt(List.of(
                 new SystemMessage(systemPrompt), new UserMessage(userPrompt))));
         String rawOutput = (resp == null || resp.getResult() == null
@@ -233,6 +265,44 @@ public class WikiTransformationExecutor {
             throw new IllegalStateException("LLM output was empty after cleanup");
         }
         return output;
+    }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /**
+     * Try to parse the output as JSON. If the LLM wrapped it in a fenced
+     * block or sprinkled prose around it, fall back to finding the outer
+     * '{' / '[' brackets and try again. Returns the normalized JSON string
+     * on success, {@code null} on failure.
+     */
+    private static String coerceToJson(String text) {
+        if (text == null || text.isBlank()) return null;
+        String candidate = text.trim();
+        try {
+            JSON_MAPPER.readTree(candidate);
+            return candidate;
+        } catch (Exception ignored) {
+            // fall through to bracket-trim attempt
+        }
+        int objStart = candidate.indexOf('{');
+        int arrStart = candidate.indexOf('[');
+        int start;
+        char open;
+        if (objStart < 0) { start = arrStart; open = '['; }
+        else if (arrStart < 0) { start = objStart; open = '{'; }
+        else { start = Math.min(objStart, arrStart); open = candidate.charAt(start); }
+        if (start < 0) return null;
+        char close = open == '{' ? '}' : ']';
+        int end = candidate.lastIndexOf(close);
+        if (end <= start) return null;
+        String trimmed = candidate.substring(start, end + 1);
+        try {
+            JSON_MAPPER.readTree(trimmed);
+            return trimmed;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**

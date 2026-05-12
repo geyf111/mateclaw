@@ -691,6 +691,7 @@ export const wikiApi = {
     enabled?: boolean
     modelId?: number | null
     outputTarget?: 'none' | 'page'
+    outputFormat?: 'markdown' | 'json'
   }) =>
     http.post('/wiki/transformations', data),
   updateTransformation: (id: number, data: {
@@ -701,6 +702,7 @@ export const wikiApi = {
     enabled?: boolean
     modelId?: number | null
     outputTarget?: 'none' | 'page'
+    outputFormat?: 'markdown' | 'json'
   }) =>
     http.put(`/wiki/transformations/${id}`, data),
   deleteTransformation: (id: number) =>

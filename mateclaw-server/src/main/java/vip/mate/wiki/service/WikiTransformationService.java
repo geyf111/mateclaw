@@ -110,6 +110,7 @@ public class WikiTransformationService {
         // create and update paths accept the same payload from the UI.
         entity.setModelId(input.getModelId() != null && input.getModelId() < 0 ? null : input.getModelId());
         entity.setOutputTarget(normalizeOutputTarget(input.getOutputTarget()));
+        entity.setOutputFormat(normalizeOutputFormat(input.getOutputFormat()));
         transformationMapper.insert(entity);
         log.info("[WikiTransformation] created id={} name={} kbId={}",
                 entity.getId(), entity.getName(), entity.getKbId());
@@ -135,6 +136,9 @@ public class WikiTransformationService {
         if (patch.getOutputTarget() != null) {
             entity.setOutputTarget(normalizeOutputTarget(patch.getOutputTarget()));
         }
+        if (patch.getOutputFormat() != null) {
+            entity.setOutputFormat(normalizeOutputFormat(patch.getOutputFormat()));
+        }
         transformationMapper.updateById(entity);
         return entity;
     }
@@ -146,6 +150,16 @@ public class WikiTransformationService {
         return switch (trimmed) {
             case "page" -> "page";
             default -> "none";
+        };
+    }
+
+    /** Whitelist incoming outputFormat; unknown / null = "markdown". */
+    private static String normalizeOutputFormat(String raw) {
+        if (raw == null) return "markdown";
+        String trimmed = raw.trim().toLowerCase();
+        return switch (trimmed) {
+            case "json" -> "json";
+            default -> "markdown";
         };
     }
 

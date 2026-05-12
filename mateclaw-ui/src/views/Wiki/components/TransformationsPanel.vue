@@ -41,6 +41,9 @@
             <span v-if="tpl.outputTarget === 'page'" class="flag flag--on">
               {{ t('wiki.transformations.outputTargetPageBadge') }}
             </span>
+            <span v-if="tpl.outputFormat === 'json'" class="flag flag--scope">
+              {{ t('wiki.transformations.outputFormatJsonBadge') }}
+            </span>
             <span v-if="tpl.modelId" class="flag flag--scope">
               {{ modelLabelFor(tpl.modelId) }}
             </span>
@@ -232,6 +235,18 @@
               <span>{{ t('wiki.transformations.outputTargetPage') }}</span>
             </label>
           </fieldset>
+
+          <fieldset class="field field--group">
+            <legend class="field-label">{{ t('wiki.transformations.outputFormatLabel') }}</legend>
+            <label class="radio-row">
+              <input type="radio" value="markdown" v-model="form.outputFormat" />
+              <span>{{ t('wiki.transformations.outputFormatMarkdown') }}</span>
+            </label>
+            <label class="radio-row">
+              <input type="radio" value="json" v-model="form.outputFormat" />
+              <span>{{ t('wiki.transformations.outputFormatJson') }}</span>
+            </label>
+          </fieldset>
         </div>
 
         <div class="modal-actions">
@@ -265,6 +280,7 @@ interface WikiTransformation {
   enabled: boolean
   modelId: number | null
   outputTarget: 'none' | 'page' | null
+  outputFormat: 'markdown' | 'json' | null
 }
 
 interface WikiTransformationRun {
@@ -314,6 +330,7 @@ const form = reactive<{
   applyDefault: boolean
   enabled: boolean
   outputTarget: 'none' | 'page'
+  outputFormat: 'markdown' | 'json'
   modelId: number | null
 }>({
   name: '',
@@ -323,6 +340,7 @@ const form = reactive<{
   applyDefault: false,
   enabled: true,
   outputTarget: 'none',
+  outputFormat: 'markdown',
   modelId: null,
 })
 
@@ -409,6 +427,7 @@ function openCreate() {
   form.applyDefault = false
   form.enabled = true
   form.outputTarget = 'none'
+  form.outputFormat = 'markdown'
   form.modelId = null
   editorOpen.value = true
   ensureModelsLoaded()
@@ -423,6 +442,7 @@ function openEdit(tpl: WikiTransformation) {
   form.applyDefault = tpl.applyDefault
   form.enabled = tpl.enabled !== false
   form.outputTarget = tpl.outputTarget === 'page' ? 'page' : 'none'
+  form.outputFormat = tpl.outputFormat === 'json' ? 'json' : 'markdown'
   form.modelId = tpl.modelId ?? null
   editorOpen.value = true
   ensureModelsLoaded()
@@ -451,6 +471,7 @@ async function onSave() {
         applyDefault: form.applyDefault,
         enabled: form.enabled,
         outputTarget: form.outputTarget,
+        outputFormat: form.outputFormat,
         modelId: updateModelId,
       })
     } else {
@@ -463,6 +484,7 @@ async function onSave() {
         applyDefault: form.applyDefault,
         enabled: form.enabled,
         outputTarget: form.outputTarget,
+        outputFormat: form.outputFormat,
         modelId: form.modelId,
       })
     }
