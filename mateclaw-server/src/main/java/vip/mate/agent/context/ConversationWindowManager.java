@@ -14,6 +14,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.ToolCallback;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import org.springframework.stereotype.Component;
+import vip.mate.agent.graph.executor.ToolResultStorage;
 import vip.mate.agent.prompt.PromptLoader;
 import vip.mate.config.ConversationWindowProperties;
 import vip.mate.memory.spi.MemoryManager;
@@ -72,7 +73,15 @@ public class ConversationWindowManager {
     private static final int CONTENT_MAX = 6000;
     private static final int CONTENT_HEAD = 4000;
     private static final int CONTENT_TAIL = 1500;
-    private static final int OLD_TOOL_RESULT_SUMMARY_THRESHOLD = 500;
+
+    /**
+     * Minimum body size at which the duplicate-output placeholder is preferred
+     * over keeping the verbatim copy. Below this size the placeholder text
+     * (~80 chars) is comparable to the body itself, so deduplication only
+     * complicates the prompt without saving meaningful tokens. Above this
+     * size the dedup placeholder is a real win.
+     */
+    private static final int DEDUP_MIN_CHARS = 500;
 
     /**
      * Tool names whose results must never be compacted into a one-line
@@ -98,6 +107,20 @@ public class ConversationWindowManager {
     private final ConversationWindowProperties properties;
     private final MemoryManager memoryManager;
     private final ConversationService conversationService;
+
+    /**
+     * Optional spill store, injected via setter so unit tests and the two
+     * existing 3-arg constructor callers in tests stay source-compatible.
+     * When {@code null}, prune falls back to "keep originals verbatim" — no
+     * lossy summary rewrite is ever applied. Spring autowires this when
+     * {@link ToolResultStorage} is on the context.
+     */
+    private ToolResultStorage toolResultStorage;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setToolResultStorage(ToolResultStorage toolResultStorage) {
+        this.toolResultStorage = toolResultStorage;
+    }
 
     // ==================== 状态 ====================
 
@@ -133,7 +156,7 @@ public class ConversationWindowManager {
                                      Integer maxInputTokens, ChatModel chatModel,
                                      String conversationId, Long agentId) {
         return fitToWindow(messages, systemPrompt, currentUserMessage,
-                maxInputTokens, chatModel, conversationId, agentId, null);
+                maxInputTokens, chatModel, conversationId, agentId, null, null);
     }
 
     /**
@@ -149,10 +172,31 @@ public class ConversationWindowManager {
                                      Integer maxInputTokens, ChatModel chatModel,
                                      String conversationId, Long agentId,
                                      java.util.Collection<ToolCallback> toolCallbacks) {
+        return fitToWindow(messages, systemPrompt, currentUserMessage,
+                maxInputTokens, chatModel, conversationId, agentId, toolCallbacks, null);
+    }
+
+    /**
+     * Most comprehensive overload — adds {@code workspaceBasePath} so the
+     * pre-pass that prunes old tool results can route oversized bodies to
+     * the agent's workspace spill directory via {@link ToolResultStorage}.
+     *
+     * <p>When {@code workspaceBasePath} is {@code null}, spill files land in
+     * the configured base dir, or the JVM tmpdir as last resort (see
+     * {@link ToolResultStorage#resolveBaseDir(String)}). Workspace-aware
+     * callers should always pass the path so historical spill files stay
+     * grouped with the workspace that produced them.
+     */
+    public List<Message> fitToWindow(List<Message> messages, String systemPrompt,
+                                     String currentUserMessage,
+                                     Integer maxInputTokens, ChatModel chatModel,
+                                     String conversationId, Long agentId,
+                                     java.util.Collection<ToolCallback> toolCallbacks,
+                                     String workspaceBasePath) {
         if (messages == null || messages.isEmpty()) {
             return messages;
         }
-        messages = pruneOldToolResultsForModelInput(messages);
+        messages = pruneOldToolResultsForModelInput(messages, conversationId, workspaceBasePath);
 
         int effectiveMax = (maxInputTokens != null && maxInputTokens > 0)
                 ? maxInputTokens : properties.getDefaultMaxInputTokens();
@@ -374,7 +418,54 @@ public class ConversationWindowManager {
 
     // ==================== 工具结果处理 ====================
 
+    /**
+     * Backwards-compatible overload — older tool results that are oversized
+     * stay verbatim because no {@link ToolResultStorage} target is in
+     * scope. New call sites should use the 3-arg overload with explicit
+     * {@code conversationId} and {@code workspaceBasePath} so oversized
+     * bodies can be spilled to disk and recovered via {@code read_file}.
+     */
     public List<Message> pruneOldToolResultsForModelInput(List<Message> messages) {
+        return pruneOldToolResultsForModelInput(messages, null, null);
+    }
+
+    /**
+     * Walk the messages newest-to-oldest, keeping the latest tool response
+     * verbatim and applying space-saving rewrites to older ones:
+     *
+     * <ol>
+     *   <li>Bodies already starting with {@link ToolResultStorage#SPILL_MARKER_PREFIX}
+     *       were spilled at tool-execution time — pass through untouched.</li>
+     *   <li>If a body matches an identical body already seen in a newer turn,
+     *       replace it with a short "duplicate tool output omitted" placeholder
+     *       (only above {@link #DEDUP_MIN_CHARS} so we don't bloat tiny acks).</li>
+     *   <li>Otherwise, when a {@link ToolResultStorage} is wired and a
+     *       conversation id is available, try
+     *       {@link ToolResultStorage#persistIfOversized} to spill the raw
+     *       bytes to disk and replace the inline body with a preview + path
+     *       so the model can read_file the original on demand.</li>
+     *   <li>If none of the above apply, leave the body verbatim. Bodies
+     *       under the spill threshold or running without a storage hook are
+     *       preserved exactly — the lossy "summarized for model context"
+     *       single-liner that used to fire here destroyed enough context
+     *       on long tasks to be the wrong default.</li>
+     * </ol>
+     *
+     * <p>The {@link #PRUNE_EXEMPT_TOOLS} set still bypasses everything:
+     * sub-agent delegations are not replayable, so their full transcript
+     * stays in context.
+     *
+     * @param messages          full conversation in chronological order
+     * @param conversationId    used to scope spill files; {@code null} disables spill
+     * @param workspaceBasePath used to locate the spill directory; {@code null}
+     *                          falls back through the storage's resolveBaseDir chain
+     */
+    public List<Message> pruneOldToolResultsForModelInput(List<Message> messages,
+                                                          String conversationId,
+                                                          String workspaceBasePath) {
+        if (messages == null || messages.isEmpty()) {
+            return messages;
+        }
         int latestToolResponseIndex = -1;
         for (int i = messages.size() - 1; i >= 0; i--) {
             if (messages.get(i) instanceof ToolResponseMessage) {
@@ -386,9 +477,13 @@ public class ConversationWindowManager {
             return messages;
         }
 
+        boolean canSpill = toolResultStorage != null
+                && conversationId != null && !conversationId.isEmpty();
+
         List<Message> pruned = new ArrayList<>(messages);
         java.util.Set<String> seenLargeOutputs = new java.util.HashSet<>();
         int changed = 0;
+        int spilled = 0;
         for (int i = pruned.size() - 1; i >= 0; i--) {
             if (!(pruned.get(i) instanceof ToolResponseMessage trm)) {
                 continue;
@@ -398,23 +493,53 @@ public class ConversationWindowManager {
             boolean messageChanged = false;
             for (ToolResponseMessage.ToolResponse r : trm.getResponses()) {
                 String data = r.responseData();
-                boolean exempt = r.name() != null && PRUNE_EXEMPT_TOOLS.contains(r.name());
-                if (keepFull || exempt || data == null || data.length() <= OLD_TOOL_RESULT_SUMMARY_THRESHOLD) {
+                String name = r.name();
+                boolean exempt = name != null && PRUNE_EXEMPT_TOOLS.contains(name);
+                boolean alreadySpilled = data != null
+                        && data.startsWith(ToolResultStorage.SPILL_MARKER_PREFIX);
+
+                // Pass through: the latest response, exempt tools, empty bodies,
+                // already-spilled previews — none should be rewritten.
+                if (keepFull || exempt || data == null || data.isEmpty() || alreadySpilled) {
                     newResponses.add(r);
-                    if (data != null && data.length() > OLD_TOOL_RESULT_SUMMARY_THRESHOLD) {
+                    if (data != null && data.length() > DEDUP_MIN_CHARS) {
                         seenLargeOutputs.add(data);
                     }
                     continue;
                 }
-                String replacement;
-                if (seenLargeOutputs.contains(data)) {
-                    replacement = "[" + r.name() + "] duplicate tool output omitted; same content appeared later.";
-                } else {
-                    replacement = summarizeToolResponse(r.name(), data);
+
+                // Dedup: identical body seen in a later turn already.
+                if (data.length() > DEDUP_MIN_CHARS && seenLargeOutputs.contains(data)) {
+                    String replacement = "[" + name
+                            + "] duplicate tool output omitted; same content appeared later.";
+                    newResponses.add(new ToolResponseMessage.ToolResponse(r.id(), name, replacement));
+                    messageChanged = true;
+                    continue;
+                }
+
+                // Spill on demand: route oversized bodies to disk so the model
+                // can read_file them rather than losing them to a lossy summary.
+                if (canSpill) {
+                    String candidate = toolResultStorage.persistIfOversized(
+                            data, name, r.id(), conversationId, workspaceBasePath);
+                    if (candidate != null
+                            && candidate.startsWith(ToolResultStorage.SPILL_MARKER_PREFIX)) {
+                        newResponses.add(new ToolResponseMessage.ToolResponse(r.id(), name, candidate));
+                        seenLargeOutputs.add(data);
+                        messageChanged = true;
+                        spilled++;
+                        continue;
+                    }
+                    // returned unchanged: under threshold, excluded tool, or write failed.
+                    // Fall through to "keep verbatim".
+                }
+
+                // Default: keep the body verbatim. Better to send a few extra
+                // tokens than to silently destroy data the model might need.
+                newResponses.add(r);
+                if (data.length() > DEDUP_MIN_CHARS) {
                     seenLargeOutputs.add(data);
                 }
-                newResponses.add(new ToolResponseMessage.ToolResponse(r.id(), r.name(), replacement));
-                messageChanged = true;
             }
             if (messageChanged) {
                 pruned.set(i, ToolResponseMessage.builder().responses(newResponses).build());
@@ -422,35 +547,10 @@ public class ConversationWindowManager {
             }
         }
         if (changed > 0) {
-            log.info("[ConversationWindow] Pruned {} older tool response message(s) before model request", changed);
+            log.info("[ConversationWindow] Pruned {} older tool response message(s) ({} spilled to disk) before model request",
+                    changed, spilled);
         }
         return changed > 0 ? pruned : messages;
-    }
-
-    private static String summarizeToolResponse(String toolName, String data) {
-        int chars = data.length();
-        int lines = data.isBlank() ? 0 : data.split("\\R", -1).length;
-        String firstLine = firstNonBlankLine(data);
-        if (firstLine.length() > 160) {
-            firstLine = firstLine.substring(0, 160) + "...";
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append('[').append(toolName).append("] previous tool output summarized for model context: ")
-                .append(chars).append(" chars, ").append(lines).append(" lines");
-        if (!firstLine.isBlank()) {
-            sb.append(". First line: ").append(firstLine);
-        }
-        return sb.toString();
-    }
-
-    private static String firstNonBlankLine(String data) {
-        for (String line : data.split("\\R")) {
-            String trimmed = line.trim();
-            if (!trimmed.isBlank()) {
-                return trimmed.replace('|', '/');
-            }
-        }
-        return "";
     }
 
     /**
