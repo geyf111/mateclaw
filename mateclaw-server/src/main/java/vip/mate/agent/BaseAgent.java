@@ -357,10 +357,28 @@ public abstract class BaseAgent {
     }
 
     /**
-     * Drop leading {@link ToolResponseMessage}s whose response ids cannot be
-     * matched against any {@link AssistantMessage} tool_call id in the list.
-     * Leaves any leading {@link SystemMessage}s (boundary rows, system prompts)
-     * intact and continues scanning past them.
+     * Drop leading {@link ToolResponseMessage}s whose owning
+     * {@link AssistantMessage} sits <em>before</em> them in this list. Provider
+     * validity is order-sensitive: a tool response must follow the assistant
+     * that issued the tool_call_id; an unrelated later AssistantMessage that
+     * happens to carry the same id does not redeem an earlier orphan.
+     *
+     * <p>Algorithm: forward scan with a {@code seenIssuedIds} set. Leading
+     * {@link SystemMessage}s (boundary rows, system prompts) pass through
+     * untouched but contribute no ids. The first {@link AssistantMessage} or
+     * {@link UserMessage} we hit stops the repair walk — by that point we're
+     * out of head-orphan territory. Every {@link ToolResponseMessage} we
+     * encounter before that stop is checked against {@code seenIssuedIds};
+     * if every response id is unseen, the message is dropped and the scan
+     * re-examines the new head. A response whose ids are all in the seen
+     * set (e.g. {@code [system, assistant(X), toolResponse(X), ...]} when
+     * the assistant fell at index 1 of the slice) is left in place.
+     *
+     * <p>Mixed responses (some ids matched, some not) inside a single
+     * leading {@code ToolResponseMessage} are dropped wholesale rather than
+     * surgically rewritten — the provider would reject partially-broken
+     * sequences anyway, and the mixed case implies an upstream invariant
+     * violation that surfaces in logs.
      *
      * <p>Package-private + static so unit tests can drive it without standing
      * up a full BaseAgent subclass.
@@ -368,17 +386,11 @@ public abstract class BaseAgent {
     static int stripHeadOrphanToolResponses(List<Message> messages, String agentName) {
         if (messages.isEmpty()) return 0;
 
-        // Collect every tool_call id issued by any AssistantMessage in scope.
-        Set<String> issuedIds = new HashSet<>();
-        for (Message m : messages) {
-            if (m instanceof AssistantMessage am && am.getToolCalls() != null) {
-                for (AssistantMessage.ToolCall tc : am.getToolCalls()) {
-                    if (tc.id() != null && !tc.id().isEmpty()) {
-                        issuedIds.add(tc.id());
-                    }
-                }
-            }
-        }
+        // Built up as we walk; only assistants we've already passed count
+        // toward "preceding". An assistant that sits behind a head orphan is
+        // irrelevant: provider order-validity asks "was this tool_call id
+        // issued BEFORE this response?", not "anywhere in the prompt".
+        Set<String> seenIssuedIds = new HashSet<>();
 
         int dropped = 0;
         int i = 0;
@@ -390,25 +402,44 @@ public abstract class BaseAgent {
                 i++;
                 continue;
             }
+            if (m instanceof AssistantMessage am) {
+                // Reached a preceding assistant — head danger is over. The
+                // tool_call ids it issued are valid for any tool responses
+                // that follow, but we stop the repair walk here either way.
+                if (am.getToolCalls() != null) {
+                    for (AssistantMessage.ToolCall tc : am.getToolCalls()) {
+                        if (tc.id() != null && !tc.id().isEmpty()) {
+                            seenIssuedIds.add(tc.id());
+                        }
+                    }
+                }
+                break;
+            }
             if (m instanceof ToolResponseMessage trm) {
-                boolean allOrphan = trm.getResponses().stream()
+                // Every response id must have been issued by a preceding
+                // assistant we already walked through. If any single id is
+                // missing from seenIssuedIds, the message is invalid in
+                // place. Empty / null ids don't count for or against.
+                boolean anyUnmatched = trm.getResponses().stream()
                         .map(ToolResponseMessage.ToolResponse::id)
                         .filter(id -> id != null && !id.isEmpty())
-                        .allMatch(id -> !issuedIds.contains(id));
-                if (allOrphan) {
+                        .anyMatch(id -> !seenIssuedIds.contains(id));
+                if (anyUnmatched) {
                     messages.remove(i);
                     dropped++;
                     continue; // re-examine the new messages[i]
                 }
+                // All ids match a preceding assistant — keep, and stop the
+                // repair walk. Anything past here is well-formed by
+                // construction (provider validates each subsequent pair as
+                // we go).
+                break;
             }
-            // First non-orphan, non-system message — stop. Deeper orphans are
-            // upstream bugs (every other call path keeps pairs together);
-            // dropping aggressively from here on would mask those instead of
-            // surfacing them in logs.
+            // UserMessage (or anything else) — past the head danger. Stop.
             break;
         }
         if (dropped > 0) {
-            log.info("[{}] Stripped {} leading orphan ToolResponseMessage(s) — owning AssistantMessage was outside the recent window",
+            log.info("[{}] Stripped {} leading orphan ToolResponseMessage(s) — no preceding AssistantMessage in scope",
                     agentName, dropped);
         }
         return dropped;

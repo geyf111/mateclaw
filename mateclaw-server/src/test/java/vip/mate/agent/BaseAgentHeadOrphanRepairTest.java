@@ -110,13 +110,38 @@ class BaseAgentHeadOrphanRepairTest {
     }
 
     @Test
-    void partialOrphanIsKeptToSurfaceUpstreamBug() {
-        // A ToolResponseMessage with two responses — one orphan, one matched
-        // in scope. Real pipelines should never produce this (each
-        // ToolResponseMessage closes ONE assistant turn) but if it happens,
-        // dropping the whole message would also lose the matched response.
-        // Stop at the first non-orphan and let the upstream invariant
-        // violation surface in logs.
+    void laterAssistantWithSameIdDoesNotRedeemHeadOrphan() {
+        // The classic order-sensitivity trap: a ToolResponseMessage sits at
+        // the head, and a LATER AssistantMessage happens to carry the same
+        // tool_call_id. The provider's contract is "tool_call must precede
+        // tool_response", not "tool_call exists somewhere in the prompt".
+        // The leading response is therefore still orphan and must be dropped.
+        List<Message> messages = new ArrayList<>(List.of(
+                new SystemMessage("[boundary]"),
+                toolResponse("call-X"),
+                new UserMessage("hi"),
+                assistantWithToolCalls("call-X"),     // same id, but AFTER the response
+                toolResponse("call-X")
+        ));
+
+        int dropped = BaseAgent.stripHeadOrphanToolResponses(messages, "test");
+
+        assertEquals(1, dropped,
+                "the leading response is orphan regardless of whether a later assistant "
+                        + "happens to carry the same id — provider validity is order-sensitive");
+        assertInstanceOf(SystemMessage.class, messages.get(0));
+        assertInstanceOf(UserMessage.class, messages.get(1),
+                "the orphan that sat between the boundary and the user turn is gone");
+    }
+
+    @Test
+    void partialOrphanInLeadingResponseIsDropped() {
+        // A ToolResponseMessage with two responses — one whose id has no
+        // preceding assistant, one whose id has none either (since we
+        // haven't walked any assistants yet). Provider order-validity
+        // doesn't allow partial pairs; dropping wholesale is the safer
+        // call. We lose matched-response content but never emit a request
+        // the provider would 400.
         ToolResponseMessage mixed = ToolResponseMessage.builder().responses(List.of(
                 new ToolResponseMessage.ToolResponse("call-orphan", "tool_x", "x"),
                 new ToolResponseMessage.ToolResponse("call-known", "tool_y", "y")
@@ -129,10 +154,11 @@ class BaseAgentHeadOrphanRepairTest {
 
         int dropped = BaseAgent.stripHeadOrphanToolResponses(messages, "test");
 
-        assertEquals(0, dropped,
-                "mixed orphan/matched responses in one message are NOT dropped — "
-                        + "the partial-match case is an upstream bug we want to see in logs");
-        assertSame(mixed, messages.getFirst());
+        assertEquals(1, dropped,
+                "no preceding assistant has been walked yet, so even a partially-matched "
+                        + "leading response is dropped wholesale");
+        assertInstanceOf(AssistantMessage.class, messages.getFirst(),
+                "the mixed head is gone; the assistant that would have owned call-known is now first");
     }
 
     @Test
