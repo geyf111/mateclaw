@@ -133,7 +133,7 @@ public class McpSkillBridge {
     private SkillEntity serverToEntity(McpServerEntity server) {
         SkillEntity s = new SkillEntity();
         s.setId(virtualIdFor(server));
-        s.setName(slugify(server.getName()));
+        s.setName(slugForServer(server));
         s.setNameEn(displayName(server));
         s.setNameZh(displayName(server));
         s.setDescription(buildDescription(server));
@@ -175,7 +175,7 @@ public class McpSkillBridge {
 
         return ResolvedSkill.builder()
                 .id(virtualIdFor(server))
-                .name(slugify(server.getName()))
+                .name(slugForServer(server))
                 .description(buildDescription(server))
                 .content("") // no SKILL.md
                 .source("mcp")
@@ -242,9 +242,10 @@ public class McpSkillBridge {
                 .description("MCP server '" + server.getName() + "' must be connected. Configure in Settings ▸ MCP Connections.")
                 .build();
 
+        String slug = slugForServer(server);
         return SkillManifest.builder()
-                .id(slugify(server.getName()))
-                .name(slugify(server.getName()))
+                .id(slug)
+                .name(slug)
                 .description(buildDescription(server))
                 .icon(iconFor(server))
                 .version("1.0.0")
@@ -320,6 +321,27 @@ public class McpSkillBridge {
     private String slugify(String raw) {
         if (raw == null) return "";
         return raw.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]", "-");
+    }
+
+    /**
+     * Stable slug for an MCP server. Falls back to {@code mcp-{id}} when
+     * the source name has no ASCII letter/digit (e.g. pure CJK), because
+     * the naive slugify would otherwise return a run of dashes — making
+     * two differently-named all-CJK servers collide on the same display
+     * key and breaking name-based skill lookup.
+     */
+    private String slugForServer(McpServerEntity server) {
+        String slug = slugify(server.getName());
+        return hasAsciiAlphaNumeric(slug) ? slug : "mcp-" + server.getId();
+    }
+
+    private static boolean hasAsciiAlphaNumeric(String s) {
+        if (s == null || s.isEmpty()) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) return true;
+        }
+        return false;
     }
 
     private String displayName(McpServerEntity server) {

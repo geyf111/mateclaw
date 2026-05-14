@@ -109,6 +109,37 @@ class McpSkillBridgeManifestTest {
     }
 
     @Test
+    @DisplayName("CJK-only server names slug to a stable id-based fallback instead of an all-dash collision")
+    void cjkOnlyNameFallsBackToIdSlug() {
+        McpServerEntity a = newServer(42L, "知识图谱对象数据查询服务");
+        McpServerEntity b = newServer(43L, "客户档案信息查询服务");
+        a.setToolsCacheJson(toolsJson("search"));
+        b.setToolsCacheJson(toolsJson("search"));
+        when(mcpServerService.listEnabled()).thenReturn(List.of(a, b));
+
+        List<SkillEntity> entities = bridge.listMcpDerivedSkillEntities();
+
+        assertEquals("mcp-42", entities.get(0).getName(),
+                "all-CJK name should fall back to id-based slug");
+        assertEquals("mcp-43", entities.get(1).getName(),
+                "second all-CJK name must not collide with the first");
+        assertTrue(entities.get(0).getManifestJson().contains("\"id\":\"mcp-42\""),
+                "manifest id should mirror the fallback slug, got: " + entities.get(0).getManifestJson());
+    }
+
+    @Test
+    @DisplayName("ASCII server names keep their existing slug — no regression for English names")
+    void asciiNamePreservesExistingSlug() {
+        McpServerEntity server = newServer(42L, "GitHub");
+        server.setToolsCacheJson(toolsJson("create_issue"));
+        when(mcpServerService.listEnabled()).thenReturn(List.of(server));
+
+        SkillEntity entity = bridge.listMcpDerivedSkillEntities().get(0);
+
+        assertEquals("github", entity.getName());
+    }
+
+    @Test
     @DisplayName("two servers exposing the same raw tool name produce distinct prefixed names")
     void twoServersSameRawNameDistinct() {
         McpServerEntity a = newServer(42L, "github");

@@ -212,7 +212,7 @@ public class AcpSkillBridge {
 
     private void registerWrappers(AcpEndpointEntity ep) {
         if (ep == null || !Boolean.TRUE.equals(ep.getEnabled())) return;
-        String slug = slugify(ep.getName());
+        String slug = slugForEndpoint(ep);
         if (slug.isEmpty()) {
             log.warn("ACP endpoint id={} has blank name; cannot register wrapper", ep.getId());
             return;
@@ -289,7 +289,7 @@ public class AcpSkillBridge {
     private SkillEntity endpointToEntity(AcpEndpointEntity ep) {
         SkillEntity s = new SkillEntity();
         s.setId(virtualIdFor(ep));
-        s.setName(slugify(ep.getName()));
+        s.setName(slugForEndpoint(ep));
         s.setNameEn(displayName(ep));
         s.setNameZh(ep.getDescription() != null && !ep.getDescription().isBlank()
                 ? displayName(ep) : null);
@@ -342,7 +342,7 @@ public class AcpSkillBridge {
 
         return ResolvedSkill.builder()
                 .id(virtualIdFor(ep))
-                .name(slugify(ep.getName()))
+                .name(slugForEndpoint(ep))
                 .description(buildDescription(ep))
                 .content("") // no SKILL.md
                 .source("acp")
@@ -374,7 +374,7 @@ public class AcpSkillBridge {
      * it up the same way as a hand-authored skill manifest.
      */
     private SkillManifest buildManifest(AcpEndpointEntity ep) {
-        String slug = slugify(ep.getName());
+        String slug = slugForEndpoint(ep);
         String toolName = "acp_" + slug + "_prompt";
         List<String> tools = List.of(toolName);
 
@@ -445,6 +445,28 @@ public class AcpSkillBridge {
     private String slugify(String raw) {
         if (raw == null) return "";
         return raw.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]", "-");
+    }
+
+    /**
+     * Stable slug for an ACP endpoint. Falls back to {@code acp-{id}} when
+     * the source name has no ASCII letter/digit (e.g. pure CJK), because
+     * the naive slugify would otherwise return a run of dashes and two
+     * differently-named all-CJK endpoints would collide on the same slug,
+     * which is also the basis for the {@code acp_<slug>_prompt} wrapper
+     * tool name registered in the global tool registry.
+     */
+    private String slugForEndpoint(AcpEndpointEntity ep) {
+        String slug = slugify(ep.getName());
+        return hasAsciiAlphaNumeric(slug) ? slug : "acp-" + ep.getId();
+    }
+
+    private static boolean hasAsciiAlphaNumeric(String s) {
+        if (s == null || s.isEmpty()) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) return true;
+        }
+        return false;
     }
 
     private String displayName(AcpEndpointEntity ep) {
