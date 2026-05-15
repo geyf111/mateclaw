@@ -118,7 +118,10 @@
                     </select>
                   </label>
                   <label>{{ t('triggers.fields.targetId') }}
-                    <select v-model.number="formState.targetId">
+                    <!-- Keep targetId as a string so 19-digit Snowflake IDs survive
+                         the v-model round trip; .number would truncate to JS's
+                         53-bit safe-integer ceiling. -->
+                    <select v-model="formState.targetId">
                       <option v-if="!availableWorkflows.length" :value="0">
                         {{ t('triggers.targetWorkflowEmpty') }}
                       </option>
@@ -208,7 +211,11 @@ interface FormState {
   patternType: string
   patternJson: string
   targetType: string
-  targetId: number
+  // Snowflake IDs arrive from the backend as strings (ToStringSerializer).
+  // Keep that string form here so v-model on the workflow select can't
+  // accidentally lose precision. The 0 sentinel covers the "no workflow
+  // available" empty state.
+  targetId: number | string
   rateLimitPerMin: number
   dedupWindowSecs: number
   botSelfFilter: boolean

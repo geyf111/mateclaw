@@ -559,7 +559,10 @@ export const settingsApi = {
   // unrelated settings pages can't clobber them via partial payloads. This
   // endpoint is the only path that writes those fields unconditionally —
   // pass {defaultVisionModelId: null} here to explicitly clear a sidecar.
-  updateSidecar: (data: { defaultVisionModelId: number | null; defaultVideoModelId: number | null }) =>
+  // Model IDs are accepted as either JSON numbers or strings — Jackson
+  // coerces both into Long. The string form is preferred from the UI to
+  // sidestep JS Number precision loss on 19-digit Snowflake IDs.
+  updateSidecar: (data: { defaultVisionModelId: number | string | null; defaultVideoModelId: number | string | null }) =>
     http.put('/settings/sidecar', data),
 }
 
@@ -1042,7 +1045,10 @@ export interface TriggerSummary {
   patternType: string
   patternJson: string
   targetType: string
-  targetId: number
+  // Snowflake ID — backend serializes Long as string (ToStringSerializer).
+  // Keep the union so v-model can hold the string form without TS errors
+  // and JS Number() coercion stays out of the round-trip.
+  targetId: number | string
   payloadTemplate?: string
   rateLimitPerMin: number
   dedupWindowSecs: number
