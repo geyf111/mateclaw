@@ -1153,7 +1153,7 @@ onMounted(async () => {
   mediumQuery.addEventListener('change', handleConvMediumChange)
   await Promise.all([loadAgents(), loadModelState(), loadConversations()])
   await hydrateStateFromRoute()
-  consumeRouteAction()
+  applyPendingRouteAction()
   activityPollTimer = window.setInterval(pollActivity, ACTIVITY_POLL_MS)
   elapsedTickTimer = window.setInterval(() => {
     if (activeCronRuns.value.length > 0) elapsedNow.value = Date.now()
@@ -1186,8 +1186,11 @@ onBeforeUnmount(() => {
 })
 
 watch(() => route.query, () => {
+  // If a fresh action arrives (e.g. user re-fires Ctrl+K via the URL while
+  // the view is already alive), pick it up immediately.
+  captureRouteAction()
+  if (pendingRouteAction) applyPendingRouteAction()
   void hydrateStateFromRoute()
-  consumeRouteAction()
 })
 
 watch([selectedAgentId, currentConversationId], () => {

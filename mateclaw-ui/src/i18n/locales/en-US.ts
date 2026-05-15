@@ -400,6 +400,9 @@ export default {
     appearance: 'Appearance & Language',
     roleUser: 'User',
     roleAdmin: 'Admin',
+    shortcutAgents: 'Agents',
+    shortcutNew: 'New',
+    shortcutsHint: 'Ctrl+K {agents} | Ctrl+N {newAction}',
   },
   notifications: {
     pendingApprovals: '{n} tool call(s) pending approval',
