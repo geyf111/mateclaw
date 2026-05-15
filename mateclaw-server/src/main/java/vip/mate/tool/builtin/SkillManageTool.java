@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.stereotype.Component;
 import vip.mate.skill.model.SkillEntity;
+import vip.mate.skill.runtime.SkillRuntimeService;
 import vip.mate.skill.runtime.SkillSecurityService;
 import vip.mate.skill.runtime.SkillValidationResult;
 import vip.mate.skill.service.SkillService;
@@ -37,6 +38,7 @@ public class SkillManageTool {
     private final SkillService skillService;
     private final SkillSecurityService securityService;
     private final SkillWorkspaceManager workspaceManager;
+    private final SkillRuntimeService runtimeService;
 
     /** Skill 名称格式：小写字母/数字/连字符/下划线/点，首字符必须是字母或数字 */
     private static final Pattern NAME_PATTERN = Pattern.compile("^[a-z0-9][a-z0-9._-]{0,63}$");
@@ -211,6 +213,8 @@ public class SkillManageTool {
                 log.warn("[SkillManage] Workspace export failed for '{}': {}", name, e.getMessage());
             }
 
+            rescanQuietly(existing);
+
             log.info("[SkillManage] Agent edited skill: name={}, contentLen={}", name, content.length());
             return "Skill '" + name + "' updated successfully (security scan: PASSED).";
         } catch (Exception e) {
@@ -280,6 +284,7 @@ public class SkillManageTool {
         try {
             existing.setSkillContent(patchedContent);
             existing.setDescription(extractDescription(patchedContent));
+            existing.setVersion(extractVersion(patchedContent));
             existing.setSecurityScanStatus("PASSED");
             skillService.updateSkill(existing);
 
@@ -288,6 +293,8 @@ public class SkillManageTool {
             } catch (Exception e) {
                 log.warn("[SkillManage] Workspace export failed for '{}': {}", name, e.getMessage());
             }
+
+            rescanQuietly(existing);
 
             log.info("[SkillManage] Agent patched skill: name={}", name);
             return "Skill '" + name + "' patched successfully (security scan: PASSED).";
@@ -354,6 +361,22 @@ public class SkillManageTool {
         } catch (Exception e) {
             log.error("[SkillManage] Security scan failed for '{}': {}", name, e.getMessage(), e);
             return "Error: security scan failed (" + e.getMessage() + "). Skill not saved.";
+        }
+    }
+
+    /**
+     * Synchronously re-run the resolver pipeline for the modified skill so
+     * the active-skills cache and any manifest-projected columns are
+     * coherent before this tool call returns. Without this, callers race
+     * the debounced 500ms workspace-event refresh and may observe stale
+     * state (e.g. the skill detail page showing the previous version).
+     */
+    private void rescanQuietly(SkillEntity skill) {
+        if (skill == null || runtimeService == null) return;
+        try {
+            runtimeService.rescanSingle(skill);
+        } catch (Exception e) {
+            log.warn("[SkillManage] Post-write rescan failed for '{}': {}", skill.getName(), e.getMessage());
         }
     }
 
