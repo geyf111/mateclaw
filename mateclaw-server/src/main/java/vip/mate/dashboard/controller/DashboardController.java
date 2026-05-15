@@ -4,8 +4,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-import vip.mate.agent.AgentService;
-import vip.mate.agent.model.AgentEntity;
 import vip.mate.common.result.R;
 import vip.mate.cron.model.CronJobEntity;
 import vip.mate.cron.repository.CronJobMapper;
@@ -32,7 +30,6 @@ public class DashboardController {
     private final DashboardService dashboardService;
     private final CronJobRunService cronJobRunService;
     private final CronJobMapper cronJobMapper;
-    private final AgentService agentService;
 
     @Operation(summary = "获取概览统计")
     @GetMapping("/overview")
@@ -58,15 +55,14 @@ public class DashboardController {
             @PathVariable Long cronJobId,
             @RequestHeader(value = "X-Workspace-Id", required = false) Long workspaceId,
             @RequestParam(defaultValue = "20") int limit) {
-        // 校验 cronJobId 对应的 agent 属于当前 workspace
+        // Verify the cron job belongs to the caller's workspace. Checked
+        // against the job's own workspace_id so agent-less system jobs
+        // (e.g. wiki_process) verify the same way as agent-bound jobs.
         CronJobEntity job = cronJobMapper.selectById(cronJobId);
-        if (job != null && job.getAgentId() != null) {
-            AgentEntity agent = agentService.getAgent(job.getAgentId());
-            if (agent != null && agent.getWorkspaceId() != null) {
-                long wsId = workspaceId != null ? workspaceId : 1L;
-                if (!agent.getWorkspaceId().equals(wsId)) {
-                    throw new MateClawException("err.common.wrong_workspace", "资源不属于当前工作区");
-                }
+        if (job != null && job.getWorkspaceId() != null) {
+            long wsId = workspaceId != null ? workspaceId : 1L;
+            if (!job.getWorkspaceId().equals(wsId)) {
+                throw new MateClawException("err.common.wrong_workspace", "资源不属于当前工作区");
             }
         }
         return R.ok(cronJobRunService.listByJobId(cronJobId, Math.min(limit, 100)));
