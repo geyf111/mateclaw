@@ -36,7 +36,7 @@ public class DashboardController {
 
     @Operation(summary = "获取概览统计")
     @GetMapping("/overview")
-    @RequireWorkspaceRole("viewer")
+    @RequireWorkspaceRole("member")
     public R<Map<String, Object>> overview(
             @RequestHeader(value = "X-Workspace-Id", required = false) Long workspaceId) {
         return R.ok(dashboardService.getOverview(workspaceId));
@@ -44,7 +44,7 @@ public class DashboardController {
 
     @Operation(summary = "获取日用量趋势")
     @GetMapping("/trend")
-    @RequireWorkspaceRole("viewer")
+    @RequireWorkspaceRole("member")
     public R<List<Map<String, Object>>> trend(
             @RequestHeader(value = "X-Workspace-Id", required = false) Long workspaceId,
             @RequestParam(defaultValue = "30") int days) {
@@ -53,7 +53,7 @@ public class DashboardController {
 
     @Operation(summary = "获取 CronJob 执行历史")
     @GetMapping("/cron-runs/{cronJobId}")
-    @RequireWorkspaceRole("viewer")
+    @RequireWorkspaceRole("member")
     public R<List<CronJobRunEntity>> cronJobRuns(
             @PathVariable Long cronJobId,
             @RequestHeader(value = "X-Workspace-Id", required = false) Long workspaceId,
@@ -74,7 +74,7 @@ public class DashboardController {
 
     @Operation(summary = "获取最近执行记录（当前 workspace 关联的 CronJob）")
     @GetMapping("/cron-runs")
-    @RequireWorkspaceRole("viewer")
+    @RequireWorkspaceRole("member")
     public R<List<CronJobRunEntity>> recentRuns(
             @RequestHeader(value = "X-Workspace-Id", required = false) Long workspaceId,
             @RequestParam(defaultValue = "20") int limit) {
