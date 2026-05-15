@@ -64,23 +64,28 @@ public class ModelConfigController {
         return R.ok(modelProviderService.setEnabled(providerId, false));
     }
 
+    // Viewers need to know which models are available + which one is active so
+    // the chat runtime can render correctly. None of these endpoints return
+    // API keys or base URLs — those live on ProviderInfoDTO (GET /models)
+    // which stays admin-only.
+
     @Operation(summary = "获取启用模型列表")
     @GetMapping("/enabled")
-    @RequireWorkspaceRole("admin")
+    @RequireWorkspaceRole("viewer")
     public R<List<ModelConfigEntity>> listEnabled() {
         return R.ok(modelConfigService.listEnabledModels());
     }
 
     @Operation(summary = "获取默认模型")
     @GetMapping("/default")
-    @RequireWorkspaceRole("admin")
+    @RequireWorkspaceRole("viewer")
     public R<ModelConfigEntity> getDefaultModel() {
         return R.ok(modelConfigService.getDefaultModel());
     }
 
     @Operation(summary = "获取当前激活模型")
     @GetMapping("/active")
-    @RequireWorkspaceRole("admin")
+    @RequireWorkspaceRole("viewer")
     public R<ActiveModelsInfo> getActiveModel() {
         ModelConfigEntity model = modelConfigService.getDefaultModel();
         ActiveModelsInfo info = new ActiveModelsInfo();
@@ -230,7 +235,7 @@ public class ModelConfigController {
 
     @Operation(summary = "按类型筛选模型（chat / embedding），可选 modality 过滤")
     @GetMapping("/by-type")
-    @RequireWorkspaceRole("admin")
+    @RequireWorkspaceRole("member")
     public R<List<ModelConfigEntity>> listByType(
             @RequestParam(defaultValue = "chat") String modelType,
             @RequestParam(required = false) String modality) {

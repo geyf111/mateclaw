@@ -443,6 +443,10 @@ const recoverablePrompt = ref(false)
 const recoverableDismissed = ref(false)
 const defaultModel = ref<ModelConfig | null>(null)
 const providers = ref<ProviderInfo[]>([])
+// True when /models 403s for a viewer-level user. Provider config (API keys,
+// base URLs, liveness) is admin-only, so viewers chat without it; the prompt
+// flags fall back to "trust the active model" in that branch.
+const providersUnavailable = ref(false)
 const activeModels = ref<ActiveModelsInfo | null>(null)
 const pendingAttachments = ref<ChatAttachment[]>([])
 const uploadingAttachment = ref(false)
@@ -1180,21 +1184,36 @@ async function loadAgents() {
 }
 
 async function loadModelState() {
+  // /default + /active are viewer-accessible and required to chat. /models
+  // (provider list) is admin-only because it returns API keys + base URLs;
+  // viewers degrade to "trust the active model, skip the liveness banner".
   try {
-    const [defaultRes, providersRes, activeRes]: any = await Promise.all([
+    const [defaultRes, activeRes]: any = await Promise.all([
       modelApi.getDefault(),
-      modelApi.listProviders(),
       modelApi.getActive(),
     ])
     defaultModel.value = defaultRes.data || null
-    providers.value = providersRes.data || []
     activeModels.value = activeRes.data || null
-    recomputePromptFlags()
   } catch (e) {
     ElMessage.error(t('chat.loadModelFailed'))
     blockingPrompt.value = true
     recoverablePrompt.value = false
+    return
   }
+  try {
+    const providersRes: any = await modelApi.listProviders()
+    providers.value = providersRes.data || []
+    providersUnavailable.value = false
+  } catch (e: any) {
+    if (e?.response?.status === 403) {
+      providers.value = []
+      providersUnavailable.value = true
+    } else {
+      // Non-403 failure is still a real problem worth surfacing.
+      ElMessage.error(t('chat.loadModelFailed'))
+    }
+  }
+  recomputePromptFlags()
 }
 
 /**
@@ -1209,6 +1228,16 @@ function recomputePromptFlags() {
   const active = activeModels.value?.activeLlm
   if (!active?.providerId || !active?.model) {
     blockingPrompt.value = true
+    recoverablePrompt.value = false
+    recoverableDismissed.value = false
+    return
+  }
+  // Viewer-level users cannot read the provider list (admin-only because it
+  // returns API keys), so we can't compute liveness. Trust the active model
+  // and let the agent runtime surface any per-call failure instead of
+  // blocking the entire chat surface.
+  if (providersUnavailable.value) {
+    blockingPrompt.value = false
     recoverablePrompt.value = false
     recoverableDismissed.value = false
     return
