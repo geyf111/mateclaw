@@ -8,167 +8,21 @@
         </Transition>
 
     <!-- 会话侧边栏 -->
-    <div class="conversation-panel" :class="{ 'mobile-open': convPanelOpen, 'conv-collapsed': convPanelCollapsed && !isMobile }">
-      <div class="panel-header">
-        <div v-if="!convPanelCollapsed || isMobile" class="panel-header-copy">
-          <div class="panel-kicker">{{ $t('nav.chat') }}</div>
-          <h2 class="panel-title">{{ $t('chat.conversations') }}</h2>
-        </div>
-        <div class="panel-header-actions">
-          <button
-            v-if="(!convPanelCollapsed || isMobile) && conversations.length > 0"
-            class="panel-icon-btn"
-            :class="{ active: selectMode }"
-            @click="toggleSelectMode"
-            :title="selectMode ? $t('chat.exitSelectMode') : $t('chat.selectMode')"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-          </button>
-          <button class="new-chat-btn" @click="newConversation" :title="`${$t('chat.newChat')} (⌘N)`">
-            <el-icon><Plus /></el-icon>
-          </button>
-        </div>
-      </div>
-      <!-- 折叠切换按钮 -->
-      <button v-if="!isMobile" class="conv-collapse-btn" @click="toggleConvPanel" :title="convPanelCollapsed ? $t('common.expandSidebar') : $t('common.collapseSidebar')">
-        <svg v-if="!convPanelCollapsed" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-      </button>
-
-      <div class="agent-selector">
-        <AgentPickerDialog
-          block
-          :model-value="selectedAgentId"
-          :agents="agents"
-          :compact="convPanelCollapsed && !isMobile"
-          :placeholder="$t('chat.selectAgent')"
-          @change="onAgentPicked"
-        />
-      </div>
-
-      <div
-        v-if="(!convPanelCollapsed || isMobile) && agentFilterOptions.length > 1"
-        class="conv-filter"
-      >
-        <select v-model="convAgentFilter" class="conv-filter-select">
-          <option value="">{{ $t('chat.allAgents') }}</option>
-          <option v-for="opt in agentFilterOptions" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
-        </select>
-      </div>
-
-      <div class="conversation-list">
-        <template v-for="group in groupedConversations" :key="group.label">
-          <div v-if="!convPanelCollapsed || isMobile" class="conv-group-title">{{ group.label }}</div>
-          <div
-            v-for="conv in group.items"
-            :key="conv.conversationId"
-            class="conv-item"
-            :class="{
-              active: !selectMode && currentConversationId === conv.conversationId,
-              'is-running': conv.streamStatus === 'running',
-              'is-selected': selectMode && selectedConvIds.includes(conv.conversationId),
-            }"
-            @click="onConvClick(conv)"
-          >
-            <label
-              v-if="selectMode && (!convPanelCollapsed || isMobile)"
-              class="conv-checkbox"
-              @click.stop
-            >
-              <input
-                type="checkbox"
-                :checked="selectedConvIds.includes(conv.conversationId)"
-                @change="toggleConvSelection(conv)"
-              />
-            </label>
-            <div class="conv-icon">
-              <img :src="channelIconUrl(conv.source)" width="14" height="14" alt="" />
-              <span
-                v-if="conv.streamStatus === 'running'"
-                class="conv-running-dot"
-                :title="$t('chat.streamGenerating')"
-              ></span>
-            </div>
-            <div v-if="!convPanelCollapsed || isMobile" class="conv-info">
-              <input
-                v-if="renamingConvId === conv.conversationId"
-                v-model="renameText"
-                class="conv-title-input"
-                @keydown.enter="confirmRename(conv)"
-                @keydown.escape="cancelRename"
-                @blur="confirmRename(conv)"
-                @click.stop
-                ref="renameInputRef"
-              />
-              <div v-else class="conv-title" @dblclick.stop="startRename(conv)">
-                <span>{{ conv.title }}</span>
-                <!-- Unread dot for the unified tasks conversation: when a
-                     cron run lands but the user hasn't opened the conversation
-                     since, show a small accent dot. Avoids needing a server-side
-                     last-viewed table for MVP — localStorage tracks per-conv
-                     last-view timestamp, sidebar compares to lastActiveTime. -->
-                <span
-                  v-if="hasUnread(conv)"
-                  class="conv-unread-dot"
-                  :title="$t('chat.hasUnread', '有新内容')"
-                ></span>
-                <span
-                  v-if="conv.streamStatus === 'running'"
-                  class="conv-running-badge"
-                  :title="$t('chat.streamGenerating')"
-                >
-                  <span class="conv-running-badge-pulse"></span>
-                  {{ $t('chat.streamGenerating') }}
-                </span>
-              </div>
-              <div class="conv-meta">
-                <span>{{ $t('chat.messages', { count: conv.messageCount }) }}</span>
-                <span class="conv-dot">·</span>
-                <span>{{ formatConversationTime(conv.lastActiveTime) }}</span>
-              </div>
-            </div>
-            <div v-if="!selectMode && (!convPanelCollapsed || isMobile)" class="conv-actions">
-              <button
-                class="conv-action"
-                :class="{ pinned: conv.pinned }"
-                @click.stop="togglePin(conv)"
-                :title="conv.pinned ? $t('chat.unpin') : $t('chat.pin')"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" :fill="conv.pinned ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2"><line x1="12" y1="17" x2="12" y2="22"/><path d="M9 10.76V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v5.76a2 2 0 0 0 .59 1.41L17 14H7l1.41-1.83A2 2 0 0 0 9 10.76z"/></svg>
-              </button>
-              <button class="conv-action" @click.stop="startRename(conv)" :title="$t('chat.rename')">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              </button>
-              <button class="conv-action danger" @click.stop="confirmDeleteConversation(conv.conversationId)" :title="$t('common.delete')">
-                <el-icon><Delete /></el-icon>
-              </button>
-            </div>
-          </div>
-        </template>
-
-        <div v-if="conversations.length === 0" class="empty-convs">
-          <p>{{ $t('chat.noConversations') }}</p>
-          <p>{{ $t('chat.startNewChat') }}</p>
-        </div>
-        <div v-else-if="groupedConversations.length === 0" class="empty-convs">
-          <p>{{ $t('chat.noConversations') }}</p>
-        </div>
-      </div>
-
-      <div v-if="selectMode && (!convPanelCollapsed || isMobile)" class="conv-select-bar">
-        <button class="conv-select-all" @click="toggleSelectAll">
-          {{ allVisibleSelected ? $t('chat.deselectAll') : $t('chat.selectAll') }}
-        </button>
-        <span class="conv-select-count">{{ $t('chat.selectedCount', { count: selectedConvIds.length }) }}</span>
-        <button
-          class="conv-batch-delete"
-          :disabled="selectedConvIds.length === 0"
-          @click="batchDeleteSelected"
-        >
-          {{ $t('chat.batchDelete') }}
-        </button>
-      </div>
-    </div>
+    <ConversationSidebar
+      :conversations="conversations"
+      :current-conversation-id="currentConversationId"
+      :agents="agents"
+      :selected-agent-id="selectedAgentId"
+      :collapsed="convPanelCollapsed"
+      :mobile-open="convPanelOpen"
+      :is-mobile="isMobile"
+      @select="selectConversation"
+      @new-chat="newConversation"
+      @agent-picked="onAgentPicked"
+      @toggle-collapse="toggleConvPanel"
+      @refresh="loadConversations"
+      @deleted="onConversationsDeleted"
+    />
 
     <!-- 主聊天区域 -->
     <div
@@ -208,7 +62,6 @@
               <span class="agent-badge-icon" :style="{ color: agentIconColor(currentAgent.icon) }"><SkillIcon :value="currentAgent.icon" :size="22" :fallback="'🤖'" /></span>
               <div class="agent-badge-text">
                 <span class="agent-badge-name">{{ currentAgent.name }}</span>
-                <span v-if="currentAgentTagline" class="agent-badge-tagline">{{ currentAgentTagline }}</span>
               </div>
               <span class="status-dot" :class="connectionStatusClass" :title="connectionStatusLabel"></span>
             </div>
@@ -230,25 +83,21 @@
           />
           <!-- Overflow menu -->
           <div class="header-overflow-wrap">
-            <button class="header-btn" @click="headerMenuOpen = !headerMenuOpen" :title="$t('common.more') || 'More'">
+            <button ref="headerBtnRef" class="header-btn" @click="headerMenuOpen = !headerMenuOpen" :title="$t('common.more')">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
             </button>
-            <Transition name="fade">
-              <div v-if="headerMenuOpen" class="header-menu-backdrop" @click="headerMenuOpen = false"></div>
-            </Transition>
-            <Transition name="agent-dropdown">
-              <div v-if="headerMenuOpen" class="header-menu">
-                <button class="header-menu-item" @click="headerMenuOpen = false; goToModelSettings()">
-                  <el-icon><Setting /></el-icon>
-                  <span>{{ $t('chat.configModel') }}</span>
-                </button>
-                <div class="header-menu-divider"></div>
-                <button class="header-menu-item header-menu-item--danger" @click="handleClearMessages">
-                  <el-icon><Delete /></el-icon>
-                  <span>{{ $t('chat.clearMessages') }}</span>
-                </button>
-              </div>
-            </Transition>
+            <DropdownMenu
+              :open="headerMenuOpen"
+              :anchor="headerBtnRef"
+              :items="headerMenuItems"
+              @select="onHeaderMenuSelect"
+              @close="headerMenuOpen = false"
+            >
+              <template #item-icon="{ item }">
+                <el-icon v-if="item.key === 'config'"><Setting /></el-icon>
+                <el-icon v-else-if="item.key === 'clear'"><Delete /></el-icon>
+              </template>
+            </DropdownMenu>
           </div>
         </div>
       </div>
@@ -384,11 +233,11 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { mcToast } from '@/composables/useMcToast'
-import { mcConfirm } from '@/components/common/useConfirm'
-import { ChatDotRound, Delete, Plus, Setting, UploadFilled } from '@element-plus/icons-vue'
+import { ChatDotRound, Delete, Setting, UploadFilled } from '@element-plus/icons-vue'
 import { conversationApi, agentApi, modelApi, chatApi, cronJobApi } from '@/api/index'
-import { channelIconUrl } from '@/utils/channelSource'
 import { copyToClipboard } from '@/utils/clipboard'
+import { useFileDrop } from '@/composables/useFileDrop'
+import { useIsMobile, useMediaQuery, BREAKPOINTS } from '@/composables/useBreakpoint'
 import { useChat } from '@/composables/chat/useChat'
 import { reconstructErrorInfo } from '@/types/chatError'
 import { reconcileMessages, extractMessages } from '@/utils/messageReconcile'
@@ -398,8 +247,8 @@ import type { Conversation, Agent, ModelConfig, ProviderInfo, ActiveModelsInfo, 
 import MessageList from '@/components/chat/MessageList.vue'
 import RecoverableModelBanner from '@/components/chat/RecoverableModelBanner.vue'
 import SkillIcon from '@/components/common/SkillIcon.vue'
-import AgentPickerDialog from '@/components/common/AgentPickerDialog.vue'
-import { parsePrompt, deriveTagline } from '@/utils/agentPromptProfile'
+import ConversationSidebar from '@/components/chat/ConversationSidebar.vue'
+import DropdownMenu, { type DropdownMenuItem } from '@/components/common/DropdownMenu.vue'
 import { agentIconColor } from '@/utils/agentIconColor'
 import ChatInput from '@/components/chat/ChatInput.vue'
 import MultimodalRoutingHint from '@/components/chat/MultimodalRoutingHint.vue'
@@ -414,25 +263,23 @@ import { useMermaidRenderer, handleMermaidDownload } from '@/composables/useMerm
 const showTalkMode = ref(false)
 
 // ============ 移动端 & 响应式状态 ============
-const isMobile = ref(false)
 const convPanelOpen = ref(false)
 const convPanelCollapsed = ref(localStorage.getItem('mc-conv-collapsed') === 'true')
-let mobileQuery: MediaQueryList | null = null
-let mediumQuery: MediaQueryList | null = null
 const userExplicitConvCollapse = ref(localStorage.getItem('mc-conv-collapsed') === 'true')
 
-function handleMobileChange(e: MediaQueryListEvent | MediaQueryList) {
-  isMobile.value = e.matches
-  if (!e.matches) convPanelOpen.value = false
-}
+const isMobile = useIsMobile()
+const compactViewport = useMediaQuery(BREAKPOINTS.compact)
 
-function handleConvMediumChange(e: MediaQueryListEvent | MediaQueryList) {
-  if (e.matches && !userExplicitConvCollapse.value) {
-    convPanelCollapsed.value = true
-  } else if (!e.matches && !userExplicitConvCollapse.value) {
-    convPanelCollapsed.value = false
-  }
-}
+// Leaving the mobile breakpoint closes the conversation drawer.
+watch(isMobile, (mobile) => {
+  if (!mobile) convPanelOpen.value = false
+})
+
+// Auto-collapse the conversation panel on narrow desktop unless the user
+// toggled it explicitly.
+watch(compactViewport, (compact) => {
+  if (!userExplicitConvCollapse.value) convPanelCollapsed.value = compact
+}, { immediate: true })
 
 function toggleConvPanel() {
   convPanelCollapsed.value = !convPanelCollapsed.value
@@ -511,6 +358,18 @@ watch(thinkingEnabled, (v) => localStorage.setItem('mateclaw_thinking', v ? 'on'
 
 // Dropdowns & menus
 const headerMenuOpen = ref(false)
+const headerBtnRef = ref<HTMLElement | null>(null)
+
+const headerMenuItems = computed<DropdownMenuItem[]>(() => [
+  { key: 'config', label: t('chat.configModel') },
+  { divider: true },
+  { key: 'clear', label: t('chat.clearMessages'), danger: true },
+])
+
+function onHeaderMenuSelect(item: DropdownMenuItem) {
+  if (item.key === 'config') goToModelSettings()
+  else if (item.key === 'clear') clearMessages()
+}
 
 function onAgentPicked(value: string | number | null) {
   if (value == null) return
@@ -535,134 +394,11 @@ async function selectModel(value: string) {
   }
 }
 
-function handleClearMessages() {
-  headerMenuOpen.value = false
-  clearMessages()
-}
+// 拖拽上传 — useFileDrop owns the hover/counter state; the directory-aware
+// payload handling (electron paths vs web FileSystem entries) stays here.
+const { isDragging, onDragEnter, onDragLeave, onDrop } = useFileDrop(processDroppedItems)
 
-// Conversation rename
-const renamingConvId = ref('')
-const renameText = ref('')
-const renameInputRef = ref<HTMLInputElement | null>(null)
-
-function startRename(conv: Conversation) {
-  renamingConvId.value = conv.conversationId
-  renameText.value = conv.title || ''
-  nextTick(() => {
-    renameInputRef.value?.focus()
-    renameInputRef.value?.select()
-  })
-}
-
-async function confirmRename(conv: Conversation) {
-  const newTitle = renameText.value.trim()
-  renamingConvId.value = ''
-  if (!newTitle || newTitle === conv.title) return
-  conv.title = newTitle
-  try {
-    await conversationApi.rename(conv.conversationId, newTitle)
-  } catch {
-    // revert on fail — reload
-    await loadConversations()
-  }
-}
-
-function cancelRename() {
-  renamingConvId.value = ''
-}
-
-// Delete with confirmation
-async function confirmDeleteConversation(conversationId: string) {
-  const ok = await mcConfirm({
-    title: t('common.confirm'),
-    message: t('chat.deleteConfirm') || 'Delete this conversation?',
-    tone: 'danger',
-  })
-  if (ok) deleteConversation(conversationId)
-}
-
-// Filter the sidebar list down to a single agent's conversations.
-const convAgentFilter = ref('')
-
-// Multi-select mode for batch deletion.
-const selectMode = ref(false)
-const selectedConvIds = ref<string[]>([])
-
-function toggleSelectMode() {
-  selectMode.value = !selectMode.value
-  selectedConvIds.value = []
-}
-
-function toggleConvSelection(conv: Conversation) {
-  const id = conv.conversationId
-  const idx = selectedConvIds.value.indexOf(id)
-  if (idx >= 0) selectedConvIds.value.splice(idx, 1)
-  else selectedConvIds.value.push(id)
-}
-
-function onConvClick(conv: Conversation) {
-  if (selectMode.value) toggleConvSelection(conv)
-  else selectConversation(conv)
-}
-
-async function togglePin(conv: Conversation) {
-  const next = !conv.pinned
-  conv.pinned = next ? 1 : 0
-  try {
-    await conversationApi.setPinned(conv.conversationId, next)
-    await loadConversations()
-  } catch {
-    conv.pinned = next ? 0 : 1
-    mcToast.error(t('chat.pinFailed'))
-  }
-}
-
-async function batchDeleteSelected() {
-  const ids = [...selectedConvIds.value]
-  if (ids.length === 0) return
-  const ok = await mcConfirm({
-    title: t('common.confirm'),
-    message: t('chat.batchDeleteConfirm', { count: ids.length }),
-    tone: 'danger',
-  })
-  if (!ok) return
-  try {
-    await conversationApi.batchDelete(ids)
-    conversations.value = conversations.value.filter(c => !ids.includes(c.conversationId))
-    if (ids.includes(currentConversationId.value)) {
-      resetStreamingState()
-      messages.value = []
-      currentConversationId.value = ''
-    }
-    selectedConvIds.value = []
-    selectMode.value = false
-  } catch {
-    mcToast.error(t('chat.batchDeleteFailed'))
-  }
-}
-
-// 拖拽上传
-const isDragging = ref(false)
-let dragCounter = 0
-
-function onDragEnter(e: DragEvent) {
-  dragCounter++
-  if (e.dataTransfer?.types.includes('Files')) {
-    isDragging.value = true
-  }
-}
-
-function onDragLeave() {
-  dragCounter--
-  if (dragCounter === 0) {
-    isDragging.value = false
-  }
-}
-
-async function onDrop(e: DragEvent) {
-  dragCounter = 0
-  isDragging.value = false
-
+async function processDroppedItems(e: DragEvent) {
   const dtFiles = Array.from(e.dataTransfer?.files || [])
   const items = Array.from(e.dataTransfer?.items || [])
 
@@ -830,17 +566,6 @@ const connectionStatusLabel = computed(() => {
 // ============ 计算属性 ============
 const currentAgent = computed(() => agents.value.find(a => String(a.id) === String(selectedAgentId.value)))
 
-/** Tagline derived from the agent's role/goal — same source of truth as the
- *  Agents page card, so the chat header reads the employee identically.
- *  Falls back to the agent's description when no triad is set. */
-function agentTagline(agent: Agent): string {
-  const profile = parsePrompt(agent.systemPrompt)
-  return deriveTagline(profile, agent.description) || (agent.description || '')
-}
-
-const currentAgentTagline = computed(() =>
-  currentAgent.value ? agentTagline(currentAgent.value) : '',
-)
 /** Human label for the agent's runtime mode — surfaces in the badge tooltip
  *  only, never in the visible header. */
 const currentAgentRuntimeMode = computed(() => {
@@ -849,10 +574,9 @@ const currentAgentRuntimeMode = computed(() => {
   return a.agentType === 'react' ? t('agents.types.react') : t('agents.types.planExecute')
 })
 
-// 按日期分组的会话列表
 // Per-conversation last-viewed timestamp store (localStorage-backed, MVP).
-// Keyed by conversationId. Updated when user opens a conversation; read by
-// hasUnread() to decide whether to render the small accent dot in the sidebar.
+// Keyed by conversationId. Updated when the user opens a conversation; the
+// sidebar reads it (ConversationSidebar.hasUnread) to render the accent dot.
 // Will move to a server-side table once we want cross-device read state.
 const VIEWED_KEY_PREFIX = 'mc-conv-viewed:'
 function markConversationViewed(conversationId: string | undefined, lastActiveTime?: string) {
@@ -863,82 +587,6 @@ function markConversationViewed(conversationId: string | undefined, lastActiveTi
   } catch {
     // localStorage full / disabled — degrade silently; dot just stays on.
   }
-}
-function hasUnread(conv: Conversation): boolean {
-  // Only the unified tasks_<wsId> conversation gets the unread treatment.
-  // Regular chats have explicit user attention via the streaming bubble itself,
-  // and IM-mirror conversations carry their own platform badges in IM apps.
-  if (!conv.conversationId || !conv.conversationId.startsWith('tasks_')) return false
-  if (!conv.lastActiveTime) return false
-  const lastActive = new Date(conv.lastActiveTime).getTime()
-  if (!Number.isFinite(lastActive)) return false
-  let viewed = 0
-  try {
-    viewed = Number(localStorage.getItem(VIEWED_KEY_PREFIX + conv.conversationId) || '0')
-  } catch {
-    // Treat as never-viewed when storage is unavailable.
-  }
-  // Currently-active conversation is implicitly read.
-  if (currentConversationId.value === conv.conversationId) return false
-  return lastActive > viewed
-}
-
-const groupedConversations = computed(() => {
-  const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const yesterdayStart = todayStart - 86400000
-  const last7Start = todayStart - 7 * 86400000
-
-  // Pinned group sits at the top: the unified cron output (tasks_<wsId>) plus
-  // any conversation the user has explicitly pinned, so important threads stay
-  // reachable in one glance even after a busy day pushes others ahead.
-  const pinned: Conversation[] = []
-  const groups: { label: string; items: Conversation[] }[] = [
-    { label: t('chat.datePinned', '置顶'), items: pinned },
-    { label: t('chat.dateToday'), items: [] },
-    { label: t('chat.dateYesterday'), items: [] },
-    { label: t('chat.dateLast7Days'), items: [] },
-    { label: t('chat.dateEarlier'), items: [] },
-  ]
-
-  const agentFilter = convAgentFilter.value
-  for (const conv of conversations.value) {
-    if (agentFilter && String(conv.agentId ?? '') !== agentFilter) continue
-    if ((conv.conversationId && conv.conversationId.startsWith('tasks_')) || conv.pinned) {
-      pinned.push(conv)
-      continue
-    }
-    const ts = conv.lastActiveTime ? new Date(conv.lastActiveTime).getTime() : 0
-    if (ts >= todayStart) groups[1].items.push(conv)
-    else if (ts >= yesterdayStart) groups[2].items.push(conv)
-    else if (ts >= last7Start) groups[3].items.push(conv)
-    else groups[4].items.push(conv)
-  }
-
-  return groups.filter(g => g.items.length > 0)
-})
-
-// Distinct agents present in the conversation list — drives the agent filter
-// dropdown. Hidden when fewer than two agents have conversations.
-const agentFilterOptions = computed(() => {
-  const seen = new Map<string, string>()
-  for (const conv of conversations.value) {
-    if (conv.agentId == null || conv.agentId === '') continue
-    const id = String(conv.agentId)
-    if (!seen.has(id)) seen.set(id, conv.agentName || id)
-  }
-  return [...seen.entries()].map(([id, name]) => ({ id, name }))
-})
-
-const visibleConvIds = computed(() =>
-  groupedConversations.value.flatMap(g => g.items.map(i => i.conversationId)))
-
-const allVisibleSelected = computed(() =>
-  visibleConvIds.value.length > 0 &&
-  visibleConvIds.value.every(id => selectedConvIds.value.includes(id)))
-
-function toggleSelectAll() {
-  selectedConvIds.value = allVisibleSelected.value ? [] : [...visibleConvIds.value]
 }
 
 const currentRuntimeModel = computed(() => {
@@ -1279,12 +927,6 @@ onMounted(async () => {
   startECharts()
   startKatex()
   startMermaid()
-  mobileQuery = window.matchMedia('(max-width: 768px)')
-  handleMobileChange(mobileQuery)
-  mobileQuery.addEventListener('change', handleMobileChange)
-  mediumQuery = window.matchMedia('(max-width: 1200px)')
-  handleConvMediumChange(mediumQuery)
-  mediumQuery.addEventListener('change', handleConvMediumChange)
   await Promise.all([loadAgents(), loadModelState(), loadConversations()])
   await hydrateStateFromRoute()
   applyPendingRouteAction()
@@ -1300,8 +942,6 @@ onBeforeUnmount(() => {
   disposeECharts()
   disposeKatex()
   disposeMermaid()
-  mobileQuery?.removeEventListener('change', handleMobileChange)
-  mediumQuery?.removeEventListener('change', handleConvMediumChange)
   if (activityPollTimer !== null) {
     clearInterval(activityPollTimer)
     activityPollTimer = null
@@ -1670,17 +1310,15 @@ function newConversation() {
   messages.value = []
 }
 
-async function deleteConversation(conversationId: string) {
-  try {
-    await conversationApi.delete(conversationId)
-    conversations.value = conversations.value.filter(c => c.conversationId !== conversationId)
-    if (currentConversationId.value === conversationId) {
-      resetStreamingState()
-      messages.value = []
-      currentConversationId.value = ''
-    }
-  } catch (e) {
-    mcToast.error(t('chat.deleteConversationFailed'))
+// The sidebar performs the delete API call(s) and emits the removed ids.
+// Drop them from the local list and reset the chat area if the conversation
+// currently open was among those deleted.
+function onConversationsDeleted(ids: string[]) {
+  conversations.value = conversations.value.filter(c => !ids.includes(c.conversationId))
+  if (ids.includes(currentConversationId.value)) {
+    resetStreamingState()
+    messages.value = []
+    currentConversationId.value = ''
   }
 }
 
@@ -2112,15 +1750,6 @@ function parseThinkingContent(raw: string): { content: string; thinking: string;
   }
 }
 
-function formatConversationTime(time?: string) {
-  if (!time) return t('chat.timeJustNow')
-  const date = new Date(time)
-  const diff = Date.now() - date.getTime()
-  if (diff < 60 * 60 * 1000) return t('chat.timeMinutesAgo', { n: Math.max(1, Math.floor(diff / (60 * 1000))) })
-  if (diff < 24 * 60 * 60 * 1000) return t('chat.timeHoursAgo', { n: Math.floor(diff / (60 * 60 * 1000)) })
-  return date.toLocaleDateString()
-}
-
 function handleCodeCopy(e: MouseEvent) {
   // Mermaid download button shares the same global click delegation. Handle
   // it first so the SVG export beats the copy-button selector below if the
@@ -2199,491 +1828,6 @@ function handleCodeCopy(e: MouseEvent) {
   height: 100%;
   overflow: hidden;
   min-height: 0;
-}
-
-.conversation-panel {
-  width: 248px;
-  min-width: 248px;
-  background: linear-gradient(180deg, var(--mc-panel-top), var(--mc-panel-bottom));
-  border-right: 1px solid var(--mc-border-light);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: width 0.25s ease, min-width 0.25s ease;
-}
-
-.conversation-panel.conv-collapsed {
-  width: 54px;
-  min-width: 54px;
-}
-
-.conversation-panel.conv-collapsed .panel-header {
-  justify-content: center;
-  padding: 14px 8px 12px;
-}
-
-.conversation-panel.conv-collapsed .agent-selector {
-  padding: 10px 6px 12px;
-}
-
-.conversation-panel.conv-collapsed .conv-item {
-  justify-content: center;
-  padding: 10px 6px;
-}
-
-.conversation-panel.conv-collapsed .conv-icon {
-  margin: 0;
-}
-
-.conv-collapse-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 28px;
-  border: none;
-  border-bottom: 1px solid var(--mc-border-light);
-  background: transparent;
-  color: var(--mc-text-tertiary);
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-
-.conv-collapse-btn:hover {
-  background: var(--mc-bg-muted);
-  color: var(--mc-text-primary);
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 14px 12px;
-  border-bottom: 1px solid var(--mc-border-light);
-}
-
-.panel-header-copy {
-  min-width: 0;
-}
-
-.panel-kicker {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--mc-accent);
-  margin-bottom: 4px;
-}
-
-.panel-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--mc-text-primary);
-  margin: 0;
-  letter-spacing: -0.03em;
-}
-
-.new-chat-btn {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--mc-border);
-  background: var(--mc-panel-raised);
-  border-radius: 10px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--mc-text-primary);
-  transition: all 0.15s;
-}
-
-.new-chat-btn:hover {
-  background: var(--mc-primary);
-  border-color: var(--mc-primary);
-  color: white;
-}
-
-.agent-selector {
-  padding: 10px 12px 12px;
-  border-bottom: 1px solid var(--mc-border-light);
-  position: relative;
-}
-
-.model-dropdown-backdrop,
-.header-menu-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 99;
-}
-
-.agent-dropdown-enter-active {
-  transition: all 0.15s ease-out;
-}
-.agent-dropdown-leave-active {
-  transition: all 0.1s ease-in;
-}
-.agent-dropdown-enter-from {
-  opacity: 0;
-  transform: translateY(-6px) scale(0.97);
-}
-.agent-dropdown-leave-to {
-  opacity: 0;
-  transform: translateY(-4px) scale(0.98);
-}
-
-.conversation-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-}
-
-.conv-group-title {
-  padding: 10px 10px 6px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--mc-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-}
-
-.conv-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 11px;
-  border-radius: 14px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.conv-item:hover {
-  background: var(--mc-bg-sunken);
-  transform: translateY(-1px);
-}
-
-.conv-item.active {
-  background: var(--mc-primary-bg);
-}
-
-.conv-item:hover .conv-actions {
-  opacity: 1;
-}
-
-.conv-icon {
-  color: var(--mc-text-tertiary);
-  flex-shrink: 0;
-  position: relative;
-}
-
-.conv-item.active .conv-icon {
-  color: var(--mc-primary);
-}
-
-/* 正在执行：图标右上角脉冲小点（折叠与展开态均可见） */
-.conv-running-dot {
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #fbbf24;
-  box-shadow: 0 0 4px rgba(251, 191, 36, 0.6), 0 0 0 2px var(--mc-bg-primary, #fff);
-  animation: pulse-dot 1.2s infinite;
-  pointer-events: none;
-}
-
-/* Inline unread accent dot — shown next to title when a conversation has
-   activity since the user's last view (currently scoped to tasks_<wsId>). */
-.conv-unread-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--mc-primary, #d97757);
-  margin-left: 6px;
-  flex-shrink: 0;
-  vertical-align: middle;
-}
-
-.conv-item.is-running {
-  background: color-mix(in srgb, #fbbf24 8%, transparent);
-}
-
-.conv-item.is-running:hover {
-  background: color-mix(in srgb, #fbbf24 14%, var(--mc-bg-sunken));
-}
-
-.conv-item.is-running.active {
-  background: var(--mc-primary-bg);
-}
-
-/* 展开态：标题右侧"生成中..."小徽章 */
-.conv-running-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 500;
-  color: #b45309;
-  background: rgba(251, 191, 36, 0.15);
-  border: 1px solid rgba(251, 191, 36, 0.3);
-  padding: 1px 6px 1px 5px;
-  border-radius: 10px;
-  line-height: 1.3;
-  white-space: nowrap;
-}
-
-.conv-running-badge-pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #f59e0b;
-  animation: pulse-dot 1.2s infinite;
-}
-
-.conv-info {
-  flex: 1;
-  overflow: hidden;
-}
-
-.conv-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--mc-text-primary);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-/* 标题文本本身承担省略号；flex 父级上的 overflow:hidden 会阻止 ellipsis 正常工作 */
-.conv-title > span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.conv-item.active .conv-title {
-  color: var(--mc-primary);
-}
-
-.conv-meta {
-  font-size: 11px;
-  color: var(--mc-text-tertiary);
-  margin-top: 1px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.conv-dot {
-  color: var(--mc-text-tertiary);
-}
-
-.conv-title-input {
-  width: 100%;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--mc-text-primary);
-  background: var(--mc-bg-elevated);
-  border: 1px solid var(--mc-primary);
-  border-radius: 6px;
-  padding: 2px 6px;
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.15);
-}
-
-/* Actions overlay the right edge of the row so they reserve no layout width —
-   the conversation title keeps its full space. A left-fading gradient masks
-   the meta text behind them when the row is hovered. */
-.conv-actions {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  padding-left: 16px;
-  opacity: 0;
-  background: linear-gradient(to right, transparent, var(--mc-bg-sunken) 42%);
-  border-radius: 12px;
-  transition: opacity 0.15s;
-}
-
-.conv-item.active .conv-actions {
-  background: linear-gradient(to right, transparent, var(--mc-primary-bg) 42%);
-}
-
-.conv-action {
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  color: var(--mc-text-tertiary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  padding: 0;
-  flex-shrink: 0;
-  transition: all 0.15s;
-}
-
-.conv-action:hover {
-  background: var(--mc-bg-elevated);
-  color: var(--mc-text-primary);
-}
-
-.conv-action.danger:hover {
-  background: var(--mc-danger-bg);
-  color: var(--mc-danger);
-}
-
-/* The pin button shows the accent color while a conversation is pinned, so the
-   filled pin icon reads as "active" once the row is hovered. */
-.conv-action.pinned {
-  color: var(--mc-accent);
-}
-
-/* Agent filter dropdown above the conversation list. */
-.conv-filter {
-  padding: 8px 12px 0;
-}
-
-.conv-filter-select {
-  width: 100%;
-  font-size: 12px;
-  color: var(--mc-text-secondary);
-  background: var(--mc-bg-elevated);
-  border: 1px solid var(--mc-border);
-  border-radius: 8px;
-  padding: 6px 8px;
-  cursor: pointer;
-  outline: none;
-}
-
-.conv-filter-select:focus {
-  border-color: var(--mc-primary);
-}
-
-/* Multi-select mode. */
-.panel-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.panel-icon-btn {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--mc-border);
-  background: var(--mc-panel-raised);
-  border-radius: 10px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--mc-text-secondary);
-  transition: all 0.15s;
-}
-
-.panel-icon-btn:hover {
-  color: var(--mc-text-primary);
-  border-color: var(--mc-text-tertiary);
-}
-
-.panel-icon-btn.active {
-  background: var(--mc-primary);
-  border-color: var(--mc-primary);
-  color: white;
-}
-
-.conv-checkbox {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  cursor: pointer;
-}
-
-.conv-checkbox input {
-  width: 15px;
-  height: 15px;
-  cursor: pointer;
-  accent-color: var(--mc-primary);
-}
-
-.conv-item.is-selected {
-  background: var(--mc-primary-bg);
-}
-
-.conv-select-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--mc-border-light);
-}
-
-.conv-select-all {
-  font-size: 12px;
-  color: var(--mc-text-secondary);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 6px;
-  white-space: nowrap;
-}
-
-.conv-select-all:hover {
-  background: var(--mc-bg-sunken);
-  color: var(--mc-text-primary);
-}
-
-.conv-select-count {
-  flex: 1;
-  font-size: 12px;
-  color: var(--mc-text-tertiary);
-  text-align: center;
-  white-space: nowrap;
-}
-
-.conv-batch-delete {
-  font-size: 12px;
-  font-weight: 600;
-  color: white;
-  background: var(--mc-danger);
-  border: none;
-  border-radius: 8px;
-  padding: 6px 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: opacity 0.15s;
-}
-
-.conv-batch-delete:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.conv-batch-delete:not(:disabled):hover {
-  opacity: 0.88;
-}
-
-.empty-convs {
-  text-align: center;
-  padding: 32px 16px;
-  color: var(--mc-text-tertiary);
-  font-size: 13px;
-  line-height: 1.8;
 }
 
 .chat-area {
@@ -2804,16 +1948,6 @@ function handleCodeCopy(e: MouseEvent) {
   line-height: 1.2;
 }
 
-/* The tagline answers "what does this employee do" — runtime mode lives in
-   the badge tooltip, not on screen, so we don't compete for attention. */
-.agent-badge-tagline {
-  font-size: 11px;
-  color: var(--mc-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.2;
-}
 
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-left: 2px;
@@ -2835,49 +1969,6 @@ function handleCodeCopy(e: MouseEvent) {
 /* Header overflow menu */
 .header-overflow-wrap {
   position: relative;
-}
-
-.header-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 100;
-  min-width: 180px;
-  background: var(--mc-bg-elevated);
-  border: 1px solid var(--mc-border);
-  border-radius: 12px;
-  padding: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-}
-
-.header-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 9px 12px;
-  border: none;
-  background: none;
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--mc-text-primary);
-  cursor: pointer;
-  transition: background 0.12s;
-}
-
-.header-menu-item:hover {
-  background: var(--mc-bg-sunken);
-}
-
-.header-menu-item--danger:hover {
-  background: var(--mc-danger-bg);
-  color: var(--mc-danger);
-}
-
-.header-menu-divider {
-  height: 1px;
-  background: var(--mc-border-light);
-  margin: 2px 8px;
 }
 
 .header-btn {
@@ -2988,24 +2079,6 @@ function handleCodeCopy(e: MouseEvent) {
     overflow: hidden !important;
     border-radius: 0;
     border: none;
-  }
-
-  .conversation-panel {
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 100;
-    width: 272px;
-    min-width: 272px;
-    transform: translateX(-100%);
-    transition: transform 0.25s ease;
-    box-shadow: none;
-  }
-
-  .conversation-panel.mobile-open {
-    transform: translateX(0);
-    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.1);
   }
 
   .conv-backdrop {

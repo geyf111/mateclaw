@@ -186,6 +186,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useIsMobile, useMediaQuery } from '@/composables/useBreakpoint'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/useThemeStore'
 import { version as appVersion } from '../../../package.json'
@@ -237,26 +238,24 @@ const { stuckAgents, pendingApprovals } = useNotificationCenter()
 const liveAlertActive = computed(() => isAdminRole.value && stuckAgents.value > 0)
 
 // 移动端状态
-const isMobile = ref(false)
 const mobileMenuOpen = ref(false)
-let mobileQuery: MediaQueryList | null = null
-// 中等屏幕自动折叠（≤1024px）
-let mediumQuery: MediaQueryList | null = null
 const userExplicitCollapse = ref(localStorage.getItem('mc-sidebar-collapsed') === 'true')
 
-function handleMobileChange(e: MediaQueryListEvent | MediaQueryList) {
-  isMobile.value = e.matches
-  if (!e.matches) mobileMenuOpen.value = false
-  if (e.matches) footerPanelOpen.value = false
-}
+const isMobile = useIsMobile()
+// 中等屏幕自动折叠（≤1024px）
+const compactViewport = useMediaQuery('(max-width: 1024px)')
 
-function handleMediumChange(e: MediaQueryListEvent | MediaQueryList) {
-  if (e.matches && !userExplicitCollapse.value) {
-    sidebarCollapsed.value = true
-  } else if (!e.matches && !userExplicitCollapse.value) {
-    sidebarCollapsed.value = false
-  }
-}
+// Mobile breakpoint side effects: close the drawer / footer panel when the
+// layout flips between mobile and desktop.
+watch(isMobile, (mobile) => {
+  if (!mobile) mobileMenuOpen.value = false
+  if (mobile) footerPanelOpen.value = false
+})
+
+// Auto-collapse the sidebar on narrow desktop unless the user set it explicitly.
+watch(compactViewport, (compact) => {
+  if (!userExplicitCollapse.value) sidebarCollapsed.value = compact
+}, { immediate: true })
 
 const shortcutsHintText = computed(() =>
   `Ctrl+K ${t('nav.shortcutAgents')} | Ctrl+N ${t('nav.shortcutNew')}`,
@@ -301,14 +300,6 @@ function onGlobalKeydown(e: KeyboardEvent) {
 }
 
 onMounted(async () => {
-  mobileQuery = window.matchMedia('(max-width: 768px)')
-  handleMobileChange(mobileQuery)
-  mobileQuery.addEventListener('change', handleMobileChange)
-
-  mediumQuery = window.matchMedia('(max-width: 1024px)')
-  handleMediumChange(mediumQuery)
-  mediumQuery.addEventListener('change', handleMediumChange)
-
   window.addEventListener('keydown', onGlobalKeydown)
 
   // Check onboarding status
@@ -330,8 +321,6 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  mobileQuery?.removeEventListener('change', handleMobileChange)
-  mediumQuery?.removeEventListener('change', handleMediumChange)
   window.removeEventListener('keydown', onGlobalKeydown)
 })
 
