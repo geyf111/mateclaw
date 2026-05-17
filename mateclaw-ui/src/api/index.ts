@@ -164,6 +164,10 @@ export const conversationApi = {
     http.delete(`/conversations/${conversationId}/messages`),
   rename: (conversationId: string, title: string) =>
     http.put(`/conversations/${conversationId}/title`, { title }),
+  setPinned: (conversationId: string, pinned: boolean) =>
+    http.put(`/conversations/${conversationId}/pin`, { pinned }),
+  batchDelete: (conversationIds: string[]) =>
+    http.post('/conversations/batch-delete', { conversationIds }),
 }
 
 // ==================== Skill ====================
