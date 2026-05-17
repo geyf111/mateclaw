@@ -18,6 +18,7 @@
     >
       <SkillIcon
         class="mc-agent-picker__trigger-icon"
+        :style="{ color: agentIconColor(selectedAgent?.icon) }"
         :value="selectedAgent?.icon"
         :size="compact ? 24 : 22"
         fallback="🤖"
@@ -110,6 +111,7 @@
               >
                 <SkillIcon
                   class="mc-agent-picker__item-icon"
+                  :style="{ color: agentIconColor(agent.icon) }"
                   :value="agent.icon"
                   :size="28"
                   fallback="🤖"
@@ -143,6 +145,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SkillIcon from '@/components/common/SkillIcon.vue'
+import { agentIconColor } from '@/utils/agentIconColor'
 
 /** Minimal structural shape so this picker works with the full `Agent`
  *  entity as well as the lighter agent option lists (e.g. workflow steps). */
