@@ -358,6 +358,9 @@
                 <configuration>
                     <release>${maven.compiler.release}</release>
                     <encoding>${project.build.sourceEncoding}</encoding>
+                    <!-- Emit method parameter names so Spring MVC can bind
+                         @PathVariable/@RequestParam without explicit names. -->
+                    <parameters>true</parameters>
                 </configuration>
             </plugin>
         </plugins>
