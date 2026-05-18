@@ -70,7 +70,9 @@ const props = defineProps<{ agentId: string | number }>()
 const { t } = useI18n()
 
 interface FileInfo { filename: string; fileSize: number; enabled: boolean }
-interface Section { heading: string; body: string; userEdited: boolean; raw: string }
+// `synthetic` marks the pseudo-section built from content before the first
+// `## ` heading — it has no heading key the HiL endpoint can address.
+interface Section { heading: string; body: string; userEdited: boolean; raw: string; synthetic?: boolean }
 
 const files = ref<FileInfo[]>([])
 const currentFile = ref('')
@@ -121,31 +123,54 @@ function parseSections(content: string): Section[] {
     const match = part.match(/^## (.+)\n([\s\S]*)/)
     if (match) {
       const heading = match[1].trim()
-      const body = match[2].trim()
-      const userEdited = body.includes('<!-- user-edited')
-      result.push({ heading, body, userEdited, raw: part })
+      const rawBody = match[2].trim()
+      const userEdited = rawBody.includes('<!-- user-edited')
+      // Strip the hidden marker from the display body — it is metadata, and
+      // since renderMd now escapes HTML it would otherwise show as raw text.
+      result.push({ heading, body: stripMarker(rawBody), userEdited, raw: part })
     } else if (part.trim() && result.length === 0) {
-      // Content before first ## heading
-      result.push({ heading: t('memory.memoryBrowser.header'), body: part.trim(), userEdited: false, raw: part })
+      // Content before the first ## heading — a synthetic "preamble" section.
+      result.push({ heading: t('memory.memoryBrowser.header'), body: part.trim(), userEdited: false, raw: part, synthetic: true })
     }
   }
   return result
 }
 
+// Strip the hidden user-edited marker so it never shows up as raw text in the
+// editor (and never accumulates when a section is edited repeatedly).
+function stripMarker(body: string): string {
+  return body.replace(/^[ \t]*<!-- user-edited:.*-->[ \t]*$/gm, '').trim()
+}
+
 function startEdit(idx: number) {
   editingIdx.value = idx
-  editText.value = sections.value[idx].body
+  editText.value = stripMarker(sections.value[idx].body)
 }
 
 async function saveSection(idx: number) {
   saving.value = true
   try {
-    // Use HiL edit endpoint to write back with user-edited metadata
-    const heading = sections.value[idx].heading
-    await http.post(
-      `/memory/${props.agentId}/dream/reports/0/entries/${encodeURIComponent(heading)}/edit`,
-      { content: editText.value }
-    )
+    const sec = sections.value[idx]
+    if (sec.synthetic) {
+      // The preamble (content before the first ## heading) has no section key
+      // the HiL endpoint can address — rewrite it through the workspace file
+      // API, preserving every real `## ` section that follows.
+      const res: any = await agentContextApi.getFile(props.agentId, currentFile.value)
+      const content: string = res.data?.content || ''
+      const headingIdx = content.search(/^## /m)
+      const rest = headingIdx >= 0 ? content.slice(headingIdx) : ''
+      const preamble = editText.value.trim()
+      const merged = preamble && rest ? `${preamble}\n\n${rest}` : preamble + rest
+      await agentContextApi.saveFile(props.agentId, currentFile.value, merged)
+    } else {
+      // Use HiL edit endpoint to write back with user-edited metadata.
+      // `filename` tells the backend which memory file to edit — without it the
+      // backend defaults to MEMORY.md and PROFILE.md / SOUL.md edits fail.
+      await http.post(
+        `/memory/${props.agentId}/dream/reports/0/entries/${encodeURIComponent(sec.heading)}/edit`,
+        { content: editText.value, filename: currentFile.value }
+      )
+    }
     mcToast.success(t('memory.hil.saved'))
     editingIdx.value = -1
     // Reload file to see changes
@@ -156,16 +181,23 @@ async function saveSection(idx: number) {
 }
 
 function renderMd(body: string): string {
-  // Simple markdown rendering (lists, bold, line breaks)
+  // Minimal Markdown — bold, inline code, italic, lists, blockquotes.
+  // HTML is escaped first so a section body can never inject markup via v-html.
+  const esc = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const inline = (s: string) =>
+    esc(s)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/`([^`]+?)`/g, '<code>$1</code>')
+      // Italic — require a boundary before the marker so snake_case is left alone.
+      .replace(/(^|[\s(])([*_])(?=\S)([^*_]+?)\2(?=[\s).,;:!?，。；：！？]|$)/g, '$1<em>$3</em>')
   return body
     .split('\n')
     .map(line => {
-      let html = line
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/`(.+?)`/g, '<code>$1</code>')
-      if (html.startsWith('- ')) return `<li>${html.slice(2)}</li>`
-      if (html.trim() === '') return ''
-      return `<p>${html}</p>`
+      if (line.trim() === '') return ''
+      if (line.startsWith('- ')) return `<li>${inline(line.slice(2))}</li>`
+      if (line.startsWith('> ')) return `<blockquote>${inline(line.slice(2))}</blockquote>`
+      return `<p>${inline(line)}</p>`
     })
     .filter(Boolean)
     .join('')
@@ -256,7 +288,12 @@ function fileLabel(filename: string): string {
   font-size: 12px; font-family: 'SF Mono', Menlo, monospace;
 }
 .section-body :deep(strong) { color: var(--mc-text-primary); }
+.section-body :deep(em) { font-style: italic; }
 .section-body :deep(p) { margin: 2px 0; }
+.section-body :deep(blockquote) {
+  margin: 4px 0; padding: 1px 0 1px 10px;
+  border-left: 2px solid var(--mc-border); color: var(--mc-text-tertiary);
+}
 
 /* Edit mode */
 .section-edit { margin-top: 8px; }
