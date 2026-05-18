@@ -6,7 +6,7 @@
         class="file-nav-btn" :class="{ active: currentFile === f.filename }"
         :title="f.filename"
         @click="loadFile(f.filename)">
-        <span class="file-nav-icon">{{ fileIcon(f.filename) }}</span>
+        <span class="file-nav-icon" v-html="fileIcon(f.filename)" />
         <span class="file-nav-name">{{ fileLabel(f.filename) }}</span>
       </button>
     </div>
@@ -54,7 +54,12 @@
 
     <!-- Empty -->
     <div v-else class="browser-empty">
-      <div class="empty-icon">📝</div>
+      <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
       <p>{{ t('memory.memoryBrowser.empty') }}</p>
     </div>
   </div>
@@ -203,14 +208,24 @@ function renderMd(body: string): string {
     .join('')
 }
 
+// Inline line-art icons (Feather style, 14px) keep the file tabs visually
+// consistent with the sidebar nav and the rest of the admin UI.
+function svgIcon(inner: string): string {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
+}
+
 function fileIcon(filename: string): string {
-  if (filename === 'MEMORY.md') return '🧠'
-  if (filename === 'PROFILE.md') return '👤'
-  if (filename === 'SOUL.md') return '💫'
-  if (filename === 'structured/user.md') return '📋'
-  if (filename === 'structured/reference.md') return '🔗'
-  if (filename.startsWith('structured/')) return '📋'
-  return '📄'
+  if (filename === 'MEMORY.md')
+    return svgIcon('<path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><line x1="12" y1="11" x2="12" y2="14"/>')
+  if (filename === 'PROFILE.md')
+    return svgIcon('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>')
+  if (filename === 'SOUL.md')
+    return svgIcon('<path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3L12 3z"/>')
+  if (filename === 'structured/reference.md')
+    return svgIcon('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>')
+  if (filename.startsWith('structured/'))
+    return svgIcon('<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>')
+  return svgIcon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>')
 }
 
 // Rank for display order: 0 = primary brain, 1 = persona, 2 = extracted facts.
@@ -258,7 +273,7 @@ function fileLabel(filename: string): string {
   border-color: var(--mc-primary);
   color: var(--mc-text-primary);
 }
-.file-nav-icon { font-size: 14px; line-height: 1; }
+.file-nav-icon { display: inline-flex; align-items: center; }
 .file-nav-name { letter-spacing: 0.1px; }
 
 /* Section cards */
@@ -327,5 +342,5 @@ function fileLabel(filename: string): string {
 .skeleton-line { height: 10px; border-radius: 4px; background: var(--mc-border-light); margin-bottom: 8px; }
 .skeleton-line.short { width: 60%; }
 .browser-empty { display: flex; flex-direction: column; align-items: center; padding: 40px 0; color: var(--mc-text-tertiary); }
-.empty-icon { font-size: 28px; margin-bottom: 8px; }
+.empty-icon { width: 32px; height: 32px; margin-bottom: 10px; color: var(--mc-text-tertiary); opacity: 0.7; }
 </style>
