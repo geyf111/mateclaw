@@ -817,8 +817,8 @@ public class WikiTool {
     // ==================== Helpers ====================
 
     private Long resolveKbId(Long agentId) {
-        List<WikiKnowledgeBaseEntity> kbs = kbService.listByAgentId(agentId);
-        return kbs.isEmpty() ? null : kbs.get(0).getId();
+        WikiKnowledgeBaseEntity kb = kbService.resolvePrimaryKb(agentId);
+        return kb == null ? null : kb.getId();
     }
 
     private JSONArray resolveSourceFiles(String sourceRawIdsJson) {
