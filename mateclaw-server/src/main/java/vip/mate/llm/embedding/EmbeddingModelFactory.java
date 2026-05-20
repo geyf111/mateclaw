@@ -105,6 +105,25 @@ public class EmbeddingModelFactory {
         cache.clear();
     }
 
+    /**
+     * Pick the embedding protocol from the provider's {@code chatModel} column.
+     * Package-private for unit testing.
+     * <p>
+     * dashscope-compat carries 'dashscope' in its providerId but is wired with
+     * OpenAIChatModel + compatible-mode base URL, so substring-matching the
+     * providerId routed it to the native DashScope embedding endpoint and 404'd.
+     * Using the {@code chatModel} column matches {@link ModelProtocol#fromChatModel}
+     * for the chat path — same signal, same case-insensitive trim semantics.
+     */
+    static EmbeddingProtocol resolveEmbeddingProtocol(String chatModel) {
+        if (chatModel == null || chatModel.isBlank()) {
+            return EmbeddingProtocol.OPENAI_EMBEDDING;
+        }
+        return "DashScopeChatModel".equalsIgnoreCase(chatModel.trim())
+                ? EmbeddingProtocol.DASHSCOPE_EMBEDDING
+                : EmbeddingProtocol.OPENAI_EMBEDDING;
+    }
+
     // ==================== 内部实现 ====================
 
     private EmbeddingModel doBuild(ModelConfigEntity modelConfig) {
@@ -114,14 +133,7 @@ public class EmbeddingModelFactory {
                     "Embedding provider '" + modelConfig.getProvider() + "' not found in mate_model_provider");
         }
 
-        // Use chatModel column (same signal as ModelProtocol.fromChatModel) rather than
-        // providerId substring matching. dashscope-compat has "dashscope" in its id but
-        // uses OpenAIChatModel + compatible-mode URL — routing it to DASHSCOPE_EMBEDDING
-        // causes DashScopeApi to construct a native path that returns 404 against the
-        // compat base URL.
-        EmbeddingProtocol protocol = "DashScopeChatModel".equals(provider.getChatModel())
-                ? EmbeddingProtocol.DASHSCOPE_EMBEDDING
-                : EmbeddingProtocol.OPENAI_EMBEDDING;
+        EmbeddingProtocol protocol = resolveEmbeddingProtocol(provider.getChatModel());
         log.info("[EmbeddingFactory] Building embedding model: provider={}, chatModel={}, model={}, protocol={}",
                 provider.getProviderId(), provider.getChatModel(), modelConfig.getModelName(), protocol);
 
