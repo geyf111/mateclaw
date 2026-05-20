@@ -184,6 +184,7 @@ html.dark .login-page {
   background-color: #fff;
   padding: 48px;
   border-radius: 20px;
+  box-shadow: var(--mc-shadow-soft);
 }
 
 /* Logo */
