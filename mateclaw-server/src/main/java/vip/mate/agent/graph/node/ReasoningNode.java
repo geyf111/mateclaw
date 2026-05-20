@@ -83,7 +83,7 @@ public class ReasoningNode implements NodeAction {
     private static final int DASHSCOPE_MAX_OUTPUT_TOKENS = 8192;
 
     /**
-     * Hermes-agent style enforcement clause appended to every ReasoningNode
+     * Tool-use enforcement clause appended to every ReasoningNode
      * system prompt. Treats narration ("I will now …") as a protocol violation
      * to prevent the recurring failure mode where a model says it will call a
      * tool but emits the description as final_answer text instead.
