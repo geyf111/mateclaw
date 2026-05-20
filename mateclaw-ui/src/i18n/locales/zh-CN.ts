@@ -1,6 +1,6 @@
 export default {
   app: {
-    title: 'MateClaw - AI 助手',
+    title: 'GLClaw - AI 助手',
   },
   common: {
     save: '保存',
@@ -2450,10 +2450,12 @@ export default {
     fields: {
       username: '用户名',
       password: '密码',
+      code: '验证码',
     },
     placeholders: {
       username: '请输入用户名',
       password: '请输入密码',
+      code: '请输入验证码',
     },
     signIn: '登录',
     hint: '默认账号: <code>admin</code> / <code>admin123</code>',

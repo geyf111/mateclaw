@@ -89,6 +89,7 @@ export const authApi = {
   createUser: (data: any) => http.post('/auth/users', data),
   changePassword: (id: number, oldPassword: string, newPassword: string) =>
     http.put(`/auth/users/${id}/password`, null, { params: { oldPassword, newPassword } }),
+  getCaptcha: () => http.get('/auth/captcha'),
 }
 
 // ==================== Agent ====================
