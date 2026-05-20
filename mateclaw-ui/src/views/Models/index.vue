@@ -1,25 +1,28 @@
 <template>
-  <div class="settings-section model-section">
-    <div class="section-header">
-      <div>
-        <h2 class="section-title">{{ t('settings.model.title') }}</h2>
-        <p class="section-desc">{{ t('settings.model.desc') }}</p>
-      </div>
-      <div class="section-header__actions">
-        <!-- RFC-074 PR-2: primary entry to enable a built-in provider. -->
-        <button class="btn-primary" @click="openDrawer">
-          {{ t('settings.model.enableProviderCta') }}
-        </button>
-        <!-- Secondary: create a fully custom provider (your own base URL etc.). -->
-        <button class="btn-secondary" @click="openCreateProviderModal">
-          {{ t('settings.model.addCustomProvider') }}
-        </button>
-      </div>
-    </div>
+  <div class="mc-page-shell">
+    <div class="mc-page-frame">
+      <div class="mc-page-inner models-page">
+        <div class="mc-page-header">
+          <div>
+            <div class="mc-page-kicker">Model Hub</div>
+            <h1 class="mc-page-title">{{ t('settings.model.title') }}</h1>
+            <p class="mc-page-desc">{{ t('settings.model.desc') }}</p>
+          </div>
+          <div class="section-header__actions">
+            <!-- RFC-074 PR-2: primary entry to enable a built-in provider. -->
+            <button class="btn-primary" @click="openDrawer">
+              {{ t('settings.model.enableProviderCta') }}
+            </button>
+            <!-- Secondary: create a fully custom provider (your own base URL etc.). -->
+            <button class="btn-secondary" @click="openCreateProviderModal">
+              {{ t('settings.model.addCustomProvider') }}
+            </button>
+          </div>
+        </div>
 
     <!-- RFC-074 PR-1: skeleton placeholder so the page paints something
          immediately on first load instead of blank-then-pop. -->
-    <div v-if="loading" class="provider-group">
+    <div v-if="loading" class="provider-group provider-loading mc-surface-card">
       <el-skeleton :rows="4" animated />
     </div>
 
@@ -28,7 +31,7 @@
          for users who closed it. -->
     <div
       v-if="!loading && !localProviders.length && !cloudProviders.length"
-      class="provider-empty"
+      class="provider-empty mc-surface-card"
     >
       <h3>{{ t('settings.model.emptyTitle') }}</h3>
       <p>{{ t('settings.model.emptyDesc') }}</p>
@@ -49,7 +52,7 @@
         <div
           v-for="provider in localProviders"
           :key="provider.id"
-          class="provider-card"
+          class="provider-card mc-surface-card"
           :class="{ 'provider-card--active': isProviderActive(provider) }"
         >
           <ProviderCard
@@ -87,7 +90,7 @@
         <div
           v-for="provider in cloudProviders"
           :key="provider.id"
-          class="provider-card"
+          class="provider-card mc-surface-card"
           :class="{ 'provider-card--active': isProviderActive(provider) }"
         >
           <ProviderCard
@@ -114,13 +117,11 @@
     </div>
 
     <!-- Embedding 模型（RFC Embedding UI） -->
-    <EmbeddingModelsSection />
-
-    <!-- Multimodal sidecar routing: text-only primary models can delegate
-         image/video understanding to a vision/video model configured here. -->
-    <MultimodalSidecarSection />
+    <EmbeddingModelsSection class="embedding-surface mc-surface-card" />
 
     <div v-if="savedTip" class="save-tip">{{ savedTip }}</div>
+      </div>
+    </div>
 
     <!-- Provider Config Modal -->
     <ProviderConfigModal
@@ -198,7 +199,6 @@ import type { ProviderInfo, ProviderModelInfo } from '@/types'
 import { useProviders } from './useProviders'
 import ProviderCard from './ProviderCard.vue'
 import EmbeddingModelsSection from './EmbeddingModelsSection.vue'
-import MultimodalSidecarSection from './MultimodalSidecarSection.vue'
 // RFC-074 PR-1: defer modal JS until the user actually opens one — same
 // pattern as ChannelEditModal in commit 9300559b. Drops ~30KB from the
 // initial Settings/Models route chunk.
@@ -410,14 +410,16 @@ function showSavedTip(message: string) {
 </script>
 
 <style scoped>
-.settings-section { width: 100%; }
-.settings-section.model-section { max-width: none; }
-.section-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
-.section-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; color: var(--mc-text-primary); }
-.section-desc { margin: 0; font-size: 14px; color: var(--mc-text-secondary); }
+.models-page {
+  gap: 18px;
+}
 
 .provider-group {
   margin-bottom: 28px;
+}
+
+.provider-loading {
+  padding: 20px;
 }
 
 .group-title {
@@ -438,43 +440,64 @@ function showSavedTip(message: string) {
 .provider-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 16px;
+  gap: 18px;
 }
 .provider-card {
-  background: var(--mc-bg-elevated); border: 1px solid var(--mc-border); border-radius: 16px; padding: 18px; box-shadow: 0 8px 24px rgba(124, 63, 30, 0.04);
+  border-radius: 16px;
+  padding: 20px;
   /* Inset shadow technique: layout doesn't shift between active/inactive
      because we're not using border-left. Default rail is transparent so
      the same rule paints on both states — only the color changes. */
-  box-shadow: inset 4px 0 0 transparent, 0 8px 24px rgba(124, 63, 30, 0.04);
-  transition: box-shadow 0.18s ease;
+  box-shadow: inset 4px 0 0 transparent, var(--mc-shadow-soft);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 .provider-card--active {
-  box-shadow: inset 4px 0 0 var(--mc-primary), 0 8px 24px rgba(124, 63, 30, 0.06);
+  box-shadow: inset 4px 0 0 var(--mc-primary), var(--mc-shadow-soft);
 }
-.btn-primary { border: none; border-radius: 10px; padding: 9px 14px; font-size: 14px; cursor: pointer; transition: all 0.15s; background: var(--mc-primary); color: white; }
-.btn-primary:hover { background: var(--mc-primary-hover); }
+.provider-card:hover {
+  border-color: var(--mc-primary-light);
+  box-shadow: inset 4px 0 0 transparent, var(--mc-shadow-medium);
+  transform: translateY(-2px);
+}
+.provider-card--active:hover {
+  box-shadow: inset 4px 0 0 var(--mc-primary), var(--mc-shadow-medium);
+}
+.embedding-surface {
+  padding: 20px;
+  margin-top: 8px;
+  border-radius: 16px;
+}
+.btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: none; border-radius: 14px; padding: 10px 16px; font-size: 14px; font-weight: 600; line-height: 1; cursor: pointer; transition: background 0.15s, box-shadow 0.15s; background: linear-gradient(135deg, var(--mc-primary), var(--mc-primary-hover)); color: white; box-shadow: var(--mc-shadow-soft); }
+.btn-primary:hover { background: var(--mc-primary-hover); box-shadow: var(--mc-shadow-medium); }
 /* RFC-074 PR-2: section-header now has two CTAs (enable + create custom). */
 .section-header__actions { display: flex; gap: 8px; flex-shrink: 0; }
 .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--mc-border);
-  border-radius: 10px;
-  padding: 9px 14px;
+  border-radius: 14px;
+  padding: 10px 16px;
   font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
   background: var(--mc-bg-elevated);
   color: var(--mc-text-primary);
 }
-.btn-secondary:hover { background: var(--mc-bg-sunken); }
+.btn-secondary:hover { border-color: var(--mc-primary-light); background: var(--mc-bg-sunken); color: var(--mc-primary); }
 /* RFC-074 PR-2: empty state when no providers are enabled. */
 .provider-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   margin: 32px auto;
-  max-width: 480px;
+  max-width: 520px;
   padding: 36px 28px;
   text-align: center;
-  border: 1px dashed var(--mc-border);
+  border-style: dashed;
   border-radius: 16px;
-  background: var(--mc-bg-elevated);
 }
 .provider-empty h3 { margin: 0 0 8px; font-size: 16px; color: var(--mc-text-primary); }
 .provider-empty p { margin: 0 0 18px; font-size: 13px; color: var(--mc-text-tertiary); }
@@ -482,7 +505,15 @@ function showSavedTip(message: string) {
 .save-tip { position: fixed; right: 24px; bottom: 24px; background: var(--mc-text-primary); color: var(--mc-text-inverse); padding: 10px 14px; border-radius: 10px; box-shadow: 0 10px 30px rgba(124, 63, 30, 0.22); }
 
 @media (max-width: 900px) {
-  .section-header { flex-direction: column; }
+  .section-header__actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    width: 100%;
+  }
 }
 @media (max-width: 640px) {
   .provider-grid { grid-template-columns: 1fr; }
