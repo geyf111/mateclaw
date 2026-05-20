@@ -10,11 +10,11 @@
       <!-- Logo -->
       <div class="sidebar-logo">
         <div class="logo-icon">
-          <img src="/logo/mateclaw_logo_s.png" alt="MateClaw" class="logo-img" />
+          <img src="/logo/mateclaw_logo_s.png" alt="GLClaw" class="logo-img" />
         </div>
         <transition name="fade">
           <div v-if="!effectiveCollapsed" class="logo-text">
-            <span class="logo-name">Mate<span class="logo-name-highlight">Claw</span></span>
+            <span class="logo-name">GL<span class="logo-name-highlight">Claw</span></span>
             <span class="logo-version">v{{ appVersion }}</span>
           </div>
         </transition>
@@ -109,9 +109,9 @@
               <div class="user-name">{{ username }}</div>
               <div class="user-role">{{ roleLabel }}</div>
             </div>
-            <button class="change-password-btn" @click="showChangePassword = true" :title="t('auth.changePassword')">
+            <!-- <button class="change-password-btn" @click="showChangePassword = true" :title="t('auth.changePassword')">
               <el-icon :size="16"><Lock /></el-icon>
-            </button>
+            </button> -->
             <button class="logout-btn" @click="logout" :title="t('nav.logout')">
               <el-icon :size="16"><SwitchButton /></el-icon>
             </button>
