@@ -34,7 +34,7 @@
       </div>
 
       <!-- 工作区切换 -->
-      <WorkspaceSwitcher :collapsed="effectiveCollapsed" />
+      <!-- <WorkspaceSwitcher :collapsed="effectiveCollapsed" /> -->
 
       <!-- 导航菜单 -->
       <nav class="sidebar-nav">
@@ -47,8 +47,7 @@
               :to="item.path"
               class="nav-item"
               :class="{ active: isNavItemActive(item), 'has-attention': item.path === '/backstage' && backstageAlertActive }"
-              :title="effectiveCollapsed ? (item.tooltip || item.label) : (item.tooltip || '')"
-              @click="onNavClick"
+              :title="effectiveCollapsed ? item.label : ''"
             >
               <span class="nav-icon" v-html="item.icon"></span>
               <span v-if="!effectiveCollapsed" class="nav-label">{{ item.label }}</span>
@@ -66,12 +65,12 @@
       <div class="sidebar-footer">
         <template v-if="!sidebarCollapsed || isMobile">
           <!-- Doctor 健康指示器 -->
-          <button class="health-indicator" :class="healthStatus" @click="showDoctor = true" :title="t('doctor.title')">
+          <!-- <button class="health-indicator" :class="healthStatus" @click="showDoctor = true" :title="t('doctor.title')">
             <span class="health-dot"></span>
             <span class="health-label">{{ t('doctor.title') }}</span>
-          </button>
+          </button> -->
 
-          <div class="sidebar-utility-card">
+          <!-- <div class="sidebar-utility-card">
             <div class="compact-utility-row">
               <span class="compact-utility-title">{{ t('nav.themeLabel') }}</span>
               <div class="theme-toggle-row theme-toggle-row--compact">
@@ -102,7 +101,7 @@
                 </button>
               </div>
             </div>
-          </div>
+          </div> -->
 
           <div class="user-info">
             <div class="user-avatar">{{ userInitial }}</div>
@@ -153,9 +152,9 @@
            — KeepAlive treats comments as children and rejects "more than one". -->
       <router-view v-slot="{ Component, route }">
         <keep-alive>
-          <component :is="Component" :key="`${workspaceRouteKey}:${route.path}`" v-if="route.meta?.keepAlive" />
+          <component :is="Component" :key="route.path" v-if="route.meta?.keepAlive" />
         </keep-alive>
-        <component :is="Component" :key="`${workspaceRouteKey}:${route.path}`" v-if="!route.meta?.keepAlive" />
+        <component :is="Component" :key="route.path" v-if="!route.meta?.keepAlive" />
       </router-view>
     </main>
 
@@ -176,8 +175,8 @@ import type { ThemeMode } from '@/stores/useThemeStore'
 import { http, settingsApi, setupApi, backstageApi } from '@/api/index'
 import OnboardingWizard from '@/views/Onboarding/OnboardingWizard.vue'
 import DoctorDrawer from '@/views/Doctor/DoctorDrawer.vue'
-import WorkspaceSwitcher from '@/components/workspace/WorkspaceSwitcher.vue'
-import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+// import WorkspaceSwitcher from '@/components/workspace/WorkspaceSwitcher.vue'
+// import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { applyLocale, currentLocale, type AppLocale } from '@/i18n'
 import { SwitchButton, Lock } from '@element-plus/icons-vue'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
@@ -186,12 +185,12 @@ const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
 const themeStore = useThemeStore()
-const workspaceStore = useWorkspaceStore()
+// const workspaceStore = useWorkspaceStore()
 const sidebarCollapsed = ref(localStorage.getItem('mc-sidebar-collapsed') === 'true')
 const footerPanelOpen = ref(false)
 
 // Workspace 切换时通过 key 变化让 router-view 重新挂载，避免 hard reload 破坏运行状态
-const workspaceRouteKey = computed(() => `ws-${workspaceStore.currentWorkspaceId ?? 'none'}`)
+// const workspaceRouteKey = computed(() => `ws-${workspaceStore.currentWorkspaceId ?? 'none'}`)
 const showOnboarding = ref(false)
 const showDoctor = ref(false)
 const healthStatus = ref('unknown')
@@ -288,10 +287,6 @@ onBeforeUnmount(() => {
   if (backstagePollTimer) clearInterval(backstagePollTimer)
 })
 
-function onNavClick() {
-  if (isMobile.value) mobileMenuOpen.value = false
-}
-
 const username = computed(() => localStorage.getItem('username') || 'User')
 const role = computed(() => localStorage.getItem('role') || 'user')
 const userInitial = computed(() => username.value.charAt(0).toUpperCase())
@@ -354,16 +349,6 @@ const navGroups = computed(() => [
         label: t('nav.wiki'),
         icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`,
       },
-      {
-        path: '/memory',
-        label: t('nav.memory'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><line x1="12" y1="11" x2="12" y2="14"/></svg>`,
-      },
-      {
-        path: '/enterprise',
-        label: t('nav.enterprise'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h.01"/><path d="M9 12h.01"/><path d="M9 15h.01"/><path d="M9 18h.01"/><path d="M15 9h.01"/><path d="M15 12h.01"/><path d="M15 15h.01"/><path d="M15 18h.01"/></svg>`,
-      },
     ],
   },
   {
@@ -381,15 +366,14 @@ const navGroups = computed(() => [
         icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
       },
       {
-        path: '/plugins',
-        label: t('nav.plugins'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 3h-8v4h8V3z"/></svg>`,
+        path: '/models',
+        label: t('settings.sections.model'),
+        icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>',
       },
-      // RFC-090 Phase 4: Activity 提升到顶层
       {
-        path: '/activity',
-        label: t('nav.activity'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+        path: '/cron-jobs',
+        label: t('nav.cronJobs'),
+        icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
       },
     ],
   },
@@ -397,11 +381,6 @@ const navGroups = computed(() => [
     key: 'system',
     label: t('nav.system'),
     items: [
-      {
-        path: '/settings/models',
-        label: t('nav.settings'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>`,
-      },
       {
         path: '/security',
         label: t('nav.security'),
@@ -421,9 +400,6 @@ function toggleSidebar() {
 }
 
 function isNavItemActive(item: { path: string; label: string }) {
-  if (item.path.startsWith('/settings')) {
-    return route.path.startsWith('/settings')
-  }
   if (item.path === '/security') {
     return route.path.startsWith('/security')
   }
@@ -458,9 +434,9 @@ watch(() => sidebarCollapsed.value, (collapsed) => {
   if (!collapsed) footerPanelOpen.value = false
 })
 
-watch(() => workspaceStore.currentWorkspaceId, () => {
-  footerPanelOpen.value = false
-})
+// watch(() => workspaceStore.currentWorkspaceId, () => {
+//   footerPanelOpen.value = false
+// })
 </script>
 
 <style scoped>
@@ -477,26 +453,26 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at top left, rgba(217, 109, 70, 0.12), transparent 22%),
-    radial-gradient(circle at bottom right, rgba(24, 74, 69, 0.08), transparent 18%);
+    radial-gradient(circle at top left, rgba(240, 247, 255, 0.12), transparent 22%),
+    radial-gradient(circle at bottom right, rgba(240, 247, 255, 0.08), transparent 18%);
   pointer-events: none;
 }
 
 :global(html.dark) .app-layout::before {
   background:
-    radial-gradient(circle at top left, rgba(235, 143, 101, 0.14), transparent 24%),
-    radial-gradient(circle at bottom right, rgba(92, 166, 157, 0.08), transparent 20%);
+    radial-gradient(circle at top left, rgba(240, 247, 255, 0.14), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(240, 247, 255, 0.08), transparent 20%);
 }
 
 /* ===== 侧边栏 ===== */
 .sidebar {
   width: 236px;
   min-width: 236px;
-  margin: 14px 0 14px 14px;
+  /* margin: 14px 0 14px 14px; */
   background:
     linear-gradient(180deg, var(--mc-panel-top), var(--mc-panel-bottom));
   border: 1px solid var(--mc-sidebar-border);
-  border-radius: 28px;
+  /* border-radius: 28px; */
   box-shadow: var(--mc-shadow-soft);
   display: flex;
   flex-direction: column;
@@ -545,15 +521,15 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
-  background: linear-gradient(135deg, rgba(217, 109, 70, 0.18), rgba(24, 74, 69, 0.08));
-  border: 1px solid rgba(217, 109, 70, 0.14);
+  background: linear-gradient(135deg, rgba(0, 110, 220, 0.18), rgba(0, 110, 220, 0.06));
+  border: 1px solid rgba(0, 110, 220, 0.14);
 }
 
 .logo-img {
   width: 34px;
   height: 34px;
   object-fit: contain;
-  filter: drop-shadow(0 8px 18px rgba(217, 109, 70, 0.22));
+  filter: drop-shadow(0 8px 18px rgba(0, 110, 220, 0.22));
 }
 
 .logo-emoji { font-size: 16px; }
@@ -665,7 +641,7 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   background: var(--mc-sidebar-active);
   color: var(--mc-sidebar-text-active);
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px rgba(217, 109, 70, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(0, 110, 220, 0.1);
 }
 
 /* Active indicator bar removed — active state uses bg color + font weight only */
@@ -848,7 +824,7 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
 }
 
 .language-btn.active {
-  border-color: rgba(217, 109, 70, 0.18);
+  border-color: rgba(0, 110, 220, 0.2);
   background: var(--mc-primary-bg);
   color: var(--mc-primary);
 }
@@ -984,7 +960,7 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
 .footer-icon-btn--accent {
   color: var(--mc-primary);
   background: var(--mc-primary-bg);
-  border-color: rgba(217, 109, 70, 0.18);
+  border-color: rgba(0, 110, 220, 0.2);
 }
 
 .sidebar-utility-panel {
@@ -1039,7 +1015,7 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
 .panel-option-btn.active {
   background: var(--mc-primary-bg);
   color: var(--mc-primary);
-  border-color: rgba(217, 109, 70, 0.18);
+  border-color: rgba(0, 110, 220, 0.2);
 }
 
 .panel-option-icon {
@@ -1078,7 +1054,7 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   min-width: 0;
   position: relative;
   z-index: 1;
-  padding: 14px 14px 14px 18px;
+  /* padding: 14px 14px 14px 18px; */
 }
 
 /* ===== 移动端元素（桌面端隐藏） ===== */

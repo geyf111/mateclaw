@@ -197,6 +197,8 @@ function renderChart() {
   const textColor = style.getPropertyValue('--mc-text-secondary').trim() || '#999'
   const borderColor = style.getPropertyValue('--mc-border-light').trim() || '#eee'
   const primaryColor = style.getPropertyValue('--mc-primary').trim() || '#D97757'
+  const primaryColorSoft = colorWithAlpha(primaryColor, 0.18)
+  const primaryColorFaint = colorWithAlpha(primaryColor, 0.03)
 
   chartInstance.setOption({
     tooltip: { trigger: 'axis' },
@@ -235,8 +237,8 @@ function renderChart() {
         lineStyle: { width: 2.5, color: primaryColor },
         itemStyle: { color: primaryColor },
         areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: primaryColor + '30' },
-          { offset: 1, color: primaryColor + '05' },
+          { offset: 0, color: primaryColorSoft },
+          { offset: 1, color: primaryColorFaint },
         ])},
       },
       {
@@ -256,6 +258,33 @@ function renderChart() {
   // Responsive resize
   const ro = new ResizeObserver(() => chartInstance?.resize())
   ro.observe(chartRef.value!)
+}
+
+function colorWithAlpha(color: string, alpha: number): string {
+  const normalized = color.trim()
+  const hexMatch = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i)
+  if (hexMatch) {
+    const hex = hexMatch[1]
+    const channels = hex.length <= 4
+      ? [hex[0] + hex[0], hex[1] + hex[1], hex[2] + hex[2]]
+      : [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)]
+    const [r, g, b] = channels.map((channel) => Number.parseInt(channel, 16))
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  }
+
+  const rgbMatch = normalized.match(/^rgba?\((.+)\)$/i)
+  if (rgbMatch) {
+    const rgbPart = rgbMatch[1].split('/')[0].trim()
+    const channels = rgbPart.includes(',')
+      ? rgbPart.split(',').slice(0, 3).map((value) => value.trim())
+      : rgbPart.split(/\s+/).slice(0, 3)
+
+    if (channels.length === 3) {
+      return `rgba(${channels.join(', ')}, ${alpha})`
+    }
+  }
+
+  return `rgba(217, 119, 87, ${alpha})`
 }
 
 function formatTokens(n: number): string {

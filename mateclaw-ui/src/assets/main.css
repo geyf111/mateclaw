@@ -621,16 +621,17 @@ html.dark body::before {
 .mc-page-shell {
   height: 100%;
   overflow-y: auto;
-  padding: 28px;
+  /* padding: 28px; */
 }
 
 .mc-page-frame {
   position: relative;
-  border: 1px solid var(--mc-border);
-  background: var(--mc-surface-overlay);
-  backdrop-filter: blur(12px) saturate(1.1);
-  border-radius: 28px;
-  box-shadow: var(--mc-shadow-soft);
+  min-height: 100%;
+  /* border: 1px solid var(--mc-border); */
+  /* background: var(--mc-surface-overlay); */
+  /* backdrop-filter: blur(12px) saturate(1.1); */
+  /* border-radius: 28px; */
+  /* box-shadow: var(--mc-shadow-soft); */
 }
 
 /* While a workflow canvas is in fullscreen mode, suppress the backdrop
@@ -705,7 +706,7 @@ body.workflow-canvas-fullscreen .mc-page-frame::before {
 .mc-surface-card {
   border: 1px solid var(--mc-border-light);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.92));
-  border-radius: var(--mc-radius-xl);
+  /* border-radius: var(--mc-radius-xl); */
   box-shadow: var(--mc-shadow-soft);
   transition: box-shadow 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
