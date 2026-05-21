@@ -1494,7 +1494,7 @@ function goToModelSettings(providerId?: string) {
   // ModelSelector's Fix button), pass it as a query param so a follow-up PR can
   // scroll/focus the right card on the settings page. Today the consumer just
   // ignores it; harmless meanwhile.
-  router.push({ path: '/settings/models', query: providerId ? { focus: providerId } : {} })
+  router.push({ path: '/models', query: providerId ? { focus: providerId } : {} })
 }
 
 // ============ 计算属性：是否有待审批 ============
