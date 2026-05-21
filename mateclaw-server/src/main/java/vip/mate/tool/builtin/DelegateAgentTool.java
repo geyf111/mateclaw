@@ -5,12 +5,18 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 import vip.mate.agent.AgentService;
+import vip.mate.agent.context.ChatOrigin;
+import vip.mate.agent.delegation.SubagentRegistry;
 import vip.mate.agent.model.AgentEntity;
 import vip.mate.agent.repository.AgentMapper;
+import vip.mate.audit.service.AuditEventService;
 import vip.mate.channel.web.ChatStreamTracker;
 import vip.mate.workspace.conversation.ConversationService;
 
@@ -19,16 +25,17 @@ import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 /**
- * 内置工具：Agent 委派（多 Agent 协作）
+ * Built-in tool: Agent delegation (multi-agent collaboration).
  * <p>
- * 支持两种模式：
+ * Two modes:
  * <ul>
- *   <li>{@link #delegateToAgent} — 单任务委派（串行）</li>
- *   <li>{@link #delegateParallel} — 多任务并行委派（最多 3 个子 Agent 同时执行）</li>
+ *   <li>{@link #delegateToAgent} — single-task serial delegation</li>
+ *   <li>{@link #delegateParallel} — parallel delegation to up to 3 child agents simultaneously</li>
  * </ul>
- * 被委派的 Agent 在独立子会话中运行（记录父子关系），
- * 执行期间通过 SSE 事件 relay 向父会话实时推送进度。
- * 子 Agent 的工具集自动收窄——禁止递归委派和 Agent 发现工具。
+ * Each delegated agent runs in an isolated child conversation (parent-child relationship is
+ * persisted). Progress is relayed to the parent session via SSE events in real time.
+ * Child agents have a narrowed tool set — recursive delegation and agent-discovery tools are
+ * blocked.
  *
  * @author MateClaw Team
  */
@@ -39,17 +46,78 @@ public class DelegateAgentTool {
 
     private static final int MAX_DELEGATION_DEPTH = 3;
     private static final int MAX_RESULT_LENGTH = 4000;
-    private static final int MAX_PARALLEL_CHILDREN = 3;
-    private static final int PARALLEL_TIMEOUT_SECONDS = 300; // 5 分钟
+    /**
+     * Cap on children dispatched in a single delegateParallel call. Set to 8
+     * because real multi-role evaluations commonly cover 5-8 perspectives
+     * (architecture / backend / frontend / security / cost / ops / contrarian /
+     * progressive-alternative); a lower cap forces the parent to split into
+     * batches, and once an older batch's tool result gets compacted by
+     * ConversationWindowManager the parent can no longer reconstruct what each
+     * child said and starts re-dispatching the same roles in a loop.
+     */
+    private static final int MAX_PARALLEL_CHILDREN = 8;
 
-    /** 子 Agent 禁用的工具：防递归 + 防副作用 */
-    private static final Set<String> CHILD_DENIED_TOOLS = Set.of(
-            "delegateToAgent",      // 禁止递归委派
-            "delegateParallel",     // 禁止并行递归
-            "listAvailableAgents"   // 子 Agent 不需要发现其他 Agent
+    /**
+     * RFC-03 Lane C2 — caps for the parent-context prefix when
+     * {@code inheritParentContext=true} is set on {@link #delegateToAgent}.
+     *
+     * <p>{@link #INHERITED_CONTEXT_MAX_MESSAGES} bounds the prefix length so a
+     * 1000-turn parent doesn't dump 1000 turns into the child prompt; 10 is
+     * empirically enough for "what were we just talking about" without
+     * blowing past typical 8k system-prompt budgets. {@link #INHERITED_CONTEXT_PER_MESSAGE_CHARS}
+     * truncates each individual message — useful when the parent has a
+     * long tool result or pasted document.
+     */
+    static final int INHERITED_CONTEXT_MAX_MESSAGES = 10;
+    static final int INHERITED_CONTEXT_PER_MESSAGE_CHARS = 1000;
+    /**
+     * Wall-clock budget for one delegateParallel batch — applies to all children
+     * together, not per child (they run concurrently on virtual threads).
+     *
+     * <p>Configurable via {@code mateclaw.delegation.parallel-timeout-seconds};
+     * default 300 s (5 minutes). Earlier defaults (60 s → 120 s) were
+     * structurally too tight for thinking models: a single LLM turn against
+     * Kimi / GLM / MiniMax routinely takes 90–290 s when the child must
+     * produce multi-section structured output, so the parent gave up while the
+     * children were still happily streaming. 300 s matches the per-prompt
+     * ceiling used by ACP delegation and keeps headroom for one tool-call
+     * round trip on top of a single LLM turn.
+     */
+    @Value("${mateclaw.delegation.parallel-timeout-seconds:300}")
+    private int parallelTimeoutSeconds;
+
+    /**
+     * Default deny list for child agents. Names are matched against the
+     * canonical tool names exposed by the runtime, so they MUST mirror the
+     * actual {@code @Tool}-annotated method names.
+     *
+     * <p>Categories:
+     * <ul>
+     *   <li>Recursion guards (delegate*, listAvailableAgents) — prevent a
+     *       child from spawning another child or enumerating sibling agents.</li>
+     *   <li>Memory writers (remember, *_structured) — children must not
+     *       persist into the parent's shared MEMORY.md / SOUL.md surface;
+     *       the parent owns long-term memory.</li>
+     * </ul>
+     *
+     * <p>{@code execute_shell_command} is intentionally NOT in the default
+     * deny list because legitimate dev-tooling agents rely on shell access.
+     * Operators that need a stricter posture can append it via
+     * {@code mateclaw.delegation.child-denied-tools}.
+     */
+    static final Set<String> DEFAULT_CHILD_DENIED_TOOLS = Set.of(
+            // Recursion guards.
+            "delegateToAgent",
+            "delegateParallel",
+            "listAvailableAgents",
+            // Memory writes from children would pollute the parent's shared
+            // long-term memory surface.
+            "remember",
+            "remember_structured",
+            "forget_structured"
     );
 
-    /** 并行委派执行器：JDK 21 虚拟线程，每个子 Agent 一个轻量级虚拟线程 */
+    /** Executor for parallel delegation — one JDK 21 virtual thread per child agent. */
     private static final ExecutorService DELEGATION_EXECUTOR =
             Executors.newVirtualThreadPerTaskExecutor();
 
@@ -58,9 +126,40 @@ public class DelegateAgentTool {
     private final ChatStreamTracker streamTracker;
     private final ConversationService conversationService;
     private final ObjectMapper objectMapper;
+    private final SubagentRegistry subagentRegistry;
+    private final AuditEventService auditEventService;
 
-    // ==================== 单任务委派 ====================
+    /**
+     * Operator-supplied deny-list extension. Configured via
+     * {@code mateclaw.delegation.child-denied-tools} as a comma-separated
+     * list. Empty by default — the {@link #DEFAULT_CHILD_DENIED_TOOLS} set
+     * already covers the recursion + memory cases that matter for safety.
+     */
+    @Value("${mateclaw.delegation.child-denied-tools:}")
+    private List<String> additionalDeniedTools;
 
+    /**
+     * Effective deny list = defaults ∪ operator additions. Computed on each
+     * delegation entry rather than cached because Spring applies
+     * {@code @Value} after construction and we want operator overrides to
+     * take effect on the next delegation, not on the next restart.
+     */
+    Set<String> deniedToolsForChild() {
+        if (additionalDeniedTools == null || additionalDeniedTools.isEmpty()) {
+            return DEFAULT_CHILD_DENIED_TOOLS;
+        }
+        Set<String> merged = new HashSet<>(DEFAULT_CHILD_DENIED_TOOLS);
+        for (String name : additionalDeniedTools) {
+            if (name != null && !name.isBlank()) {
+                merged.add(name.trim());
+            }
+        }
+        return Set.copyOf(merged);
+    }
+
+    // ==================== Single-task delegation ====================
+
+    @vip.mate.tool.ConcurrencyUnsafe("spawns a child agent session and writes to mate_conversation; serialize to keep session graph deterministic")
     @Tool(description = """
             Delegate a task to another Agent for multi-agent collaboration. \
             Target Agent executes in an independent session and returns its final reply. \
@@ -68,7 +167,20 @@ public class DelegateAgentTool {
             For multiple parallel tasks, use delegateParallel instead.""")
     public String delegateToAgent(
             @ToolParam(description = "Target Agent name (exact match)") String agentName,
-            @ToolParam(description = "Task description with complete context information") String task) {
+            @ToolParam(description = "Task description with complete context information") String task,
+            // RFC-03 Lane C2 — when true, the child agent receives the recent
+            // N messages from the parent conversation as a context prefix.
+            // Default false (the original isolated-child behavior). Set true
+            // only when the task genuinely depends on parent's recent
+            // exchanges; otherwise the cleaner isolated execution is faster
+            // and avoids prompt bloat.
+            @ToolParam(description = "Whether the child should see recent parent conversation messages as background context. Default false. Set true ONLY when the task requires conversational continuity (e.g. 'follow up on what we just discussed').", required = false)
+            Boolean inheritParentContext,
+            // RFC-063r §2.5 改动点 5: parent ChatOrigin (channel binding /
+            // workspace) propagates into the delegated child so a sub-agent
+            // creating a cron job still binds back to the originating channel.
+            // Hidden from the LLM by JsonSchemaGenerator.
+            @Nullable ToolContext ctx) {
 
         if (agentName == null || agentName.isBlank()) {
             return "[错误] 请指定目标 Agent 名称。" + availableAgentsHint();
@@ -88,12 +200,33 @@ public class DelegateAgentTool {
         }
 
         String parentConversationId = resolveParentConversationId();
+
+        // Spawn-pause: when the operator paused this conversation's tree
+        // (via /api/v1/subagents/spawn-pause), short-circuit before creating
+        // child state so no conversation rows / relays / registry entries leak.
+        if (parentConversationId != null && subagentRegistry.isSpawnPaused(parentConversationId)) {
+            return "[错误] Spawning paused for this conversation; resume via /api/v1/subagents/spawn-pause";
+        }
+
         String childConversationId = createChildConv(target, parentConversationId);
 
-        log.info("Agent 委派: depth={}, target={}({}), childConv={}, parentConv={}",
+        // RFC-03 Lane C2: optionally prepend a parent-context prefix to the task.
+        // Bounded at INHERITED_CONTEXT_MAX_MESSAGES messages * INHERITED_CONTEXT_PER_MESSAGE_CHARS
+        // chars so a chatty parent doesn't blow past the child's context window.
+        String taskWithContext = task;
+        if (Boolean.TRUE.equals(inheritParentContext) && parentConversationId != null) {
+            String prefix = buildInheritedContextPrefix(parentConversationId);
+            if (!prefix.isEmpty()) {
+                taskWithContext = prefix + "\n\n---\n\nYour task:\n" + task;
+                log.info("Inheriting parent context: parentConv={}, prefixChars={}",
+                        parentConversationId, prefix.length());
+            }
+        }
+
+        log.info("Agent delegation: depth={}, target={}({}), childConv={}, parentConv={}",
                 depth + 1, target.getName(), target.getId(), childConversationId, parentConversationId);
 
-        // SSE 广播 + relay
+        // Broadcast delegation_start + register event relay to parent session
         boolean hasParent = parentConversationId != null && streamTracker.isRunning(parentConversationId);
         if (hasParent) {
             streamTracker.broadcastObject(parentConversationId, "delegation_start", Map.of(
@@ -101,13 +234,38 @@ public class DelegateAgentTool {
                     "childAgentName", target.getName(),
                     "task", truncate(task, 200)));
         }
-        Runnable stopRelay = hasParent ? registerRelay(childConversationId, parentConversationId, target.getName()) : null;
+        Runnable stopRelay = hasParent ? registerBatchedRelay(childConversationId, parentConversationId, target.getName()) : null;
 
-        // 执行
-        ChildResult result = runSingleChild(0, target, task, parentConversationId, childConversationId);
+        // Register the live sub-agent so the operator UI / heartbeat watchdog
+        // can observe it. Disposable is null in the synchronous single-task
+        // path because the executor blocks on AgentService#chat directly —
+        // there is no Flux subscription to dispose. Interrupts in this path
+        // are best-effort (status flip; no underlying cancel).
+        String subagentId = parentConversationId != null
+                ? subagentRegistry.register(parentConversationId, childConversationId,
+                        target.getId(), task, null)
+                : null;
 
-        // 清理 + 广播结果
-        if (stopRelay != null) stopRelay.run();
+        // Execute child agent — RFC-063r §2.5 改动点 5: inherit the parent
+        // ChatOrigin and only swap the agentId, so channel binding /
+        // workspace / requester all flow into the child.
+        ChatOrigin parentOrigin = ChatOrigin.from(ctx);
+        ChildResult result;
+        try {
+            result = runSingleChild(0, target, taskWithContext, parentConversationId, childConversationId, parentOrigin);
+        } finally {
+            // Cleanup relay + registry regardless of how the child returned
+            // (success / exception / interruption) so we never leak entries.
+            if (stopRelay != null) stopRelay.run();
+            if (subagentId != null) {
+                subagentRegistry.get(subagentId).ifPresent(rec -> {
+                    if ("running".equals(rec.status().get())) {
+                        rec.status().set("completed");
+                    }
+                });
+                subagentRegistry.unregister(subagentId);
+            }
+        }
         if (hasParent) {
             broadcastEnd(parentConversationId, childConversationId, target.getName(), result);
         }
@@ -115,8 +273,9 @@ public class DelegateAgentTool {
         return result.toToolResponse(target.getName());
     }
 
-    // ==================== 并行委派 ====================
+    // ==================== Parallel delegation ====================
 
+    @vip.mate.tool.ConcurrencyUnsafe("internally fans out to its own thread pool; outer executor must not double-parallelize")
     @Tool(description = """
             Delegate multiple tasks to different Agents in parallel (max 3). \
             Each task runs concurrently in an independent child session. \
@@ -124,9 +283,11 @@ public class DelegateAgentTool {
             Input is a JSON array: [{"agentName":"Agent名称","task":"任务描述"}, ...]""")
     public String delegateParallel(
             @ToolParam(description = "JSON array of tasks: [{\"agentName\":\"X\",\"task\":\"Y\"}, ...]")
-            String tasksJson) {
+            String tasksJson,
+            // RFC-063r §2.5 改动点 5: hidden from LLM, used to inherit ChatOrigin into children.
+            @Nullable ToolContext ctx) {
 
-        // 1. 解析任务列表
+        // 1. Parse task list
         List<Map<String, String>> tasks;
         try {
             tasks = objectMapper.readValue(tasksJson, new TypeReference<>() {});
@@ -147,10 +308,19 @@ public class DelegateAgentTool {
         }
 
         String parentConversationId = resolveParentConversationId();
+
+        // Spawn-pause: short-circuit before allocating any per-child state so
+        // we don't leak conversation rows / relays / registry entries when an
+        // operator paused this conversation's tree.
+        if (parentConversationId != null && subagentRegistry.isSpawnPaused(parentConversationId)) {
+            return "[错误] Spawning paused for this conversation; resume via /api/v1/subagents/spawn-pause";
+        }
+
         boolean hasParent = parentConversationId != null && streamTracker.isRunning(parentConversationId);
 
-        // 2. 主线程：校验所有 Agent + 创建子会话 + 注册 relay
-        record PreparedChild(int index, AgentEntity agent, String task, String childConvId, Runnable stopRelay) {}
+        // 2. Main thread: validate agents, create child conversations, register relays
+        record PreparedChild(int index, AgentEntity agent, String task, String childConvId,
+                             Runnable stopRelay, String subagentId) {}
         List<PreparedChild> prepared = new ArrayList<>();
         List<String> errors = new ArrayList<>();
 
@@ -171,17 +341,23 @@ public class DelegateAgentTool {
             }
 
             String childConvId = createChildConv(agent, parentConversationId);
-            Runnable stopRelay = hasParent ? registerRelay(childConvId, parentConversationId, agent.getName()) : null;
-            prepared.add(new PreparedChild(i, agent, task, childConvId, stopRelay));
+            Runnable stopRelay = hasParent
+                    ? registerBatchedRelay(childConvId, parentConversationId, agent.getName())
+                    : null;
+            String subagentId = parentConversationId != null
+                    ? subagentRegistry.register(parentConversationId, childConvId,
+                            agent.getId(), task, null)
+                    : null;
+            prepared.add(new PreparedChild(i, agent, task, childConvId, stopRelay, subagentId));
         }
 
         if (prepared.isEmpty()) {
             return "[错误] 所有任务校验失败：\n" + String.join("\n", errors);
         }
 
-        log.info("并行委派: {} 个任务, parentConv={}", prepared.size(), parentConversationId);
+        log.info("Parallel delegation: {} tasks, parentConv={}", prepared.size(), parentConversationId);
 
-        // 3. 广播 delegation_start（并行模式）
+        // 3. Broadcast delegation_start (parallel mode)
         if (hasParent) {
             List<Map<String, String>> childrenInfo = prepared.stream().map(p -> Map.of(
                     "childConversationId", p.childConvId,
@@ -193,29 +369,66 @@ public class DelegateAgentTool {
                     "children", childrenInfo));
         }
 
-        // 4. 并行执行
+        // 4. Fan out — execute children in parallel
         long startTime = System.currentTimeMillis();
         Map<Integer, CompletableFuture<ChildResult>> futures = new LinkedHashMap<>();
 
+        // RFC-063r §2.5 改动点 5: capture parent origin once on this thread,
+        // then hand it to each child future — the worker virtual threads
+        // can't re-read the ToolContext (no parameter scope), so we close
+        // over the captured origin.
+        ChatOrigin parentOriginParallel = ChatOrigin.from(ctx);
         for (PreparedChild p : prepared) {
             CompletableFuture<ChildResult> future = CompletableFuture.supplyAsync(
-                    () -> runSingleChild(p.index, p.agent, p.task, parentConversationId, p.childConvId),
+                    () -> runSingleChild(p.index, p.agent, p.task, parentConversationId, p.childConvId, parentOriginParallel),
                     DELEGATION_EXECUTOR);
+
+            // Broadcast per-child completion as soon as each child finishes
+            // — frontend can update that child's status without waiting for all children.
+            // Guard: skip CancellationException (fired when the timeout loop calls cancel(true))
+            // because the timeout result is already handled in the collection loop below and
+            // emitting here first would race-replace the correct "timeout" error before delegation_end
+            // has a chance to patch remaining running segments.
+            if (hasParent) {
+                final String parentConvIdFinal = parentConversationId;
+                future.whenComplete((result, ex) -> {
+                    if (ex instanceof java.util.concurrent.CancellationException) return;
+                    if (!streamTracker.isRunning(parentConvIdFinal)) return;
+                    ChildResult r = (result != null) ? result
+                            : ChildResult.ofError(p.index, p.agent.getName(),
+                                    ex != null ? ex.getMessage() : "Unknown error");
+                    Map<String, Object> payload = new java.util.LinkedHashMap<>();
+                    payload.put("taskIndex", r.taskIndex);
+                    payload.put("childConversationId", p.childConvId);
+                    payload.put("childAgentName", r.agentName);
+                    payload.put("success", r.success);
+                    payload.put("outcome", r.outcome);
+                    payload.put("rawLength", r.rawLength);
+                    payload.put("trimmedLength", r.trimmedLength);
+                    payload.put("blank", r.isBlank());
+                    payload.put("durationMs", r.durationMs);
+                    payload.put("resultPreview", r.success
+                            ? truncate(r.result, 400)
+                            : (r.error != null ? r.error : "error"));
+                    streamTracker.broadcastObject(parentConvIdFinal, "delegation_child_complete", payload);
+                });
+            }
+
             futures.put(p.index, future);
         }
 
-        // 5. 等待全部完成（带超时）
+        // 5. Wait for all children (with timeout)
         List<ChildResult> results = new ArrayList<>();
         try {
             CompletableFuture.allOf(futures.values().toArray(new CompletableFuture[0]))
-                    .get(PARALLEL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    .get(parallelTimeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            log.warn("并行委派超时 ({}s)，收集已完成的结果", PARALLEL_TIMEOUT_SECONDS);
+            log.warn("Parallel delegation timed out ({}s), collecting completed results", parallelTimeoutSeconds);
         } catch (Exception e) {
-            log.error("并行委派异常: {}", e.getMessage());
+            log.error("Parallel delegation error: {}", e.getMessage());
         }
 
-        // 收集结果（已完成的 + 超时的）
+        // Collect results — completed futures get their value; unfinished ones are cancelled and recorded as timeout
         for (var entry : futures.entrySet()) {
             int idx = entry.getKey();
             CompletableFuture<ChildResult> f = entry.getValue();
@@ -226,87 +439,252 @@ public class DelegateAgentTool {
                 try {
                     results.add(f.get());
                 } catch (Exception ex) {
-                    results.add(ChildResult.error(idx, agentName, ex.getMessage()));
+                    results.add(ChildResult.ofError(idx, agentName, ex.getMessage()));
                 }
             } else {
+                // Signal the child's graph to bail out at its next checkpoint.
+                // CompletableFuture.cancel alone only marks the future as
+                // cancelled; without requestStop the underlying ReAct/Plan-Execute
+                // loop keeps invoking LLMs and tools (observed: 8-minute orphan
+                // child still writing files long after the parent gave up).
+                if (p != null && p.childConvId != null) {
+                    streamTracker.requestStop(p.childConvId);
+                }
                 f.cancel(true);
-                results.add(ChildResult.error(idx, agentName, "超时 (" + PARALLEL_TIMEOUT_SECONDS + "s)"));
+                // Use ofTimeout so outcome="timeout" is explicit and distinct from "error".
+                results.add(ChildResult.ofTimeout(idx, agentName, parallelTimeoutSeconds));
             }
         }
 
         long totalDurationMs = System.currentTimeMillis() - startTime;
 
-        // 6. 清理 relay
+        // 6. Stop all relays + drain registry entries. Both must run for every
+        // prepared child regardless of whether the future succeeded, timed
+        // out, or threw — otherwise the registry leaks one entry per stuck
+        // child until the JVM restarts.
         for (PreparedChild p : prepared) {
             if (p.stopRelay != null) p.stopRelay.run();
+            if (p.subagentId != null) {
+                subagentRegistry.get(p.subagentId).ifPresent(rec -> {
+                    if ("running".equals(rec.status().get())) {
+                        rec.status().set("completed");
+                    }
+                });
+                subagentRegistry.unregister(p.subagentId);
+            }
         }
 
-        // 7. 广播 delegation_end
+        // 7. Broadcast delegation_end with per-child structured summary
         if (hasParent) {
+            List<Map<String, Object>> childResults = results.stream().map(r -> {
+                Map<String, Object> m = new java.util.LinkedHashMap<>();
+                m.put("taskIndex", r.taskIndex);
+                m.put("agentName", r.agentName);
+                m.put("success", r.success);
+                m.put("outcome", r.outcome);           // "success"|"blank_success"|"timeout"|"error"
+                m.put("rawLength", r.rawLength);        // chars before truncation
+                m.put("trimmedLength", r.trimmedLength);
+                m.put("blank", r.isBlank());
+                m.put("durationMs", r.durationMs);
+                // childConversationId for stable frontend segment lookup
+                prepared.stream()
+                        .filter(p -> p.index == r.taskIndex)
+                        .findFirst()
+                        .ifPresent(p -> m.put("childConversationId", p.childConvId));
+                if (!r.success && r.error != null) m.put("error", r.error);
+                return m;
+            }).toList();
             streamTracker.broadcastObject(parentConversationId, "delegation_end", Map.of(
                     "parallel", true,
                     "totalDurationMs", totalDurationMs,
                     "success", results.stream().allMatch(r -> r.success),
                     "completedCount", results.stream().filter(r -> r.success).count(),
-                    "totalCount", results.size()));
+                    "blankCount", results.stream().filter(ChildResult::isBlank).count(),
+                    "totalCount", results.size(),
+                    "childResults", childResults));
         }
 
-        // 8. 构建返回结果
+        // 8. Build return text — structured so the parent LLM cannot misread current results
+        //    using memory of past timeouts. The machine-readable header line is the source of truth.
         results.sort(Comparator.comparingInt(r -> r.taskIndex));
+        long successCount = results.stream().filter(r -> r.success && !r.isBlank()).count();
+        long blankCount = results.stream().filter(ChildResult::isBlank).count();
+        long timeoutCount = results.stream().filter(r -> "timeout".equals(r.outcome)).count();
+        long errorCount = results.stream().filter(r -> "error".equals(r.outcome)).count();
+
         StringBuilder sb = new StringBuilder();
+
+        // Machine-readable summary line (highest priority, appears first).
+        // Explicit blank/timeout/error counts prevent the parent agent from misreading a
+        // successful run as a timeout even when historical memory says "this agent often times out".
+        sb.append("[PARALLEL_DELEGATION_RESULT]")
+          .append(" total=").append(results.size())
+          .append(" success=").append(successCount)
+          .append(" blank_success=").append(blankCount)
+          .append(" timeout=").append(timeoutCount)
+          .append(" error=").append(errorCount)
+          .append(" durationMs=").append(totalDurationMs)
+          .append("\n\n");
+
+        // Important: this result is from the current execution. Any timeout entries in the
+        // conversation history were from previous runs and must not be applied to this result.
+        sb.append("⚠ 注意：本次结果基于当前执行，与历史对话中出现的超时记录无关。\n\n");
+
         if (!errors.isEmpty()) {
-            sb.append("⚠️ 部分任务未执行：\n");
+            sb.append("⚠️ 部分任务未执行（Agent 未找到或参数错误）：\n");
             errors.forEach(e -> sb.append("  ").append(e).append("\n"));
             sb.append("\n");
         }
-        sb.append("并行执行 ").append(results.size()).append(" 个任务（总耗时 ")
-                .append(totalDurationMs / 1000).append("s）：\n\n");
+
+        sb.append("## 各子任务执行结果\n\n");
         for (ChildResult r : results) {
-            sb.append("---\n### [任务 ").append(r.taskIndex + 1).append("] Agent「").append(r.agentName).append("」");
-            sb.append(r.success ? " ✓" : " ✗").append(" (").append(r.durationMs / 1000).append("s)\n\n");
-            sb.append(r.success ? r.result : "[错误] " + r.error).append("\n\n");
+            sb.append("### [任务 ").append(r.taskIndex + 1).append("] ").append(r.agentName).append("\n");
+            // Per-row machine-readable status — impossible to confuse with a different outcome
+            sb.append("outcome=").append(r.outcome)
+              .append(" | contentLength=").append(r.trimmedLength).append("chars")
+              .append(" | rawLength=").append(r.rawLength).append("chars")
+              .append(" | duration=").append(r.durationMs / 1000).append("s")
+              .append("\n\n");
+
+            switch (r.outcome) {
+                case "success" -> {
+                    sb.append("✅ 执行成功，有实质内容（").append(r.trimmedLength).append(" 字符）\n\n");
+                    sb.append(r.result);
+                }
+                case "blank_success" -> {
+                    sb.append("⚠ 执行成功，但返回内容为空（rawLength=").append(r.rawLength)
+                      .append("，trim 后 0 字符）。请勿将此误报为超时或失败——子 Agent 已正常完成，只是本次无输出。\n");
+                }
+                case "timeout" ->
+                    sb.append("❌ 超时（").append(parallelTimeoutSeconds).append("s 内未返回）\n");
+                default ->
+                    sb.append("❌ 失败：").append(r.error).append("\n");
+            }
+            sb.append("\n");
         }
         return truncate(sb.toString(), MAX_RESULT_LENGTH * 2); // 并行结果允许更长
     }
 
-    // ==================== 子 Agent 执行（单/并行共用） ====================
+    // ==================== Child agent execution (shared by single and parallel paths) ====================
 
     /**
-     * 执行单个子 Agent。在子线程内独立设置 DelegationContext，解决 ThreadLocal 并行问题。
+     * Runs a single child agent. Sets up {@link DelegationContext} independently per virtual thread
+     * so that parallel children do not share ThreadLocal state.
+     * <p>
+     * Raw result length must be measured <em>before</em> calling {@code truncate()}, otherwise
+     * {@link ChildResult#rawLength} and {@link ChildResult#trimmedLength} would always reflect the
+     * truncated length, making "blank_success" detection unreliable.
      */
     private ChildResult runSingleChild(int taskIndex, AgentEntity target, String task,
-                                        String parentConversationId, String childConversationId) {
-        DelegationContext.enter(parentConversationId, CHILD_DENIED_TOOLS);
+                                        String parentConversationId, String childConversationId,
+                                        ChatOrigin parentOrigin) {
+        DelegationContext.enter(parentConversationId, deniedToolsForChild());
         try {
             long startTime = System.currentTimeMillis();
-            String result = agentService.chat(target.getId(), task, childConversationId);
+            // RFC-063r §2.5 改动点 5: inherit parent origin, swap agentId
+            // so child reads correct identity from ToolContext while keeping
+            // channelId / channelTarget / workspace context intact.
+            ChatOrigin childOrigin = (parentOrigin != null ? parentOrigin : ChatOrigin.EMPTY)
+                    .withAgent(target.getId())
+                    .withConversationId(childConversationId);
+            String rawResult = agentService.chat(target.getId(), task, childConversationId, childOrigin);
             long durationMs = System.currentTimeMillis() - startTime;
-            return ChildResult.success(taskIndex, target.getName(), truncate(result, MAX_RESULT_LENGTH), durationMs);
+            // Measure lengths before truncation so ChildResult carries accurate metadata.
+            return ChildResult.ofSuccess(taskIndex, target.getName(), rawResult, durationMs,
+                    MAX_RESULT_LENGTH);
         } catch (Exception e) {
-            log.error("子 Agent 执行失败: taskIndex={}, agent={}, error={}",
+            log.error("Child agent failed: taskIndex={}, agent={}, error={}",
                     taskIndex, target.getName(), e.getMessage());
-            return ChildResult.error(taskIndex, target.getName(), e.getMessage());
+            return ChildResult.ofError(taskIndex, target.getName(), e.getMessage());
         } finally {
             DelegationContext.exit();
         }
     }
 
-    /** 子 Agent 执行结果 */
-    private record ChildResult(int taskIndex, String agentName, boolean success,
-                                String result, String error, long durationMs) {
+    /**
+     * Result carrier for a single child agent execution.
+     *
+     * <p>{@code outcome} values:
+     * <ul>
+     *   <li>{@code "success"} — completed successfully with non-empty content (trimmedLength > 0)</li>
+     *   <li>{@code "blank_success"} — completed successfully but returned empty content (trimmedLength == 0)</li>
+     *   <li>{@code "timeout"} — did not complete within the parallel wait window</li>
+     *   <li>{@code "error"} — threw an exception during execution</li>
+     * </ul>
+     *
+     * <p>{@code rawLength} and {@code trimmedLength} are measured before truncation and reflect the
+     * true content length.
+     */
+    private record ChildResult(
+            int taskIndex, String agentName, boolean success,
+            String result, String error, long durationMs,
+            /** "success" | "blank_success" | "timeout" | "error" */
+            String outcome,
+            int rawLength, int trimmedLength) {
+
+        /** Whether the child returned no usable content (blank_success). */
+        boolean isBlank() { return "blank_success".equals(outcome); }
+
+        /**
+         * Factory for a successful child execution.
+         * Measures lengths from the raw result before applying the truncation limit.
+         */
+        static ChildResult ofSuccess(int idx, String name, String rawResult, long ms, int maxLen) {
+            String safe = rawResult != null ? rawResult : "";
+            String trimmed = safe.trim();
+            boolean blank = trimmed.isEmpty();
+            return new ChildResult(
+                    idx, name, true,
+                    truncate(safe, maxLen),
+                    null, ms,
+                    blank ? "blank_success" : "success",
+                    safe.length(), trimmed.length());
+        }
+
+        /**
+         * Factory for a child that failed (exception or timeout).
+         * Detects timeout by inspecting the error message so callers don't need to branch.
+         */
+        static ChildResult ofError(int idx, String name, String err) {
+            String msg = err != null ? err : "Unknown error";
+            boolean isTimeout = msg.contains("超时") || msg.toLowerCase().contains("timeout");
+            return new ChildResult(idx, name, false, null, msg, 0,
+                    isTimeout ? "timeout" : "error", 0, 0);
+        }
+
+        /** Factory for an explicit timeout (parallel window exceeded). */
+        static ChildResult ofTimeout(int idx, String name, int timeoutSec) {
+            String msg = "超时 (" + timeoutSec + "s)";
+            return new ChildResult(idx, name, false, null, msg, (long) timeoutSec * 1000L,
+                    "timeout", 0, 0);
+        }
+
+        // Legacy shims — kept for callers that pre-date the factory methods
         static ChildResult success(int idx, String name, String result, long ms) {
-            return new ChildResult(idx, name, true, result, null, ms);
+            // result may already be truncated at call site — lengths will be approximate
+            String safe = result != null ? result : "";
+            String trimmed = safe.trim();
+            boolean blank = trimmed.isEmpty();
+            return new ChildResult(idx, name, true, safe, null, ms,
+                    blank ? "blank_success" : "success", safe.length(), trimmed.length());
         }
         static ChildResult error(int idx, String name, String err) {
-            return new ChildResult(idx, name, false, null, err != null ? err : "Unknown error", 0);
+            return ofError(idx, name, err);
         }
+
         String toToolResponse(String agentName) {
-            if (success) return "[Agent「" + agentName + "」的回复]\n\n" + result;
+            if (success) return "[Agent「" + agentName + "」的回复]\n\n" + (result != null ? result : "");
             return "[错误] Agent「" + agentName + "」执行失败: " + error;
+        }
+
+        private static String truncate(String text, int maxLength) {
+            if (text == null) return "";
+            if (text.length() <= maxLength) return text;
+            return text.substring(0, maxLength) + "\n... [截断，原文 " + text.length() + " 字符]";
         }
     }
 
-    // ==================== 辅助方法 ====================
+    // ==================== Helper methods ====================
 
     @Tool(description = "List all available Agents (enabled), including name, type, and description.")
     public String listAvailableAgents() {
@@ -333,6 +711,81 @@ public class DelegateAgentTool {
                 .eq(AgentEntity::getEnabled, true));
     }
 
+    /**
+     * RFC-03 Lane C2 — build the parent-context prefix injected into the
+     * child's task when {@code inheritParentContext=true}.
+     *
+     * <p>Reads the latest {@link #INHERITED_CONTEXT_MAX_MESSAGES} messages
+     * from the parent conversation, formats them as a labeled block, and
+     * returns an empty string when no usable history exists. Errors are
+     * swallowed (logged warn) — context inheritance is best-effort, not a
+     * correctness gate; a missing prefix degrades to "child runs without
+     * extra context", which is the original behavior.
+     */
+    private String buildInheritedContextPrefix(String parentConversationId) {
+        try {
+            List<vip.mate.workspace.conversation.model.MessageEntity> messages =
+                    conversationService.listRecentMessages(
+                            parentConversationId, INHERITED_CONTEXT_MAX_MESSAGES);
+            return formatInheritedContext(messages, INHERITED_CONTEXT_PER_MESSAGE_CHARS);
+        } catch (Exception e) {
+            log.warn("Failed to build parent context prefix for child agent: parentConv={}, err={}",
+                    parentConversationId, e.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * RFC-03 Lane C2 — format a list of parent {@link vip.mate.workspace.conversation.model.MessageEntity}
+     * as a labeled, role-tagged context block for injection into the child's
+     * task prompt. Package-private + static so it can be unit-tested without
+     * touching ConversationService or any mocks.
+     *
+     * <p>Output shape:
+     * <pre>
+     * --- Parent conversation recent context (N messages) ---
+     * USER: ...
+     * ASSISTANT: ...
+     * ...
+     * --- End of context ---
+     * </pre>
+     *
+     * <p>Per-message content is truncated to {@code maxPerMessageChars} so a
+     * single huge tool result in the parent doesn't blow up the child's
+     * context window. Empty / null inputs return an empty string so the
+     * caller can skip prefix injection cleanly.
+     */
+    static String formatInheritedContext(
+            List<vip.mate.workspace.conversation.model.MessageEntity> messages,
+            int maxPerMessageChars) {
+        if (messages == null || messages.isEmpty()) return "";
+        // Filter out system messages — those carry agent identity, not user dialogue,
+        // and the child has its own system prompt.
+        List<vip.mate.workspace.conversation.model.MessageEntity> dialogue = messages.stream()
+                .filter(m -> m != null && m.getRole() != null
+                        && !"system".equalsIgnoreCase(m.getRole()))
+                .filter(m -> m.getContent() != null && !m.getContent().isBlank())
+                .toList();
+        if (dialogue.isEmpty()) return "";
+
+        StringBuilder sb = new StringBuilder(dialogue.size() * 200);
+        sb.append("--- Parent conversation recent context (")
+          .append(dialogue.size())
+          .append(" message").append(dialogue.size() == 1 ? "" : "s")
+          .append(") ---\n");
+        for (vip.mate.workspace.conversation.model.MessageEntity m : dialogue) {
+            String role = m.getRole().toUpperCase();
+            String content = m.getContent();
+            if (content.length() > maxPerMessageChars) {
+                content = content.substring(0, maxPerMessageChars)
+                        + "... [truncated, " + (content.length() - maxPerMessageChars) + " chars omitted]";
+            }
+            sb.append(role).append(": ").append(content).append("\n");
+        }
+        sb.append("--- End of context ---");
+        return sb.toString();
+    }
+
     private String createChildConv(AgentEntity target, String parentConversationId) {
         String childConvId = "child-" + UUID.randomUUID().toString().substring(0, 12);
         try {
@@ -348,16 +801,62 @@ public class DelegateAgentTool {
         return streamTracker.addEventRelay(childConvId, (eventName, jsonData) -> {
             if ("tool_call_started".equals(eventName) || "tool_call_completed".equals(eventName) || "phase".equals(eventName)) {
                 try {
+                    // Parse jsonData into a plain Object so the frontend receives a proper
+                    // JSON object under "data", not a string containing serialized JSON.
+                    // If parsing fails (e.g. plain text payload), fall back to the raw string.
+                    Object parsedData;
+                    try {
+                        parsedData = objectMapper.readValue(jsonData, Object.class);
+                    } catch (Exception ignored) {
+                        parsedData = jsonData;
+                    }
                     streamTracker.broadcastObject(parentConvId, "delegation_progress", Map.of(
                             "childConversationId", childConvId,
                             "childAgentName", childAgentName,
                             "originalEvent", eventName,
-                            "data", jsonData));
+                            "data", parsedData));
                 } catch (Exception e) {
                     log.debug("Relay error: {}", e.getMessage());
                 }
             }
         });
+    }
+
+    /**
+     * Registers a batched relay so a chatty child does not flood the parent
+     * transcript with one tool-call event per LLM step. The streaming layer
+     * batches {@code tool_call_started} / {@code tool_call_completed} into
+     * envelopes (5 events / 500 ms) and flushes immediately on lifecycle
+     * events ({@code subagent_*}, {@code error}, {@code phase}, etc.).
+     *
+     * <p>The wrapper keeps the on-the-wire shape identical to
+     * {@link #registerRelay} so frontend consumers do not need to change
+     * — both batched envelopes and pass-through events surface as
+     * {@code delegation_progress} on the parent.
+     */
+    private Runnable registerBatchedRelay(String childConvId, String parentConvId, String childAgentName) {
+        return streamTracker.addBatchedEventRelay(childConvId, parentConvId, 5, 500L,
+                (eventName, jsonData) -> {
+                    if ("tool_call_started".equals(eventName)
+                            || "tool_call_completed".equals(eventName)
+                            || "phase".equals(eventName)) {
+                        try {
+                            Object parsedData;
+                            try {
+                                parsedData = objectMapper.readValue(jsonData, Object.class);
+                            } catch (Exception ignored) {
+                                parsedData = jsonData;
+                            }
+                            streamTracker.broadcastObject(parentConvId, "delegation_progress", Map.of(
+                                    "childConversationId", childConvId,
+                                    "childAgentName", childAgentName,
+                                    "originalEvent", eventName,
+                                    "data", parsedData));
+                        } catch (Exception e) {
+                            log.debug("Batched relay error: {}", e.getMessage());
+                        }
+                    }
+                });
     }
 
     private void broadcastEnd(String parentConvId, String childConvId, String agentName, ChildResult result) {

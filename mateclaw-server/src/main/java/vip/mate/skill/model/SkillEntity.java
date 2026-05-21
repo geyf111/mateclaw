@@ -18,8 +18,22 @@ public class SkillEntity {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
 
-    /** 技能名称 */
+    /** 技能名称 — immutable slug, used as primary identifier */
     private String name;
+
+    /**
+     * RFC-042 §2.2 — locale-specific display name for zh-CN.
+     * {@code null} → UI falls back to {@code name}.
+     */
+    @TableField(value = "name_zh", updateStrategy = FieldStrategy.ALWAYS)
+    private String nameZh;
+
+    /**
+     * RFC-042 §2.2 — locale-specific display name for en-US.
+     * {@code null} → UI falls back to {@code name}.
+     */
+    @TableField(value = "name_en", updateStrategy = FieldStrategy.ALWAYS)
+    private String nameEn;
 
     /** 技能描述 */
     private String description;
@@ -65,6 +79,15 @@ public class SkillEntity {
     @TableField(value = "skill_content", updateStrategy = FieldStrategy.ALWAYS)
     private String skillContent;
 
+    /**
+     * RFC-090 Phase 2 — full parsed SKILL.md frontmatter as JSON.
+     * Source of truth (§14.6); existing columns (skill_type/icon/version/
+     * author) become index projections written by
+     * {@code SkillPackageResolver} after each resolve.
+     */
+    @TableField(value = "manifest_json", updateStrategy = FieldStrategy.ALWAYS)
+    private String manifestJson;
+
     /** 是否启用 */
     private Boolean enabled;
 
@@ -74,7 +97,17 @@ public class SkillEntity {
     /** 标签（逗号分隔） */
     private String tags;
 
-    /** RFC-023：来源对话 ID（Agent 自治合成时记录） */
+    /**
+     * Owning workspace. The DB column has existed since the baseline schema
+     * (default = 1) but the field was missing from the entity, so MyBatis
+     * Plus silently ignored both reads and writes. Surfacing it here lets
+     * binding-time tenancy checks see the value; default behavior on insert
+     * remains "fall through to the column DEFAULT" because the field stays
+     * {@code null} in the no-arg create path.
+     */
+    private Long workspaceId;
+
+    /** 来源对话 ID（Agent 自治合成时记录） */
     private String sourceConversationId;
 
     /**
@@ -84,12 +117,24 @@ public class SkillEntity {
      */
     private String securityScanStatus;
 
+    /**
+     * RFC-042 §2.3 — persisted JSON array of the last scan's findings
+     * ({@code [{ruleId,severity,category,title,description,filePath,
+     * lineNumber,snippet,remediation}]}). Populated by
+     * {@code SkillPackageResolver} after every scan so the admin UI can
+     * render "why blocked" without re-resolving.
+     */
+    @TableField(value = "security_scan_result", updateStrategy = FieldStrategy.ALWAYS)
+    private String securityScanResult;
+
+    /** RFC-042 §2.3 — wall-clock time of the last scan write-back. */
+    private LocalDateTime securityScanTime;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 
-    @TableLogic
     private Integer deleted;
 }

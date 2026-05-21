@@ -1,5 +1,6 @@
 package vip.mate.channel;
 
+import vip.mate.channel.health.ChannelHealth;
 import vip.mate.workspace.conversation.model.MessageContentPart;
 
 import java.time.Duration;
@@ -94,6 +95,53 @@ public interface ChannelAdapter {
         sendMessage(targetId, content);
     }
 
+    /**
+     * Extended render-and-send overload that carries an optional
+     * {@link SendContext} side-channel (e.g. WeCom AI Bot
+     * {@code feedback.id} for like/dislike collection).
+     *
+     * <p>Default implementation ignores {@code ctx} and falls back to
+     * {@link #renderAndSend(String, String)}, so existing channel
+     * adapters and callers see no behavior change. Channels that want
+     * to consume {@code SendContext} fields override this overload.
+     *
+     * <p>This was introduced as part of PR-0 (RFC-32 §2.0.3) to give
+     * {@code ChannelMessageRouter} a way to thread the pre-allocated
+     * feedback id (registered against the persisted
+     * {@code mate_message.id}) down to the WeCom adapter without
+     * widening the legacy two-arg signature.
+     */
+    default void renderAndSend(String targetId, String content, SendContext ctx) {
+        renderAndSend(targetId, content);
+    }
+
+    /**
+     * Render and deliver an approval notice. Channels that support a
+     * native interactive surface (WeCom {@code button_interaction},
+     * DingTalk {@code ActionCard}, etc.) override this to skip the
+     * text path entirely.
+     *
+     * <p><b>Primary implementation lives on
+     * {@link AbstractChannelAdapter}</b>, which keeps the bytewise
+     * fallback (markdown text → {@link #sendMessage}). Adapters that
+     * inherit from {@code AbstractChannelAdapter} can call
+     * {@code super.sendApprovalNotice(...)} to fall back; the default
+     * here is just a safety net for adapters that, for some reason,
+     * implement {@link ChannelAdapter} directly.
+     *
+     * <p>Introduced in PR-0 (RFC-32 §2.0.3) so the router does not
+     * need to know which channel renders cards vs text:
+     * <pre>
+     *     ApprovalNotice notice = approvalNotificationService.buildNotice(pending);
+     *     adapter.sendApprovalNotice(replyTarget, notice);
+     * </pre>
+     */
+    default void sendApprovalNotice(String targetId,
+            vip.mate.channel.notification.ApprovalNotice notice) {
+        sendMessage(targetId,
+                vip.mate.channel.notification.ApprovalNotificationService.staticBuildText(notice));
+    }
+
     // ==================== 主动推送 ====================
 
     /**
@@ -111,6 +159,19 @@ public interface ChannelAdapter {
      */
     default void proactiveSend(String targetId, String content) {
         throw new UnsupportedOperationException(getChannelType() + " does not support proactive send");
+    }
+
+    /**
+     * RFC-063r §2.10: extended overload that accepts a
+     * {@link DeliveryOptions} Parameter Object carrying optional hints
+     * (thread id, multi-bot account id, future ext fields).
+     *
+     * <p>Default implementation delegates to {@link #proactiveSend(String, String)},
+     * dropping hints — concrete adapters (Slack, Telegram) override this
+     * variant to read {@code threadId} and route into the threading API.
+     */
+    default void proactiveSend(String targetId, String content, DeliveryOptions options) {
+        proactiveSend(targetId, content);
     }
 
     /**
@@ -139,6 +200,34 @@ public interface ChannelAdapter {
     }
 
     /**
+     * Whether this adapter must run on exactly one node in a multi-instance
+     * deployment.
+     *
+     * <p>Return {@code true} when the underlying transport rejects multiple
+     * concurrent connections from the same credentials — e.g. a bot WebSocket
+     * gateway that enforces a per-app connection cap, or a long-polling
+     * endpoint where multiple consumers would steal updates from each other.
+     * The channel manager will gate {@link #start()} on a distributed lease
+     * so only one node connects at a time, and failover to another node when
+     * the lease holder dies.
+     *
+     * <p>Webhook-based channels (DingTalk, WeCom, Slack, …) should leave this
+     * at the default {@code false}: inbound HTTP traffic is fanned out by the
+     * load balancer, so every node may safely subscribe.
+     *
+     * <p>Scope: this hook is honored by the framework for <b>DB-backed
+     * channels</b> registered via {@code ChannelManager.startChannel}. For
+     * plugin-registered channels the framework can only gate the initial
+     * register attempt — there is no follower retry, no hot-swap, and no
+     * disable-detection (plugins have a register/unregister lifecycle, not
+     * a DB-driven one). Plugin authors needing full single-leader semantics
+     * should depend on {@code ChannelLeaderElection} directly.
+     */
+    default boolean requiresSingleLeader() {
+        return false;
+    }
+
+    /**
      * RFC-024 Change 2：本 adapter 认为"多久没活动就视作 stale 需要重启"的阈值。
      *
      * <p>通用默认 60 分钟；长轮询类渠道（如 iLink 微信）应覆盖为 5 分钟，
@@ -147,5 +236,25 @@ public interface ChannelAdapter {
      */
     default Duration stalenessThreshold() {
         return Duration.ofMinutes(60);
+    }
+
+    /**
+     * Real-time health snapshot of this adapter.
+     *
+     * <p>This is the source of truth the frontend "connected" green dot
+     * should bind to — {@code mate_channel.enabled} only records the
+     * user's intent to run the channel, not whether the underlying
+     * transport (WebSocket / webhook subscription / API token) is
+     * actually healthy.
+     *
+     * <p>Default returns {@code OUT_OF_SERVICE} when {@link #isRunning()}
+     * is false and {@code UP} otherwise. Concrete adapters override to
+     * surface RECONNECTING / DOWN with specific reasons (auth failure,
+     * staleness exceeded, etc).
+     */
+    default ChannelHealth health() {
+        return isRunning()
+                ? ChannelHealth.up(getChannelType(), null, java.time.Instant.now())
+                : ChannelHealth.outOfService(getChannelType(), null);
     }
 }

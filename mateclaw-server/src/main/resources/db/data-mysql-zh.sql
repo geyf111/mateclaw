@@ -5,25 +5,25 @@ INSERT INTO mate_user (id, username, password, nickname, role, enabled, create_t
 VALUES (1, 'admin', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOZTH.ulu33dHOiBE8ByOhJIrdAu2', 'MateClaw Admin', 'admin', TRUE, NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE username=VALUES(username), password=VALUES(password), nickname=VALUES(nickname), role=VALUES(role), enabled=VALUES(enabled), update_time=VALUES(update_time), deleted=VALUES(deleted);
 
--- 默认 Agent：通用助手（ReAct 模式）
+-- 默认数字员工：通用助手（ReAct 模式）
 INSERT INTO mate_agent (id, name, description, agent_type, system_prompt, model_name, max_iterations, enabled, icon, tags, create_time, update_time, deleted)
-VALUES (1000000001, 'MateClaw Assistant', '默认 AI 助手，基于 ReAct 模式，支持工具调用', 'react',
-        '你是 MateClaw，一个智能 AI 助手。你可以帮助用户回答问题、分析数据、执行任务。请用中文回复，保持专业、友好的态度。',
-        NULL, 25, TRUE, '🤖', 'default,assistant', NOW(), NOW(), 0)
+VALUES (1000000001, '通用助手', '日常问答、数据分析、工具调用都能搞定的全能助手', 'react',
+        '你是 MateClaw 的通用助手。你可以帮助用户回答问题、分析数据、调用工具完成任务。请用中文回复，保持专业、友好的态度。',
+        NULL, 100, TRUE, 'pi:robot-face-happy', 'default,assistant', NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), agent_type=VALUES(agent_type), system_prompt=VALUES(system_prompt), model_name=VALUES(model_name), max_iterations=VALUES(max_iterations), enabled=VALUES(enabled), icon=VALUES(icon), tags=VALUES(tags), update_time=VALUES(update_time), deleted=VALUES(deleted);
 
--- 默认 Agent：任务规划助手（Plan-Execute 模式）
+-- 默认数字员工：任务规划师（Plan-Execute 模式）
 INSERT INTO mate_agent (id, name, description, agent_type, system_prompt, model_name, max_iterations, enabled, icon, tags, create_time, update_time, deleted)
-VALUES (1000000002, 'Task Planner', '任务规划助手，适合复杂多步骤任务', 'plan_execute',
-        '你是一个专业的任务规划和执行助手。你擅长将复杂目标分解为可执行的步骤，并逐步完成。请用中文回复。',
-        NULL, 20, TRUE, '📋', 'planning,task', NOW(), NOW(), 0)
+VALUES (1000000002, '任务规划师', '把复杂目标拆成可执行步骤，逐步推进直到完成', 'plan_execute',
+        '你是一位专业的任务规划师。你擅长将复杂目标分解为可执行的步骤，并逐步完成。请用中文回复。',
+        NULL, 100, TRUE, 'pi:clipboard-note', 'planning,task', NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), agent_type=VALUES(agent_type), system_prompt=VALUES(system_prompt), model_name=VALUES(model_name), max_iterations=VALUES(max_iterations), enabled=VALUES(enabled), icon=VALUES(icon), tags=VALUES(tags), update_time=VALUES(update_time), deleted=VALUES(deleted);
 
--- StateGraph ReAct Agent（支持 StateGraph 架构）
+-- 默认数字员工：推理分析师（显式推理循环 + 工具调用）
 INSERT INTO mate_agent (id, name, description, agent_type, system_prompt, model_name, max_iterations, enabled, icon, tags, create_time, update_time, deleted)
-VALUES (1000000003, 'StateGraph ReAct', '基于 StateGraph 的 ReAct Agent，支持显式推理循环和工具调用', 'react',
-        '你是基于 StateGraph 架构的智能助手。你可以使用工具来帮助用户解决问题。请用中文回复，保持专业、友好的态度。',
-        NULL, 25, TRUE, '🔄', 'react,stategraph,tools', NOW(), NOW(), 0)
+VALUES (1000000003, '推理分析师', '分步思考、推理过程清晰可见，适合需要"想清楚再回答"的问题', 'react',
+        '你是一位推理分析师，善于深度推理。面对问题时，请先分步思考、清晰呈现推理过程，再调用工具或给出答案。请用中文回复，保持专业、友好的态度。',
+        NULL, 100, TRUE, 'pi:cpu', 'react,reasoning,tools', NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), agent_type=VALUES(agent_type), system_prompt=VALUES(system_prompt), model_name=VALUES(model_name), max_iterations=VALUES(max_iterations), enabled=VALUES(enabled), icon=VALUES(icon), tags=VALUES(tags), update_time=VALUES(update_time), deleted=VALUES(deleted);
 
 -- ==================== 本地模型 Provider（优先展示） ====================
@@ -50,12 +50,27 @@ INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, 
 VALUES ('dashscope', 'DashScope', 'sk-', 'DashScopeChatModel', '', '', '{}', FALSE, FALSE, TRUE, TRUE, FALSE, TRUE, NOW(), NOW())
 ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
 
+-- DashScope OpenAI 兼容端点：与 dashscope provider 共用同一把 sk- key，但走
+-- compatible-mode/v1 路径。带点号版本号的 qwen 系列（qwen3.5-*, qwen3.6-*）只在
+-- 这里能调通——native 端点会返回 400 InvalidParameter。
+INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+VALUES ('dashscope-compat', 'DashScope (兼容模式)', 'sk-', 'OpenAIChatModel', '', 'https://dashscope.aliyuncs.com/compatible-mode/v1', '{}', FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, NOW(), NOW())
+ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
+
 INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
 VALUES ('modelscope', 'ModelScope', 'ms', 'OpenAIChatModel', '', 'https://api-inference.modelscope.cn/v1', '{}', FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, NOW(), NOW())
 ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
 
 INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
 VALUES ('aliyun-codingplan', 'Aliyun Coding Plan', 'sk-sp', 'OpenAIChatModel', '', 'https://coding.dashscope.aliyuncs.com/v1', '{}', FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, NOW(), NOW())
+ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
+
+INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+VALUES ('aliyun-codingplan-intl', 'Aliyun Coding Plan (International)', 'sk-sp', 'OpenAIChatModel', '', 'https://coding-intl.dashscope.aliyuncs.com/v1', '{}', FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, NOW(), NOW())
+ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
+
+INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+VALUES ('bailian-team', '百炼 Token Plan', 'sk-', 'OpenAIChatModel', '', 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', '{}', FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, NOW(), NOW())
 ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
 
 INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
@@ -103,6 +118,18 @@ VALUES ('openrouter', 'OpenRouter', 'sk-or-', 'OpenAIChatModel', '', 'https://op
 ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
 
 INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+VALUES ('siliconflow-cn', '硅基流动 (China)', 'sk-', 'OpenAIChatModel', '', 'https://api.siliconflow.cn/v1', '{}', FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, NOW(), NOW())
+ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
+
+INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+VALUES ('siliconflow-intl', '硅基流动 (International)', 'sk-', 'OpenAIChatModel', '', 'https://api.siliconflow.com/v1', '{}', FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, NOW(), NOW())
+ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
+
+INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+VALUES ('opencode', 'OpenCode', '', 'OpenAIChatModel', '', 'https://opencode.ai/zen/v1', '{}', FALSE, FALSE, FALSE, TRUE, TRUE, FALSE, NOW(), NOW())
+ON DUPLICATE KEY UPDATE name=VALUES(name), chat_model=VALUES(chat_model), base_url=VALUES(base_url), update_time=VALUES(update_time);
+
+INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
 VALUES ('zhipu-cn', 'Zhipu AI (China)', '', 'OpenAIChatModel', '', 'https://open.bigmodel.cn/api/paas/v4', '{"completionsPath":"/chat/completions"}', FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, NOW(), NOW())
 ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
 
@@ -111,11 +138,29 @@ VALUES ('zhipu-intl', 'Zhipu AI (International)', '', 'OpenAIChatModel', '', 'ht
 ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
 
 INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
-VALUES ('volcengine', 'Volcano Engine (火山引擎)', '', 'OpenAIChatModel', '', 'https://ark.cn-beijing.volces.com/api/v3', '{}', FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, NOW(), NOW())
+VALUES ('volcengine', 'Volcano Engine (火山引擎)', '', 'OpenAIChatModel', '', 'https://ark.cn-beijing.volces.com/api/v3', '{}', FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, NOW(), NOW())
 ON DUPLICATE KEY UPDATE name=VALUES(name), api_key_prefix=VALUES(api_key_prefix), chat_model=VALUES(chat_model), api_key=VALUES(api_key), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), is_custom=VALUES(is_custom), is_local=VALUES(is_local), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
+
+INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+VALUES ('volcengine-plan', 'Volcano Engine Coding Plan (火山方舟代码计划)', '', 'OpenAIChatModel', '', 'https://ark.cn-beijing.volces.com/api/coding/v3', '{}', FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, NOW(), NOW())
+ON DUPLICATE KEY UPDATE name=VALUES(name), chat_model=VALUES(chat_model), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
+
+INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+VALUES ('zhipu-cn-codingplan', 'Zhipu Coding Plan (智谱编码套餐)', '', 'OpenAIChatModel', '', 'https://open.bigmodel.cn/api/coding/paas/v4', '{"completionsPath":"/chat/completions"}', FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, NOW(), NOW())
+ON DUPLICATE KEY UPDATE name=VALUES(name), chat_model=VALUES(chat_model), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
+
+INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+VALUES ('zhipu-intl-codingplan', 'Zhipu Coding Plan (智谱编码套餐 国际版)', '', 'OpenAIChatModel', '', 'https://api.z.ai/api/coding/paas/v4', '{"completionsPath":"/chat/completions"}', FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, NOW(), NOW())
+ON DUPLICATE KEY UPDATE name=VALUES(name), chat_model=VALUES(chat_model), base_url=VALUES(base_url), generate_kwargs=VALUES(generate_kwargs), support_model_discovery=VALUES(support_model_discovery), support_connection_check=VALUES(support_connection_check), freeze_url=VALUES(freeze_url), require_api_key=VALUES(require_api_key), update_time=VALUES(update_time);
 
 INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, auth_type, create_time, update_time)
 VALUES ('openai-chatgpt', 'OpenAI ChatGPT (OAuth)', '', 'ChatGPTChatModel', '', 'https://chatgpt.com/backend-api', '{}', FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, 'oauth', NOW(), NOW())
+ON DUPLICATE KEY UPDATE name=VALUES(name), chat_model=VALUES(chat_model), base_url=VALUES(base_url), auth_type=VALUES(auth_type), update_time=VALUES(update_time);
+
+-- RFC-062：Anthropic Claude Code OAuth 订阅 provider。凭据存储在本地磁盘
+-- （macOS Keychain 或 ~/.claude/.credentials.json），不写入该行。
+INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, auth_type, create_time, update_time)
+VALUES ('anthropic-claude-code', 'Anthropic Claude Code (OAuth 订阅)', '', 'ClaudeCodeChatModel', '', 'https://api.anthropic.com', '{}', FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, 'oauth', NOW(), NOW())
 ON DUPLICATE KEY UPDATE name=VALUES(name), chat_model=VALUES(chat_model), base_url=VALUES(base_url), auth_type=VALUES(auth_type), update_time=VALUES(update_time);
 
 -- ==================== 本地模型预配置（Ollama，默认禁用） ====================
@@ -160,9 +205,18 @@ VALUES
 (1000000101, 'Qwen3 Max', 'dashscope', 'qwen3-max', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000102, 'Qwen3 235B A22B Thinking', 'dashscope', 'qwen3-235b-a22b-thinking-2507', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000103, 'DeepSeek-V3.2', 'dashscope', 'deepseek-v3.2', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
--- Removed: qwen3.5-plus / qwen3.5-max — unavailable on DashScope native protocol (returns 400 InvalidParameter)
-(1000000172, 'Qwen3 Plus', 'dashscope', 'qwen3-plus', 'Qwen3 均衡模型', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- 注意: qwen3-plus / qwen3.5-plus / qwen3.5-max / qwen3.6-* 等带点号的版本只在 OpenAI 兼容端点上线。
+-- DashScope native（text-generation/generation）调用会返回 400 InvalidParameter。
+-- 这些模型挂在 dashscope-compat provider 下，复用同一把 sk- key 但走 compatible-mode/v1 端点。
 (1000000173, 'Qwen Long', 'dashscope', 'qwen-long', '长文本模型，支持超长上下文', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000174, 'Qwen Plus (latest)',  'dashscope', 'qwen-plus-latest',  '通义千问 Plus 最新稳定快照，自动跟随官方更新', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000175, 'Qwen Max (latest)',   'dashscope', 'qwen-max-latest',   '通义千问 Max 最新稳定快照，最强推理能力',     0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000176, 'Qwen Turbo (latest)', 'dashscope', 'qwen-turbo-latest', '通义千问 Turbo 最新稳定快照，低延迟、高并发', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- DashScope 兼容模式专属模型（点号版本号系列）—— 与 dashscope provider 共用同一把 sk- key。
+-- 仅收录在通用账号上确实可调通的 -plus 版本；-max / -vl-max 在 model market 可见但 API 返回 404。
+(1000000601, 'Qwen3.6 Plus',  'dashscope-compat', 'qwen3.6-plus',  '通义千问 3.6 Plus 旗舰，平衡推理与速度（兼容模式专属）',          0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000603, 'Qwen3.5 Plus',  'dashscope-compat', 'qwen3.5-plus',  '通义千问 3.5 Plus（兼容模式专属）',                                0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000605, 'Qwen3 VL Plus', 'dashscope-compat', 'qwen3-vl-plus', '通义千问 3 视觉理解 Plus，支持图像、视频输入（兼容模式专属）',     0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000104, 'Qwen3.5-122B-A10B', 'modelscope', 'Qwen/Qwen3.5-122B-A10B', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000105, 'GLM-5', 'modelscope', 'ZhipuAI/GLM-5', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000106, 'Qwen3.5 Plus', 'aliyun-codingplan', 'qwen3.5-plus', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
@@ -173,6 +227,33 @@ VALUES
 (1000000111, 'Qwen3 Max 2026-01-23', 'aliyun-codingplan', 'qwen3-max-2026-01-23', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000112, 'Qwen3 Coder Next', 'aliyun-codingplan', 'qwen3-coder-next', '', 0.2, 8192, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000113, 'Qwen3 Coder Plus', 'aliyun-codingplan', 'qwen3-coder-plus', '', 0.2, 8192, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000162, 'Qwen3.6 Plus',         'aliyun-codingplan',      'qwen3.6-plus',         '阿里云编码套餐 — Qwen3.6 Plus 旗舰',                      0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000241, 'Qwen3.6 Plus',         'aliyun-codingplan-intl', 'qwen3.6-plus',         '阿里云编码套餐（国际版） — Qwen3.6 Plus 旗舰',            0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000242, 'Qwen3.5 Plus',         'aliyun-codingplan-intl', 'qwen3.5-plus',         '阿里云编码套餐（国际版） — Qwen3.5 均衡旗舰',             0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000243, 'GLM-5',                'aliyun-codingplan-intl', 'glm-5',                '阿里云编码套餐（国际版） — GLM-5 由 DashScope 托管',       0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000244, 'GLM-4.7',              'aliyun-codingplan-intl', 'glm-4.7',              '阿里云编码套餐（国际版） — GLM-4.7 由 DashScope 托管',     0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000245, 'MiniMax M2.5',         'aliyun-codingplan-intl', 'MiniMax-M2.5',         '阿里云编码套餐（国际版） — MiniMax M2.5 由 DashScope 托管', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000246, 'Kimi K2.5',            'aliyun-codingplan-intl', 'kimi-k2.5',            '阿里云编码套餐（国际版） — Kimi K2.5 由 DashScope 托管',   0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000247, 'Qwen3 Max 2026-01-23', 'aliyun-codingplan-intl', 'qwen3-max-2026-01-23', '阿里云编码套餐（国际版） — Qwen3 Max 锁定快照',           0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000248, 'Qwen3 Coder Next',     'aliyun-codingplan-intl', 'qwen3-coder-next',     '阿里云编码套餐（国际版） — Qwen3 Coder Next 智能体编码',  0.2, 8192, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000249, 'Qwen3 Coder Plus',     'aliyun-codingplan-intl', 'qwen3-coder-plus',     '阿里云编码套餐（国际版） — Qwen3 Coder Plus 智能体编码',  0.2, 8192, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000400, 'Qwen 3.6 Plus',      'bailian-team', 'qwen3.6-plus',       '百炼团队套餐 — 千问旗舰推理模型，支持视觉理解与文本生成', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000401, 'DeepSeek V3.2',      'bailian-team', 'deepseek-v3.2',      '百炼团队套餐 — DeepSeek 最新推理模型',                   0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000402, 'GLM-5',              'bailian-team', 'glm-5',              '百炼团队套餐 — 智谱 GLM-5 文本生成模型',                 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000403, 'Qwen Image 2.0',     'bailian-team', 'qwen-image-2.0',     '百炼团队套餐 — 千问图片生成模型',                        0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000404, 'Qwen Image 2.0 Pro', 'bailian-team', 'qwen-image-2.0-pro', '百炼团队套餐 — 千问图片生成旗舰模型',                    0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000405, 'Wan 2.7 Image',      'bailian-team', 'wan2.7-image',       '百炼团队套餐 — 万相图片生成模型',                        0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000406, 'Wan 2.7 Image Pro',  'bailian-team', 'wan2.7-image-pro',   '百炼团队套餐 — 万相图片生成旗舰模型',                    0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000407, 'Qwen 3.5 Plus',            'bailian-team', 'qwen3.5-plus',            '百炼团队套餐 — Qwen3.5 均衡旗舰，混合思考，128K 上下文',  0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000408, 'Qwen 3.5 Flash',           'bailian-team', 'qwen3.5-flash',           '百炼团队套餐 — Qwen3.5 快速版，低延迟、高并发',           0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000409, 'Qwen3 VL Plus',            'bailian-team', 'qwen3-vl-plus',           '百炼团队套餐 — Qwen3 视觉旗舰，支持图像与视频理解',       0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000410, 'Qwen3 VL Flash',           'bailian-team', 'qwen3-vl-flash',          '百炼团队套餐 — Qwen3 视觉快速版，高吞吐视觉调用',         0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000411, 'Qwen3 Coder Plus',         'bailian-team', 'qwen3-coder-plus',        '百炼团队套餐 — Qwen3 编码旗舰，智能体代码编辑与工具调用', 0.2, 8192, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000412, 'Qwen 3.6 Plus 2026-04-02', 'bailian-team', 'qwen3.6-plus-2026-04-02', '百炼团队套餐 — Qwen 3.6 Plus 2026-04-02 锁定快照',        0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000413, 'Qwen 3.6 Max (preview)',   'bailian-team', 'qwen3.6-max-preview',     '百炼团队套餐 — Qwen3.6 Max 预览版，3.6 系列最强推理',     0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000414, 'Qwen 3.6 Flash',           'bailian-team', 'qwen3.6-flash',           '百炼团队套餐 — Qwen3.6 快速版，混合思考默认开启',         0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000415, 'Qwen 3.6 Flash 2026-04-16','bailian-team', 'qwen3.6-flash-2026-04-16','百炼团队套餐 — Qwen 3.6 Flash 2026-04-16 锁定快照',       0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000416, 'Qwen 3.5 Omni Plus',       'bailian-team', 'qwen3.5-omni-plus',       '百炼团队套餐 — Qwen3.5 全模态版，文本/视觉/音频输入输出',  0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000114, 'GPT-5.2', 'openai', 'gpt-5.2', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000115, 'GPT-5', 'openai', 'gpt-5', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000116, 'GPT-5 Mini', 'openai', 'gpt-5-mini', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
@@ -214,6 +295,9 @@ VALUES
 (1000000152, 'Kimi K2 Thinking Turbo', 'kimi-intl', 'kimi-k2-thinking-turbo', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000153, 'DeepSeek Chat', 'deepseek', 'deepseek-chat', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000154, 'DeepSeek Reasoner', 'deepseek', 'deepseek-reasoner', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- DeepSeek V4（1M 上下文，原生 thinking 模式由 DeepSeekV4ThinkingDecorator 注入）
+(1000000282, 'DeepSeek V4 Flash', 'deepseek', 'deepseek-v4-flash', 'DeepSeek V4 Flash（1M 上下文，thinking 模式开启时支持 reasoning_effort）', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000283, 'DeepSeek V4 Pro', 'deepseek', 'deepseek-v4-pro', 'DeepSeek V4 Pro（1M 上下文，thinking 模式开启时支持 reasoning_effort）', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000155, 'Gemini 3.1 Pro Preview', 'gemini', 'gemini-3.1-pro-preview', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000156, 'Gemini 3 Flash Preview', 'gemini', 'gemini-3-flash-preview', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000157, 'Gemini 3.1 Flash Lite Preview', 'gemini', 'gemini-3.1-flash-lite-preview', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
@@ -230,6 +314,22 @@ VALUES
 (1000000206, 'Qwen3.6 Plus (free)', 'openrouter', 'qwen/qwen3.6-plus:free', 'OpenRouter 免费 Qwen3.6 Plus（支持视觉）', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000207, 'Gemini 2.5 Flash (free)', 'openrouter', 'google/gemini-2.5-flash:free', 'OpenRouter 免费 Gemini 2.5 Flash（支持视觉）', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000208, 'Llama 4 Maverick (free)', 'openrouter', 'meta-llama/llama-4-maverick:free', 'OpenRouter 免费 Llama 4 Maverick（支持视觉）', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000500, 'DeepSeek V3',           'siliconflow-cn',   'deepseek-ai/DeepSeek-V3',         '硅基流动 — DeepSeek V3，综合能力强，有免费额度',    0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000501, 'DeepSeek R1',           'siliconflow-cn',   'deepseek-ai/DeepSeek-R1',         '硅基流动 — DeepSeek R1 推理模型',                  0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000502, 'Qwen3 235B A22B',       'siliconflow-cn',   'Qwen/Qwen3-235B-A22B',            '硅基流动 — 千问3旗舰 MoE 模型',                    0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000503, 'Qwen3 30B A3B',         'siliconflow-cn',   'Qwen/Qwen3-30B-A3B',              '硅基流动 — 千问3高性价比 MoE 模型',                0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000504, 'GLM-4 9B Chat',         'siliconflow-cn',   'THUDM/glm-4-9b-chat',             '硅基流动 — 智谱 GLM-4 9B，免费可用',               0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000505, 'DeepSeek V3 Pro',       'siliconflow-cn',   'Pro/deepseek-ai/DeepSeek-V3',     '硅基流动 Pro — DeepSeek V3 优先调度版',            0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000506, 'DeepSeek R1 Pro',       'siliconflow-cn',   'Pro/deepseek-ai/DeepSeek-R1',     '硅基流动 Pro — DeepSeek R1 推理优先调度版',        0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000510, 'DeepSeek V3',           'siliconflow-intl', 'deepseek-ai/DeepSeek-V3',         'SiliconFlow INTL — DeepSeek V3',                   0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000511, 'DeepSeek R1',           'siliconflow-intl', 'deepseek-ai/DeepSeek-R1',         'SiliconFlow INTL — DeepSeek R1 reasoning model',   0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000512, 'Qwen3 235B A22B',       'siliconflow-intl', 'Qwen/Qwen3-235B-A22B',            'SiliconFlow INTL — Qwen3 flagship MoE model',      0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000513, 'Qwen3 30B A3B',         'siliconflow-intl', 'Qwen/Qwen3-30B-A3B',              'SiliconFlow INTL — Qwen3 efficient MoE model',     0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000514, 'GLM-4 9B Chat',         'siliconflow-intl', 'THUDM/glm-4-9b-chat',             'SiliconFlow INTL — Zhipu GLM-4 9B, free tier',     0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000515, 'DeepSeek V3 Pro',       'siliconflow-intl', 'Pro/deepseek-ai/DeepSeek-V3',     'SiliconFlow INTL Pro — DeepSeek V3 priority tier', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000516, 'DeepSeek R1 Pro',       'siliconflow-intl', 'Pro/deepseek-ai/DeepSeek-R1',     'SiliconFlow INTL Pro — DeepSeek R1 priority tier', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000520, 'Big Pickle',            'opencode',         'big-pickle',                      'OpenCode 免费模型 — Big Pickle',                   0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000521, 'Nemotron 3 Super Free', 'opencode',         'nemotron-3-super-free',            'OpenCode 免费模型 — Nemotron 3 Super',             0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000210, 'GLM-5-Turbo', 'zhipu-cn', 'glm-5-turbo', '高速推理模型（推荐）', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000211, 'GLM-5V-Turbo', 'zhipu-cn', 'glm-5v-turbo', '多模态视觉模型（推荐）', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000212, 'GLM-5', 'zhipu-cn', 'glm-5', '旗舰模型', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
@@ -238,15 +338,45 @@ VALUES
 (1000000221, 'GLM-5V-Turbo', 'zhipu-intl', 'glm-5v-turbo', '多模态视觉模型（国际版，推荐）', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000222, 'GLM-5', 'zhipu-intl', 'glm-5', '旗舰模型（国际版）', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000223, 'GLM-5.1', 'zhipu-intl', 'glm-5.1', '最新旗舰模型（国际版）', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000230, 'Doubao 1.5 Pro 256K', 'volcengine', 'doubao-1.5-pro-256k', '豆包旗舰模型，256K 超长上下文', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000231, 'Doubao 1.5 Pro 32K', 'volcengine', 'doubao-1.5-pro-32k', '豆包旗舰模型，32K 上下文', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000232, 'Doubao 1.5 Lite 32K', 'volcengine', 'doubao-1.5-lite-32k', '豆包轻量模型，高性价比', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000233, 'Doubao 1.5 Vision Pro 32K', 'volcengine', 'doubao-1.5-vision-pro-32k', '豆包多模态视觉模型', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000234, 'Doubao 1.5 Thinking Pro', 'volcengine', 'doubao-1.5-thinking-pro', '豆包深度推理模型', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000235, 'Doubao 1.5 Thinking Lite', 'volcengine', 'doubao-1.5-thinking-lite', '豆包轻量推理模型', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000230, 'GLM-5 Coding',       'zhipu-cn-codingplan',   'glm-5',       '智谱编码套餐 — GLM-5 旗舰',                   0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000231, 'GLM-5.1 Coding',     'zhipu-cn-codingplan',   'glm-5.1',     '智谱编码套餐 — GLM-5.1 最新旗舰',             0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000232, 'GLM-5-Turbo Coding', 'zhipu-cn-codingplan',   'glm-5-turbo', '智谱编码套餐 — GLM-5 高速版',                  0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000233, 'GLM-4.7 Coding',     'zhipu-cn-codingplan',   'glm-4.7',     '智谱编码套餐 — GLM-4.7',                       0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000234, 'GLM-5 Coding',       'zhipu-intl-codingplan', 'glm-5',       'Zhipu Coding Plan — GLM-5 旗舰（国际版）',     0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000235, 'GLM-5.1 Coding',     'zhipu-intl-codingplan', 'glm-5.1',     'Zhipu Coding Plan — GLM-5.1 最新旗舰（国际版）', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000236, 'GLM-5-Turbo Coding', 'zhipu-intl-codingplan', 'glm-5-turbo', 'Zhipu Coding Plan — GLM-5 高速版（国际版）',   0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000237, 'GLM-4.7 Coding',     'zhipu-intl-codingplan', 'glm-4.7',     'Zhipu Coding Plan — GLM-4.7（国际版）',         0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000310, 'Doubao Seed 1.8', 'volcengine', 'doubao-seed-1-8-251228', '豆包旗舰多模态模型，文本+图像，256K 上下文', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000311, 'Doubao Seed Code Preview', 'volcengine', 'doubao-seed-code-preview-251028', '豆包代码预览模型，文本+图像，256K 上下文', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000312, 'Kimi K2.5', 'volcengine', 'kimi-k2-5-260127', 'Kimi K2.5（火山方舟托管），文本+图像，256K 上下文', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000313, 'GLM 4.7', 'volcengine', 'glm-4-7-251222', 'GLM 4.7（火山方舟托管），文本+图像，200K 上下文', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000314, 'DeepSeek V3.2', 'volcengine', 'deepseek-v3-2-251201', 'DeepSeek V3.2（火山方舟托管），文本+图像，128K 上下文', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000320, 'Ark Coding Plan', 'volcengine-plan', 'ark-code-latest', '方舟代码计划旗舰模型，256K 上下文', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000321, 'Doubao Seed Code', 'volcengine-plan', 'doubao-seed-code', '豆包代码模型，256K 上下文', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000322, 'Doubao Seed Code Preview', 'volcengine-plan', 'doubao-seed-code-preview-251028', '豆包代码预览模型，256K 上下文', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000323, 'GLM 4.7 Coding', 'volcengine-plan', 'glm-4.7', 'GLM 4.7 编码版（火山方舟托管），200K 上下文', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000324, 'Kimi K2 Thinking', 'volcengine-plan', 'kimi-k2-thinking', 'Kimi K2 推理版（火山方舟托管），256K 上下文', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000325, 'Kimi K2.5 Coding', 'volcengine-plan', 'kimi-k2.5', 'Kimi K2.5 编码版（火山方舟托管），256K 上下文', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000240, 'Kimi for Coding', 'kimi-code', 'kimi-for-coding', 'Kimi Code 专用编码模型', 0.2, 32768, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000250, 'GPT-5.4', 'openai-chatgpt', 'gpt-5.4', 'ChatGPT Plus/Pro 会员模型（OAuth 登录）', NULL, 128000, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000251, 'GPT-5.4 Mini', 'openai-chatgpt', 'gpt-5.4-mini', 'ChatGPT 会员轻量模型', NULL, 128000, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0)
+(1000000251, 'GPT-5.4 Mini', 'openai-chatgpt', 'gpt-5.4-mini', 'ChatGPT 会员轻量模型', NULL, 128000, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- GPT-5.5 系列（OpenAI / Azure / OpenRouter）
+(1000000260, 'GPT-5.5', 'openai', 'gpt-5.5', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000261, 'GPT-5.5 Mini', 'openai', 'gpt-5.5-mini', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000262, 'GPT-5.5 Nano', 'openai', 'gpt-5.5-nano', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000263, 'GPT-5.5', 'azure-openai', 'gpt-5.5', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000264, 'GPT-5.5 Mini', 'azure-openai', 'gpt-5.5-mini', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000265, 'GPT-5.5', 'openrouter', 'openai/gpt-5.5', 'OpenRouter 代理 GPT-5.5', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- Claude 4.7 系列（直连 Anthropic + OpenRouter）
+-- 注意：Claude 4.7 禁止 temperature / top_p / top_k 参数，已在 AgentAnthropicChatModelBuilder 中适配
+(1000000270, 'Claude Opus 4.7', 'anthropic', 'claude-opus-4-7', 'Anthropic Claude Opus 4.7（xhigh 自适应思考）', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- Anthropic 仅发布了 Opus 4.7，Sonnet 暂时仍是 4.6
+(1000000271, 'Claude Sonnet 4.6', 'anthropic', 'claude-sonnet-4-6', 'Anthropic 最新 Sonnet (Sonnet 4.7 暂未发布)', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000272, 'Claude Opus 4.7', 'openrouter', 'anthropic/claude-opus-4-7', 'OpenRouter 代理 Claude Opus 4.7', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000273, 'Claude Sonnet 4.6', 'openrouter', 'anthropic/claude-sonnet-4-6', 'OpenRouter 代理 Claude Sonnet 4.6', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- RFC-062：通过 Claude Code Pro/Max 订阅调用 Claude 4.7
+(1000000280, 'Claude Opus 4.7', 'anthropic-claude-code', 'claude-opus-4-7', '通过 Claude Code Pro/Max 订阅调用 Claude Opus 4.7', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000281, 'Claude Sonnet 4.6', 'anthropic-claude-code', 'claude-sonnet-4-6', '通过 Claude Code Pro/Max 订阅调用 Claude Sonnet 4.6', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE name=VALUES(name), provider=VALUES(provider), model_name=VALUES(model_name), description=VALUES(description), temperature=VALUES(temperature), max_tokens=VALUES(max_tokens), top_p=VALUES(top_p), builtin=VALUES(builtin), enabled=VALUES(enabled), is_default=VALUES(is_default), update_time=VALUES(update_time), deleted=VALUES(deleted);
 
 -- 默认系统设置
@@ -302,6 +432,25 @@ ON DUPLICATE KEY UPDATE setting_key=VALUES(setting_key), setting_value=VALUES(se
 INSERT INTO mate_system_setting (id, setting_key, setting_value, description, create_time, update_time)
 VALUES (1000000013, 'searxngBaseUrl', '', 'SearXNG 实例地址（Docker 部署时自动配置）', NOW(), NOW())
 ON DUPLICATE KEY UPDATE setting_key=VALUES(setting_key), setting_value=VALUES(setting_value), description=VALUES(description), update_time=VALUES(update_time);
+
+-- 语音识别（STT）默认配置 —— 默认启用，用户只需在模型管理中配置 OpenAI / DashScope API Key 即可使用
+-- 用 setting_key 的 skip-if-exists 写法（FROM DUAL ... WHERE NOT EXISTS），
+-- 既不强行覆盖用户显式设过的值，也不会撞 setting_key UNIQUE 索引。
+-- V46 迁移走的是同一套语义。
+INSERT INTO mate_system_setting (id, setting_key, setting_value, description, create_time, update_time)
+SELECT 1000000020, 'sttEnabled', 'true', '启用语音识别（TalkMode 麦克风输入）', NOW(), NOW()
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM mate_system_setting WHERE setting_key = 'sttEnabled');
+
+INSERT INTO mate_system_setting (id, setting_key, setting_value, description, create_time, update_time)
+SELECT 1000000021, 'sttProvider', 'auto', 'STT 提供商：auto / openai / dashscope', NOW(), NOW()
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM mate_system_setting WHERE setting_key = 'sttProvider');
+
+INSERT INTO mate_system_setting (id, setting_key, setting_value, description, create_time, update_time)
+SELECT 1000000022, 'sttFallbackEnabled', 'true', '主 provider 失败时自动尝试备选 provider', NOW(), NOW()
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM mate_system_setting WHERE setting_key = 'sttFallbackEnabled');
 
 -- 内置工具：日期时间
 INSERT INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
@@ -390,6 +539,26 @@ INSERT INTO mate_tool (id, name, display_name, description, tool_type, bean_name
 VALUES (1000000018, 'CronJobTool', '定时任务', '通过对话创建、查看、启停和删除定时任务。支持 5 字段 cron 表达式，灵活设定执行时间。', 'builtin', 'cronJobTool', '⏰', TRUE, TRUE, NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE name=VALUES(name), display_name=VALUES(display_name), description=VALUES(description), tool_type=VALUES(tool_type), bean_name=VALUES(bean_name), icon=VALUES(icon), enabled=VALUES(enabled), builtin=VALUES(builtin), update_time=VALUES(update_time), deleted=VALUES(deleted);
 
+-- 内置工具：DOCX 渲染（RFC-045 — 进程内 Apache POI，毫秒级新建 .docx）
+INSERT INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
+VALUES (1000000019, 'DocxRenderTool', 'DOCX 渲染', '将 Markdown 直接渲染为 .docx 并返回一次性下载链接。进程内 Apache POI 实现，无需 Node.js 子进程；支持标题、加粗、列表、表格。新建文档场景的首选工具。', 'builtin', 'docxRenderTool', '📝', TRUE, TRUE, NOW(), NOW(), 0)
+ON DUPLICATE KEY UPDATE name=VALUES(name), display_name=VALUES(display_name), description=VALUES(description), tool_type=VALUES(tool_type), bean_name=VALUES(bean_name), icon=VALUES(icon), enabled=VALUES(enabled), builtin=VALUES(builtin), update_time=VALUES(update_time), deleted=VALUES(deleted);
+
+-- 内置工具：XLSX 渲染（进程内 Apache POI，从 Markdown 表格生成多 sheet 工作簿）
+INSERT INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
+VALUES (1000000020, 'XlsxRenderTool', 'XLSX 渲染', '将 Markdown 直接渲染为 .xlsx 工作簿并返回一次性下载链接。进程内 Apache POI 实现；每个 # 一级标题生成一个 sheet，竖线表格成为行内容，数字单元格自动识别。', 'builtin', 'xlsxRenderTool', '📊', TRUE, TRUE, NOW(), NOW(), 0)
+ON DUPLICATE KEY UPDATE name=VALUES(name), display_name=VALUES(display_name), description=VALUES(description), tool_type=VALUES(tool_type), bean_name=VALUES(bean_name), icon=VALUES(icon), enabled=VALUES(enabled), builtin=VALUES(builtin), update_time=VALUES(update_time), deleted=VALUES(deleted);
+
+-- 内置工具：PPTX 渲染（进程内 Apache POI，Marp 风格 Markdown 生成 .pptx）
+INSERT INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
+VALUES (1000000021, 'PptxRenderTool', 'PPTX 渲染', '将 Marp 风格的 Markdown 直接渲染为 .pptx 演示文稿并返回一次性下载链接。进程内 Apache POI 实现；--- 分页、# / ## 作幻灯片标题、- 作要点、<!-- ... --> 作演讲者备注。', 'builtin', 'pptxRenderTool', '🎞️', TRUE, TRUE, NOW(), NOW(), 0)
+ON DUPLICATE KEY UPDATE name=VALUES(name), display_name=VALUES(display_name), description=VALUES(description), tool_type=VALUES(tool_type), bean_name=VALUES(bean_name), icon=VALUES(icon), enabled=VALUES(enabled), builtin=VALUES(builtin), update_time=VALUES(update_time), deleted=VALUES(deleted);
+
+-- 内置工具：PDF 渲染（双 backend：LibreOffice 子进程优先，进程内 OpenPDF + Flying Saucer 兜底）
+INSERT INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
+VALUES (1000000022, 'PdfRenderTool', 'PDF 渲染', '将 Markdown 渲染为最终交付形态的 .pdf 并返回一次性下载链接。双 backend 自动切换（优先 LibreOffice，不可用时回落到进程内 OpenPDF + Flying Saucer）；通过 YAML frontmatter 控制封面、页眉、页脚。', 'builtin', 'pdfRenderTool', '📄', TRUE, TRUE, NOW(), NOW(), 0)
+ON DUPLICATE KEY UPDATE name=VALUES(name), display_name=VALUES(display_name), description=VALUES(description), tool_type=VALUES(tool_type), bean_name=VALUES(bean_name), icon=VALUES(icon), enabled=VALUES(enabled), builtin=VALUES(builtin), update_time=VALUES(update_time), deleted=VALUES(deleted);
+
 -- 示例 MCP Server：Filesystem（参考 MateClaw 文档中的 mcpServers.filesystem）
 INSERT INTO mate_mcp_server (
     id, name, description, transport, url, headers_json, command, args_json, env_json, cwd,
@@ -453,6 +622,11 @@ VALUES (
 ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), transport=VALUES(transport), url=VALUES(url), headers_json=VALUES(headers_json), command=VALUES(command), args_json=VALUES(args_json), env_json=VALUES(env_json), cwd=VALUES(cwd), enabled=VALUES(enabled), connect_timeout_seconds=VALUES(connect_timeout_seconds), read_timeout_seconds=VALUES(read_timeout_seconds), last_status=VALUES(last_status), last_error=VALUES(last_error), last_connected_time=VALUES(last_connected_time), tool_count=VALUES(tool_count), builtin=VALUES(builtin), update_time=VALUES(update_time), deleted=VALUES(deleted);
 
 -- 内置技能：从 MateClaw 迁移的技能元数据
+-- DEPRECATED (RFC-044 §4.2): The authoritative source for builtin skills is now
+-- classpath:skills/<name>/SKILL.md, upserted on startup by BuiltinSkillSeedService.
+-- These INSERT/UPDATE blocks remain as a one-version compatibility shim and will
+-- be removed in the next release. New skills should NOT be added here — drop a
+-- SKILL.md under skills/<name>/ and the seed service will register it.
 INSERT INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
 VALUES (1000000001, 'cron', '定时任务管理。通过命令或控制台创建、查询、暂停、恢复、删除任务，按时间表执行并把结果发到频道。', 'builtin', '⏰', '1.0.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'cron,schedule,automation', NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), skill_type=VALUES(skill_type), icon=VALUES(icon), version=VALUES(version), author=VALUES(author), config_json=VALUES(config_json), enabled=VALUES(enabled), builtin=VALUES(builtin), tags=VALUES(tags), update_time=VALUES(update_time), deleted=VALUES(deleted);
@@ -512,6 +686,46 @@ ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), skil
 INSERT INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
 VALUES (1000000015, 'steve_jobs_perspective', '史蒂夫·乔布斯思维操作系统。以乔布斯视角审视产品、评估决策、提供反馈，运用其六大心智模型和独特表达风格。', 'builtin', '🍎', '1.0.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'persona,jobs,product,strategy,thinking', NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), skill_type=VALUES(skill_type), icon=VALUES(icon), version=VALUES(version), author=VALUES(author), config_json=VALUES(config_json), enabled=VALUES(enabled), builtin=VALUES(builtin), tags=VALUES(tags), update_time=VALUES(update_time), deleted=VALUES(deleted);
+
+INSERT INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
+VALUES (1000000016, 'make_plan', '当任务需要多步拆解或不确定执行路径时，向更强 Agent 请求一份分步可落地的执行计划，由当前 Agent 自己执行。', 'builtin', '🗺️', '1.3.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'plan,delegate,agent,collaboration', NOW(), NOW(), 0)
+ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), skill_type=VALUES(skill_type), icon=VALUES(icon), version=VALUES(version), author=VALUES(author), config_json=VALUES(config_json), enabled=VALUES(enabled), builtin=VALUES(builtin), tags=VALUES(tags), update_time=VALUES(update_time), deleted=VALUES(deleted);
+
+INSERT INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
+VALUES (1000000017, 'chat_with_agent', '当需要咨询其他 Agent、寻求帮助或用户明确要求某个 Agent 参与时，使用本技能进行单次或并行委托。', 'builtin', '💬', '1.2.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'agent,chat,collaborate,delegate', NOW(), NOW(), 0)
+ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), skill_type=VALUES(skill_type), icon=VALUES(icon), version=VALUES(version), author=VALUES(author), config_json=VALUES(config_json), enabled=VALUES(enabled), builtin=VALUES(builtin), tags=VALUES(tags), update_time=VALUES(update_time), deleted=VALUES(deleted);
+
+INSERT INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
+VALUES (1000000018, 'channel_message', '当需要主动向用户、会话或渠道单向推送消息时使用。任务完成通知、定时提醒、异步结果回推等场景。', 'builtin', '📤', '1.3.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'channel,message,push,notify,dingtalk,feishu', NOW(), NOW(), 0)
+ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), skill_type=VALUES(skill_type), icon=VALUES(icon), version=VALUES(version), author=VALUES(author), config_json=VALUES(config_json), enabled=VALUES(enabled), builtin=VALUES(builtin), tags=VALUES(tags), update_time=VALUES(update_time), deleted=VALUES(deleted);
+
+INSERT INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
+VALUES (1000000019, 'multi_agent_collaboration', '当任务需要多个 Agent 的专业能力协同完成时，编排多 Agent 并行或串行协作，整合各方结果。', 'builtin', '🤝', '1.4.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'multi-agent,collaboration,orchestration,parallel', NOW(), NOW(), 0)
+ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), skill_type=VALUES(skill_type), icon=VALUES(icon), version=VALUES(version), author=VALUES(author), config_json=VALUES(config_json), enabled=VALUES(enabled), builtin=VALUES(builtin), tags=VALUES(tags), update_time=VALUES(update_time), deleted=VALUES(deleted);
+
+-- RFC-042 §2.2 — bilingual display names for the 19 builtin skills.
+-- Identical across all four data-*.sql files because name_zh / name_en are
+-- permanent attributes, not locale-conditional. The UI picks which one to
+-- show based on the active i18n locale and falls back to `name` when null.
+UPDATE mate_skill SET name_zh = '定时任务',       name_en = 'Cron Jobs'                WHERE name = 'cron';
+UPDATE mate_skill SET name_zh = '文件阅读器',     name_en = 'File Reader'              WHERE name = 'file_reader';
+UPDATE mate_skill SET name_zh = '钉钉渠道接入',   name_en = 'DingTalk Channel'         WHERE name = 'dingtalk_channel_connect';
+UPDATE mate_skill SET name_zh = '邮件管理',       name_en = 'Email (Himalaya)'         WHERE name = 'himalaya';
+UPDATE mate_skill SET name_zh = '新闻查询',       name_en = 'News'                     WHERE name = 'news';
+UPDATE mate_skill SET name_zh = 'PDF 处理',       name_en = 'PDF'                      WHERE name = 'pdf';
+UPDATE mate_skill SET name_zh = 'Word 文档',      name_en = 'Word Document'            WHERE name = 'docx';
+UPDATE mate_skill SET name_zh = 'PPT 演示',       name_en = 'PowerPoint'               WHERE name = 'pptx';
+UPDATE mate_skill SET name_zh = 'Excel 表格',     name_en = 'Excel'                    WHERE name = 'xlsx';
+UPDATE mate_skill SET name_zh = '可见浏览器',     name_en = 'Visible Browser'          WHERE name = 'browser_visible';
+UPDATE mate_skill SET name_zh = '浏览器 CDP',     name_en = 'Browser CDP'              WHERE name = 'browser_cdp';
+UPDATE mate_skill SET name_zh = '安装指引',       name_en = 'Setup Guidance'           WHERE name = 'guidance';
+UPDATE mate_skill SET name_zh = '源码索引',       name_en = 'Source Index'             WHERE name = 'mateclaw_source_index';
+UPDATE mate_skill SET name_zh = 'SQL 查询',       name_en = 'SQL Query'                WHERE name = 'sql_query';
+UPDATE mate_skill SET name_zh = '乔布斯视角',     name_en = 'Steve Jobs Perspective'   WHERE name = 'steve_jobs_perspective';
+UPDATE mate_skill SET name_zh = '制定计划',       name_en = 'Make Plan'                WHERE name = 'make_plan';
+UPDATE mate_skill SET name_zh = '咨询智能体',     name_en = 'Chat with Agent'          WHERE name = 'chat_with_agent';
+UPDATE mate_skill SET name_zh = '渠道推送',       name_en = 'Channel Push'             WHERE name = 'channel_message';
+UPDATE mate_skill SET name_zh = '多智能体协作',   name_en = 'Multi-Agent Collaboration' WHERE name = 'multi_agent_collaboration';
 
 -- 为关键 builtin skill 填充 skill_content（SKILL.md 执行协议）
 -- NOTE: For pdf/docx/pptx/xlsx/himalaya, the authoritative SKILL.md is bundled in
@@ -1102,161 +1316,11 @@ UPDATE mate_skill SET skill_content = '# Steve Jobs · 思维操作系统
 可通过 read_skill_file 读取 references/ 目录下的参考文档获取更多背景。' WHERE id = 1000000015;
 
 -- ==================== 渠道种子数据 ====================
--- 参考 MateClaw 13 种渠道，MateClaw 首批支持 6 种
+-- Only the Web channel is seeded — see data-zh.sql for rationale.
 
--- 1. Web Console（默认启用）
 INSERT INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-VALUES (1000000001, 'Web Console', 'web', 1000000001, '', '{}', TRUE,
+VALUES (1000000001, 'Web 控制台', 'web', 1000000001, '', '{}', TRUE,
         '默认 Web 控制台渠道，通过浏览器 SSE 流式交互', NOW(), NOW(), 0)
-ON DUPLICATE KEY UPDATE name=VALUES(name), channel_type=VALUES(channel_type), agent_id=VALUES(agent_id), bot_prefix=VALUES(bot_prefix), config_json=VALUES(config_json), enabled=VALUES(enabled), description=VALUES(description), update_time=VALUES(update_time), deleted=VALUES(deleted);
-
--- 2. 钉钉（默认禁用，需配置 client_id/client_secret）
-INSERT INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-VALUES (1000000002, 'DingTalk Bot', 'dingtalk', 1000000001, '', '{
-  "client_id": "",
-  "client_secret": "",
-  "robot_code": "",
-  "message_type": "markdown",
-  "card_template_id": "",
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "抱歉，您没有使用权限",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        '钉钉机器人渠道。支持 Stream 回调和 sessionWebhook 回复，需在钉钉开放平台创建应用并配置 Webhook 地址为 /api/v1/channels/webhook/dingtalk', NOW(), NOW(), 0)
-ON DUPLICATE KEY UPDATE name=VALUES(name), channel_type=VALUES(channel_type), agent_id=VALUES(agent_id), bot_prefix=VALUES(bot_prefix), config_json=VALUES(config_json), enabled=VALUES(enabled), description=VALUES(description), update_time=VALUES(update_time), deleted=VALUES(deleted);
-
--- 3. 飞书（默认禁用，需配置 app_id/app_secret）
-INSERT INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-VALUES (1000000003, 'Feishu Bot', 'feishu', 1000000001, '', '{
-  "app_id": "",
-  "app_secret": "",
-  "encrypt_key": "",
-  "verification_token": "",
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "抱歉，您没有使用权限",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        '飞书机器人渠道。支持事件订阅回调，需在飞书开放平台创建应用并配置事件回调地址为 /api/v1/channels/webhook/feishu', NOW(), NOW(), 0)
-ON DUPLICATE KEY UPDATE name=VALUES(name), channel_type=VALUES(channel_type), agent_id=VALUES(agent_id), bot_prefix=VALUES(bot_prefix), config_json=VALUES(config_json), enabled=VALUES(enabled), description=VALUES(description), update_time=VALUES(update_time), deleted=VALUES(deleted);
-
--- 4. Telegram（默认禁用，需配置 bot_token）
-INSERT INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-VALUES (1000000004, 'Telegram Bot', 'telegram', 1000000001, '', '{
-  "bot_token": "",
-  "http_proxy": "",
-  "show_typing": true,
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "抱歉，您没有使用权限",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        'Telegram 机器人渠道。从 @BotFather 获取 Token，配置 Webhook 地址为 /api/v1/channels/webhook/telegram（国内需代理）', NOW(), NOW(), 0)
-ON DUPLICATE KEY UPDATE name=VALUES(name), channel_type=VALUES(channel_type), agent_id=VALUES(agent_id), bot_prefix=VALUES(bot_prefix), config_json=VALUES(config_json), enabled=VALUES(enabled), description=VALUES(description), update_time=VALUES(update_time), deleted=VALUES(deleted);
-
--- 5. Discord（默认禁用，需配置 bot_token）
-INSERT INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-VALUES (1000000005, 'Discord Bot', 'discord', 1000000001, '!mc ', '{
-  "bot_token": "",
-  "http_proxy": "",
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "抱歉，您没有使用权限",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        'Discord 机器人渠道。从 Discord Developer Portal 创建 Bot 并获取 Token，群聊中使用 !mc 前缀触发', NOW(), NOW(), 0)
-ON DUPLICATE KEY UPDATE name=VALUES(name), channel_type=VALUES(channel_type), agent_id=VALUES(agent_id), bot_prefix=VALUES(bot_prefix), config_json=VALUES(config_json), enabled=VALUES(enabled), description=VALUES(description), update_time=VALUES(update_time), deleted=VALUES(deleted);
-
--- 6. 企业微信智能机器人（默认禁用，需配置 bot_id/secret）
-INSERT INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-VALUES (1000000006, 'WeCom Bot', 'wecom', 1000000001, '', '{
-  "bot_id": "",
-  "secret": "",
-  "welcome_text": "",
-  "media_download_enabled": true,
-  "media_dir": "data/media",
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "抱歉，您没有使用权限",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto",
-  "max_reconnect_attempts": -1
-}', FALSE,
-        '企业微信智能机器人渠道（WebSocket 长连接）。在企业微信后台创建「智能机器人」→ 选择「API 模式 → 配置长连接」→ 获得 bot_id 和 secret 填入即可，无需公网 IP', NOW(), NOW(), 0)
-ON DUPLICATE KEY UPDATE name=VALUES(name), channel_type=VALUES(channel_type), agent_id=VALUES(agent_id), bot_prefix=VALUES(bot_prefix), config_json=VALUES(config_json), enabled=VALUES(enabled), description=VALUES(description), update_time=VALUES(update_time), deleted=VALUES(deleted);
-
--- 7. QQ 机器人（默认禁用，需配置 app_id/client_secret）
-INSERT INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-VALUES (1000000007, 'QQ Bot', 'qq', 1000000001, '', '{
-  "app_id": "",
-  "client_secret": "",
-  "markdown_enabled": true,
-  "max_reconnect_attempts": 100,
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "抱歉，您没有使用权限",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        'QQ 机器人渠道（WebSocket 长连接）。前往 QQ 开放平台创建机器人应用，获取 AppID 和 AppSecret 填入即可，无需公网 IP', NOW(), NOW(), 0)
-ON DUPLICATE KEY UPDATE name=VALUES(name), channel_type=VALUES(channel_type), agent_id=VALUES(agent_id), bot_prefix=VALUES(bot_prefix), config_json=VALUES(config_json), enabled=VALUES(enabled), description=VALUES(description), update_time=VALUES(update_time), deleted=VALUES(deleted);
-
--- 8. 微信个人号 iLink Bot（默认禁用，需扫码获取 bot_token）
-INSERT INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-VALUES (1000000008, '微信', 'weixin', 1000000001, '', '{
-  "bot_token": "",
-  "base_url": "https://ilinkai.weixin.qq.com",
-  "media_download_enabled": true,
-  "media_dir": "data/media",
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "抱歉，您没有使用权限",
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        '微信个人号渠道（iLink Bot HTTP 长轮询）。通过扫描二维码登录获取 bot_token，或直接填入已有 token。基于 iLink Bot API，支持文本、图片、语音（ASR）、文件、视频消息', NOW(), NOW(), 0)
-ON DUPLICATE KEY UPDATE name=VALUES(name), channel_type=VALUES(channel_type), agent_id=VALUES(agent_id), bot_prefix=VALUES(bot_prefix), config_json=VALUES(config_json), enabled=VALUES(enabled), description=VALUES(description), update_time=VALUES(update_time), deleted=VALUES(deleted);
-
--- 9. Slack（默认禁用，需配置 bot_token / app_token）
-INSERT INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-VALUES (1000000009, 'Slack Bot', 'slack', 1000000001, '', '{
-  "bot_token": "",
-  "app_token": "",
-  "signing_secret": "",
-  "dm_policy": "open",
-  "group_policy": "mention",
-  "allow_from": [],
-  "deny_message": "抱歉，您没有使用权限",
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        'Slack 渠道（Socket Mode）。在 Slack App 后台获取 Bot Token（xoxb-）和 App-Level Token（xapp-），启用 Socket Mode 后即可使用。', NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE name=VALUES(name), channel_type=VALUES(channel_type), agent_id=VALUES(agent_id), bot_prefix=VALUES(bot_prefix), config_json=VALUES(config_json), enabled=VALUES(enabled), description=VALUES(description), update_time=VALUES(update_time), deleted=VALUES(deleted);
 
 -- ==================== 示例定时任务 ====================
@@ -1589,7 +1653,7 @@ VALUES (
 ## 边界
 
 - 私密的保持私密。
-- 需要执行文件操作或命令时，直接调用对应的工具（如 execute_shell_command、read_file 等），不要用文本描述你要做什么。系统会自动对危险操作弹出审批确认。
+- 需要执行文件操作或命令时，直接调用对应的工具：read_file（读文件）、write_file（写新文件 / 覆盖整个文件，一次写完整内容，不要用 printf / heredoc / echo 拼）、edit_file（修改局部）、execute_shell_command（执行命令）。不要用文本描述你要做什么。系统会自动对危险操作弹出审批确认。
 - 拿不准就先问。
 
 ## 风格
@@ -1736,7 +1800,7 @@ VALUES (
 ## 边界
 
 - 私密的保持私密。
-- 需要执行文件操作或命令时，直接调用对应的工具（如 execute_shell_command、read_file 等），不要用文本描述你要做什么。系统会自动对危险操作弹出审批确认。
+- 需要执行文件操作或命令时，直接调用对应的工具：read_file（读文件）、write_file（写新文件 / 覆盖整个文件，一次写完整内容，不要用 printf / heredoc / echo 拼）、edit_file（修改局部）、execute_shell_command（执行命令）。不要用文本描述你要做什么。系统会自动对危险操作弹出审批确认。
 - 拿不准就先问。
 
 ## 风格
@@ -1822,7 +1886,7 @@ VALUES (
     1000000001,
     TRUE,
     'all',
-    '["write_file","edit_file","execute_shell_command"]',
+    '["execute_shell_command"]',
     '[]',
     TRUE,
     '["/etc","/usr","/bin","/sbin","/boot","/sys","/proc","/dev"]',

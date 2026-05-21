@@ -2,6 +2,8 @@ package vip.mate.llm.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import vip.mate.exception.MateClawException;
@@ -21,6 +23,15 @@ public class ModelConfigService {
 
     private final ModelConfigMapper modelConfigMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final ModelCapabilityService modelCapabilityService;
+
+    /**
+     * Lazy to break circular dependency: ModelProviderService → ModelConfigService.
+     * Used only in getDefaultModel() to skip models whose provider is unconfigured.
+     */
+    @Lazy
+    @Autowired
+    private ModelProviderService modelProviderService;
 
     public List<ModelConfigEntity> listModels() {
         return modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
@@ -32,10 +43,10 @@ public class ModelConfigService {
     public List<ModelConfigEntity> listEnabledModels() {
         return modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
                 .eq(ModelConfigEntity::getEnabled, true)
-                .eq(ModelConfigEntity::getProvider, "dashscope")
                 // 仅 chat 类型（排除 embedding），NULL 兼容老数据
                 .and(w -> w.isNull(ModelConfigEntity::getModelType)
                            .or().eq(ModelConfigEntity::getModelType, "chat"))
+                .orderByAsc(ModelConfigEntity::getProvider)
                 .orderByDesc(ModelConfigEntity::getIsDefault)
                 .orderByAsc(ModelConfigEntity::getName));
     }
@@ -57,17 +68,40 @@ public class ModelConfigService {
      * </ul>
      */
     public List<ModelConfigEntity> listByType(String modelType) {
+        return listByType(modelType, null);
+    }
+
+    /**
+     * Optional modality filter (case-insensitive: {@code "vision" / "video" / "audio"}).
+     * When non-null, only enabled rows whose resolved capability set contains the
+     * requested modality survive — used by the multimodal sidecar settings UI to
+     * populate "default vision model" / "default video model" dropdowns.
+     */
+    public List<ModelConfigEntity> listByType(String modelType, String modality) {
+        List<ModelConfigEntity> rows;
         if ("chat".equals(modelType)) {
-            return modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
+            rows = modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
                     .and(w -> w.isNull(ModelConfigEntity::getModelType)
                                .or().eq(ModelConfigEntity::getModelType, "chat"))
                     .orderByDesc(ModelConfigEntity::getIsDefault)
                     .orderByAsc(ModelConfigEntity::getName));
+        } else {
+            rows = modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
+                    .eq(ModelConfigEntity::getModelType, modelType)
+                    .orderByDesc(ModelConfigEntity::getIsDefault)
+                    .orderByAsc(ModelConfigEntity::getName));
         }
-        return modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
-                .eq(ModelConfigEntity::getModelType, modelType)
-                .orderByDesc(ModelConfigEntity::getIsDefault)
-                .orderByAsc(ModelConfigEntity::getName));
+        if (modality == null || modality.isBlank()) return rows;
+        ModelCapabilityService.Modality required;
+        try {
+            required = ModelCapabilityService.Modality.valueOf(modality.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return rows;
+        }
+        return rows.stream()
+                .filter(m -> Boolean.TRUE.equals(m.getEnabled()))
+                .filter(m -> modelCapabilityService.supports(m.getModelName(), m.getModalities(), required))
+                .toList();
     }
 
     /**
@@ -91,25 +125,55 @@ public class ModelConfigService {
     }
 
     public ModelConfigEntity getDefaultModel() {
-        // 默认 chat 模型：明确排除 embedding 类型
-        ModelConfigEntity entity = modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+        // Prefer the explicitly marked default chat model when its provider is configured.
+        ModelConfigEntity defaultMarked = modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
                 .eq(ModelConfigEntity::getIsDefault, true)
                 .and(w -> w.isNull(ModelConfigEntity::getModelType)
                            .or().eq(ModelConfigEntity::getModelType, "chat"))
                 .last("LIMIT 1"));
-        if (entity != null) {
-            return entity;
+        if (defaultMarked != null && isProviderEnabledAndConfigured(defaultMarked.getProvider())) {
+            return defaultMarked;
         }
-        entity = modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+
+        // Default model's provider is unavailable (or no default set) — scan all enabled
+        // chat models and pick the first one whose provider is actually configured.
+        List<ModelConfigEntity> candidates = modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
                 .eq(ModelConfigEntity::getEnabled, true)
                 .and(w -> w.isNull(ModelConfigEntity::getModelType)
                            .or().eq(ModelConfigEntity::getModelType, "chat"))
-                .orderByAsc(ModelConfigEntity::getName)
-                .last("LIMIT 1"));
-        if (entity == null) {
-            throw new MateClawException("err.llm.no_available_model", "没有可用的模型配置");
+                .orderByDesc(ModelConfigEntity::getIsDefault)
+                .orderByAsc(ModelConfigEntity::getName));
+        for (ModelConfigEntity candidate : candidates) {
+            if (isProviderEnabledAndConfigured(candidate.getProvider())) {
+                return candidate;
+            }
         }
-        return entity;
+
+        // No configured provider found — give a clearer error than the generic one.
+        if (!candidates.isEmpty()) {
+            String unconfiguredProvider = candidates.get(0).getProvider();
+            throw new MateClawException("err.llm.no_configured_provider",
+                    "所有已启用的模型 Provider 均未完成配置（默认 Provider: " + unconfiguredProvider
+                    + "），请在「设置 → 模型」中填写 API Key");
+        }
+        throw new MateClawException("err.llm.no_available_model", "没有可用的模型配置");
+    }
+
+    /**
+     * Checks whether a provider is fully configured (API key / credentials present).
+     * Delegates to ModelProviderService which is injected lazily to avoid a circular
+     * dependency. Falls back to {@code true} when the service is not yet available
+     * (e.g., during early bootstrap) so we don't accidentally block startup.
+     */
+    private boolean isProviderEnabledAndConfigured(String providerId) {
+        if (modelProviderService == null || providerId == null) {
+            return true;
+        }
+        try {
+            return modelProviderService.isProviderEnabledAndConfigured(providerId);
+        } catch (Exception e) {
+            return true; // conservative: don't filter if lookup fails
+        }
     }
 
     public ModelConfigEntity getDefaultModelByProvider(String providerId) {

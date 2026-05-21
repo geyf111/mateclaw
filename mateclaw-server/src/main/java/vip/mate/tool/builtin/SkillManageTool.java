@@ -43,6 +43,7 @@ public class SkillManageTool {
     /** Skill 内容最大长度（~25K tokens） */
     private static final int MAX_CONTENT_CHARS = 100_000;
 
+    @vip.mate.tool.ConcurrencyUnsafe("create/edit/patch/delete on the shared skill registry; concurrent ops on the same skill name race")
     @Tool(description = """
         Manage reusable skills: create, edit, patch, or delete skill procedures (SKILL.md format).
 
@@ -308,9 +309,12 @@ public class SkillManageTool {
         }
 
         try {
-            skillService.deleteSkill(existing.getId());
-            log.info("[SkillManage] Agent deleted skill: name={}", name);
-            return "Skill '" + name + "' deleted.";
+            // RFC-090 §14.5 — agent-triggered delete uses uninstall
+            // (logical + archive) so a misbehaving agent can't
+            // physically purge a row past recovery.
+            skillService.uninstallSkill(existing.getId());
+            log.info("[SkillManage] Agent uninstalled skill: name={}", name);
+            return "Skill '" + name + "' uninstalled (workspace archived).";
         } catch (Exception e) {
             log.error("[SkillManage] Failed to delete skill '{}': {}", name, e.getMessage(), e);
             return "Error deleting skill: " + e.getMessage();

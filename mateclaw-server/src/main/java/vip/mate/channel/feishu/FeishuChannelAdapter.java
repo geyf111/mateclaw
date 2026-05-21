@@ -34,20 +34,24 @@ import java.util.concurrent.TimeUnit;
  * 飞书渠道适配器
  * <p>
  * 飞书渠道实现：
- * - 接入模式：Event Subscription（HTTP 回调）或 WebSocket 长连接
+ * - 接入模式：WebSocket 长连接（默认，无需公网 IP）或 Event Subscription（HTTP 回调）
  * - 发送方式：通过 Open API 发送消息
  * - 消息去重：基于 message_id 防止重复处理
+ * - 引用消息：自动拉取 parent_id 对应的父消息内容并注入上下文
  * <p>
  * 配置项（configJson）：
  * - app_id: 飞书应用 App ID
  * - app_secret: 飞书应用 App Secret
- * - connection_mode: 接入模式 "webhook"（默认）或 "websocket"
+ * - connection_mode: 接入模式 "websocket"（默认）或 "webhook"
  * - domain: "feishu"（默认）或 "lark"（国际版）
- * - encrypt_key: 事件加密密钥（可选）
- * - verification_token: 事件验证 Token（可选）
+ * - encrypt_key: 事件加密密钥（webhook 模式必填）
+ * - verification_token: 事件验证 Token（webhook 模式可选）
  * - enable_reaction: 是否在收到消息后添加表情反应（默认 true）
  * - enable_nickname_cache: 是否通过 Contact API 获取用户昵称（默认 true）
  * - media_download_enabled: 是否下载消息中的媒体文件（默认 false）
+ * - enable_quoted_context: 是否拉取被引用消息内容注入到 prompt（默认 true）
+ * - silent_disconnect_threshold_seconds: WebSocket 静默断连阈值（默认 1800，0 禁用）
+ * - stale_event_threshold_seconds: 过滤旧事件阈值（默认 30，0 禁用）
  *
  * @author MateClaw Team
  */
@@ -75,6 +79,21 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
 
     /** WebSocket 连接线程 */
     private volatile Thread wsThread;
+
+    /** WebSocket 静默断连看门狗：定期检查最近事件时间，超过阈值就强制重连 */
+    private ScheduledFuture<?> silentDisconnectWatchdog;
+
+    /** 是否已收到至少一个事件（用于避免新连接立即触发静默超时） */
+    private volatile boolean hasReceivedFirstEvent = false;
+
+    /** 看门狗检查间隔（秒） */
+    private static final long WATCHDOG_INTERVAL_SECONDS = 60L;
+
+    /** 静默断连默认阈值（秒）：30 分钟无事件就视为可疑 */
+    private static final long DEFAULT_SILENT_THRESHOLD_SECONDS = 1800L;
+
+    /** 旧事件过滤默认阈值（秒）：超过 30 秒的事件视为重连后回放 */
+    private static final long DEFAULT_STALE_THRESHOLD_SECONDS = 30L;
 
     public FeishuChannelAdapter(ChannelEntity channelEntity,
                                 ChannelMessageRouter messageRouter,
@@ -106,11 +125,11 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
         // 定时刷新 Token：过期前 5 分钟自动刷新
         scheduleTokenRefresh();
 
-        String connectionMode = getConfigString("connection_mode", "webhook");
+        String connectionMode = getConfigString("connection_mode", "websocket");
         if ("websocket".equals(connectionMode)) {
             startWebSocket(appId, appSecret);
         } else {
-            // RFC-025 Change 3: webhook 模式下 encrypt_key 必须配置，否则 fail-fast 拒绝启动；
+            // webhook 模式下 encrypt_key 必须配置，否则 fail-fast 拒绝启动；
             // 没有加密密钥 + 无签名校验 = 任何人可伪造 webhook 请求触发 agent 消息
             String encryptKey = getConfigString("encrypt_key", null);
             if (encryptKey == null || encryptKey.isBlank()) {
@@ -142,6 +161,7 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
         this.tenantAccessToken = null;
         this.processedMessageIds.clear();
         this.nicknameCache.clear();
+        this.quotedMessageCache.clear();
         log.info("[feishu] Feishu channel stopped");
     }
 
@@ -149,7 +169,7 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
     protected void doReconnect() {
         String appId = getConfigString("app_id");
         String appSecret = getConfigString("app_secret");
-        String connectionMode = getConfigString("connection_mode", "webhook");
+        String connectionMode = getConfigString("connection_mode", "websocket");
 
         // 重新建立 HTTP 客户端
         this.httpClient = HttpClient.newBuilder()
@@ -236,6 +256,54 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
         }, "feishu-ws-" + channelEntity.getId());
         wsThread.setDaemon(true);
         wsThread.start();
+
+        startSilentDisconnectWatchdog();
+    }
+
+    /**
+     * 启动静默断连看门狗。
+     * <p>
+     * SDK 内部有 ping/pong 心跳，正常情况下连接断开会触发 start() 返回 → onDisconnected。
+     * 但少数场景 TCP 层认为连接还在但事件不再流入（NAT 超时、半开连接、对端 hang 死），
+     * SDK 也察觉不到。看门狗每 60s 检查一次「最近事件时间」，超过阈值就强制重连。
+     * <p>
+     * 静默判定有两个前置条件：
+     * 1. 已经收到过至少一个事件（避免新连接立即触发误报）
+     * 2. silent_disconnect_threshold_seconds &gt; 0（设为 0 可禁用看门狗）
+     * <p>
+     * 默认阈值 30 分钟。安静的渠道（一天没几条消息）建议调大到 1-2 小时；
+     * 高频渠道可以调小到 5-10 分钟以更快发现问题。
+     */
+    private void startSilentDisconnectWatchdog() {
+        long thresholdSec = getConfigLong("silent_disconnect_threshold_seconds",
+                DEFAULT_SILENT_THRESHOLD_SECONDS);
+        if (thresholdSec <= 0) {
+            log.debug("[feishu] Silent disconnect watchdog disabled (threshold=0)");
+            return;
+        }
+        long thresholdMs = thresholdSec * 1000L;
+
+        cancelSilentDisconnectWatchdog();
+        silentDisconnectWatchdog = ensureReconnectScheduler().scheduleAtFixedRate(() -> {
+            if (!running.get() || wsClient == null) return;
+            if (!hasReceivedFirstEvent) return; // 没收到首个事件前不算静默
+
+            long silentMs = System.currentTimeMillis() - lastEventTimeMs.get();
+            if (silentMs > thresholdMs) {
+                log.warn("[feishu] Silent WebSocket detected: no events for {}s (threshold {}s), forcing reconnect",
+                        silentMs / 1000, thresholdSec);
+                onDisconnected("silent disconnect: no events for " + (silentMs / 1000) + "s");
+            }
+        }, WATCHDOG_INTERVAL_SECONDS, WATCHDOG_INTERVAL_SECONDS, TimeUnit.SECONDS);
+        log.info("[feishu] Silent disconnect watchdog started (threshold {}s, check every {}s)",
+                thresholdSec, WATCHDOG_INTERVAL_SECONDS);
+    }
+
+    private void cancelSilentDisconnectWatchdog() {
+        if (silentDisconnectWatchdog != null) {
+            silentDisconnectWatchdog.cancel(false);
+            silentDisconnectWatchdog = null;
+        }
     }
 
     /**
@@ -247,6 +315,9 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
     private void startWebSocketSync(String appId, String appSecret) {
         wsClient = createWsClient(appId, appSecret);
         log.info("[feishu] WebSocket connecting (long connection)...");
+        // 看门狗必须在 start() 之前启动，否则 start() 阻塞后这一行永远到不了，
+        // 一旦断连后重连这条路径，watchdog 就再也不会被恢复
+        startSilentDisconnectWatchdog();
         wsClient.start(); // 阻塞：成功则永驻，失败则抛异常
     }
 
@@ -255,6 +326,8 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
      * SDK 的 start() 在线程中阻塞运行，通过中断线程来触发停止
      */
     private void stopWebSocket() {
+        cancelSilentDisconnectWatchdog();
+        hasReceivedFirstEvent = false;
         if (wsThread != null) {
             wsThread.interrupt();
             wsThread = null;
@@ -274,18 +347,41 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
         var message = eventBody.getMessage();
         var sender = eventBody.getSender();
 
+        // 任何事件到达都更新活跃时间戳，看门狗用它判断是否静默断连
+        touchActivity();
+        hasReceivedFirstEvent = true;
+
+        // 旧事件过滤：SDK 在重连后可能回放历史事件，按 message.create_time 过滤
+        // 远超 stale 阈值的消息（典型场景：连接断了 5 分钟后恢复，5 分钟前的消息再处理一次没意义）
+        long staleThresholdMs = getConfigLong("stale_event_threshold_seconds",
+                DEFAULT_STALE_THRESHOLD_SECONDS) * 1000L;
+        if (staleThresholdMs > 0 && message.getCreateTime() != null) {
+            try {
+                long msgCreateTimeMs = Long.parseLong(message.getCreateTime());
+                long ageMs = System.currentTimeMillis() - msgCreateTimeMs;
+                if (ageMs > staleThresholdMs) {
+                    log.info("[feishu] Dropping stale event: messageId={}, age={}s (threshold {}s)",
+                            message.getMessageId(), ageMs / 1000, staleThresholdMs / 1000);
+                    return;
+                }
+            } catch (NumberFormatException ignored) {
+                // create_time 不是合法的毫秒数，跳过过滤而不是误丢
+            }
+        }
+
         String messageId = message.getMessageId();
         String messageType = message.getMessageType();
         String contentStr = message.getContent();
         String chatId = message.getChatId();
         String chatType = message.getChatType();
+        String parentId = message.getParentId();
 
         String senderOpenId = null;
         if (sender != null && sender.getSenderId() != null) {
             senderOpenId = sender.getSenderId().getOpenId();
         }
 
-        handleFeishuMessage(messageId, messageType, contentStr, chatId, chatType, senderOpenId, event);
+        handleFeishuMessage(messageId, messageType, contentStr, chatId, chatType, senderOpenId, parentId, event);
     }
 
     // ==================== Token 管理 ====================
@@ -419,6 +515,7 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
             String contentStr = (String) message.get("content");
             String chatId = (String) message.get("chat_id");
             String chatType = (String) message.get("chat_type");
+            String parentId = (String) message.get("parent_id");
 
             // 提取发送者 open_id
             Map<String, Object> sender = (Map<String, Object>) event.get("sender");
@@ -430,7 +527,7 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
                 }
             }
 
-            handleFeishuMessage(messageId, messageType, contentStr, chatId, chatType, senderOpenId, payload);
+            handleFeishuMessage(messageId, messageType, contentStr, chatId, chatType, senderOpenId, parentId, payload);
 
         } catch (Exception e) {
             log.error("[feishu] Failed to handle webhook: {}", e.getMessage(), e);
@@ -450,11 +547,12 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
      * @param chatId       群组 ID（私聊为 null）
      * @param chatType     "p2p" 或 "group"
      * @param senderOpenId 发送者 open_id
+     * @param parentId     被引用消息的 message_id（无引用时为 null）
      * @param rawPayload   原始负载（用于调试）
      */
     private void handleFeishuMessage(String messageId, String messageType, String contentStr,
                                       String chatId, String chatType, String senderOpenId,
-                                      Object rawPayload) {
+                                      String parentId, Object rawPayload) {
         // 消息去重
         if (messageId != null && !processedMessageIds.add(messageId)) {
             log.debug("[feishu] Duplicate message_id: {}, skipping", messageId);
@@ -480,6 +578,18 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
         if (contentParts.isEmpty() && (textContent == null || textContent.isBlank())) {
             log.debug("[feishu] Empty message content, ignoring");
             return;
+        }
+
+        // 引用消息（用户在飞书里"引用"了之前的某条消息回复）：拉取被引用消息内容并注入上下文，
+        // 让 agent 能理解 "解释一下" 这种缺主语的引用回复 —— 不然就只看到"解释一下"三个字。
+        if (parentId != null && !parentId.isBlank() && getConfigBoolean("enable_quoted_context", true)) {
+            String quotedText = fetchQuotedMessageText(parentId);
+            if (quotedText != null && !quotedText.isBlank()) {
+                String prefix = "[引用消息: " + quotedText + "]\n";
+                textContent = prefix + (textContent != null ? textContent : "");
+                // 同步加一个 text part 到最前面，让多模态消息也能看到引用上下文
+                contentParts.add(0, MessageContentPart.text(prefix));
+            }
         }
 
         // 生成短会话后缀
@@ -632,6 +742,124 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
         return null;
     }
 
+    // ==================== 引用消息上下文 ====================
+
+    /** 引用消息内容缓存：parent_message_id → 文本摘要（避免同一条引用反复拉 API） */
+    private final ConcurrentHashMap<String, String> quotedMessageCache = new ConcurrentHashMap<>();
+    private static final int QUOTED_CACHE_MAX = 200;
+
+    /**
+     * 拉取被引用消息的文本摘要。
+     * <p>
+     * GET /open-apis/im/v1/messages/{message_id} 返回 items[0]，body.content 是一段 JSON 字符串，
+     * 形如 {"text": "..."} 或 post 富文本。我们只取一个简短文本表示，给 agent 当上下文用，
+     * 不还原完整富文本/媒体（成本高且 prompt 容易冗余）。
+     */
+    @SuppressWarnings("unchecked")
+    private String fetchQuotedMessageText(String parentMessageId) {
+        String cached = quotedMessageCache.get(parentMessageId);
+        if (cached != null) return cached;
+
+        try {
+            ensureTokenValid();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(getApiBaseUrl() + "/open-apis/im/v1/messages/" + parentMessageId))
+                    .header("Authorization", "Bearer " + tenantAccessToken)
+                    .timeout(Duration.ofSeconds(3))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.debug("[feishu] Fetch quoted message failed: status={}", response.statusCode());
+                return null;
+            }
+            Map<String, Object> result = objectMapper.readValue(response.body(), Map.class);
+            Integer code = result.get("code") instanceof Number n ? n.intValue() : null;
+            if (code == null || code != 0) {
+                log.debug("[feishu] Fetch quoted message API error: code={}, msg={}", code, result.get("msg"));
+                return null;
+            }
+            Map<String, Object> data = (Map<String, Object>) result.get("data");
+            if (data == null) return null;
+            List<Map<String, Object>> items = (List<Map<String, Object>>) data.get("items");
+            if (items == null || items.isEmpty()) return null;
+            Map<String, Object> item = items.get(0);
+            String msgType = (String) item.get("msg_type");
+            Map<String, Object> body = (Map<String, Object>) item.get("body");
+            if (body == null) return null;
+            String contentJson = (String) body.get("content");
+            String summary = summarizeQuotedContent(msgType, contentJson);
+
+            if (summary != null && !summary.isBlank()) {
+                if (quotedMessageCache.size() >= QUOTED_CACHE_MAX) {
+                    int toRemove = quotedMessageCache.size() / 2;
+                    var iter = quotedMessageCache.keySet().iterator();
+                    while (iter.hasNext() && toRemove > 0) {
+                        iter.next(); iter.remove(); toRemove--;
+                    }
+                }
+                quotedMessageCache.put(parentMessageId, summary);
+            }
+            return summary;
+        } catch (Exception e) {
+            log.debug("[feishu] fetchQuotedMessageText failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 把引用消息的 body.content 折叠成一个简短文本表示，控制 prompt 注入大小。
+     * 长文本截断到 200 字符以内，post 取段落首文本，图片/文件给类型占位。
+     */
+    @SuppressWarnings("unchecked")
+    private String summarizeQuotedContent(String msgType, String contentJson) {
+        if (contentJson == null) return null;
+        try {
+            Map<String, Object> obj = objectMapper.readValue(contentJson, Map.class);
+            String text = switch (msgType != null ? msgType : "") {
+                case "text" -> (String) obj.get("text");
+                case "image" -> "[图片]";
+                case "file" -> "[文件: " + obj.getOrDefault("file_name", "") + "]";
+                case "audio" -> "[音频]";
+                case "media" -> "[视频]";
+                case "post" -> extractPostFirstText(obj);
+                default -> "[" + msgType + "]";
+            };
+            if (text == null) return null;
+            text = text.trim();
+            if (text.length() > 200) text = text.substring(0, 200) + "…";
+            return text;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractPostFirstText(Map<String, Object> postObj) {
+        // post 结构：{"zh_cn": {"title": "...", "content": [[{tag:text, text:"..."}], ...]}}
+        // 我们只取第一个语种的 title + 第一段的首个 text 元素，作为引用摘要
+        for (Object langValue : postObj.values()) {
+            if (!(langValue instanceof Map<?, ?> lang)) continue;
+            String title = (String) ((Map<String, Object>) lang).get("title");
+            List<List<Map<String, Object>>> content = (List<List<Map<String, Object>>>) ((Map<String, Object>) lang).get("content");
+            StringBuilder sb = new StringBuilder();
+            if (title != null && !title.isBlank()) sb.append(title).append("：");
+            if (content != null) {
+                outer:
+                for (var paragraph : content) {
+                    for (var inline : paragraph) {
+                        if ("text".equals(inline.get("tag"))) {
+                            sb.append(inline.get("text"));
+                            break outer;
+                        }
+                    }
+                }
+            }
+            return sb.toString();
+        }
+        return null;
+    }
+
     // ==================== 会话 ID 优化 ====================
 
     /**
@@ -688,9 +916,17 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
                 case "image" -> {
                     String imageKey = (String) contentObj.get("image_key");
                     if (imageKey != null) {
-                        String localPath = maybeDownloadResource(messageId, imageKey, "image", null);
+                        // Images need bytes for vision: the Feishu CDN URL
+                        // requires tenant_access_token, so a downstream vision
+                        // tool that only sees image_key cannot fetch the
+                        // image. Default-on for images (separate from the
+                        // file/audio/video gate) so vision works out of the
+                        // box; admins can opt out with feishu_image_download_enabled=false.
+                        String localPath = maybeDownloadImage(messageId, imageKey);
                         MessageContentPart part = MessageContentPart.image(imageKey, null);
-                        if (localPath != null) part.setPath(localPath);
+                        if (localPath != null) {
+                            part.setPath(localPath);
+                        }
                         parts.add(part);
                     }
                     yield "[图片]";
@@ -840,7 +1076,9 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
                     case "img" -> {
                         String imageKey = (String) element.get("image_key");
                         if (imageKey != null) {
-                            String localPath = mediaDownload ? maybeDownloadResource(messageId, imageKey, "image", null) : null;
+                            // Same reasoning as the standalone image case: vision
+                            // pipelines need bytes; image_key alone is opaque.
+                            String localPath = maybeDownloadImage(messageId, imageKey);
                             MessageContentPart imgPart = MessageContentPart.image(imageKey, null);
                             if (localPath != null) imgPart.setPath(localPath);
                             parts.add(imgPart);
@@ -887,6 +1125,22 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
             return null;
         }
         return downloadResource(messageId, fileKey, type, fileNameHint);
+    }
+
+    /**
+     * Image-specific download: default ON so the vision/STT pipeline
+     * downstream actually has bytes to analyze. Without the local file,
+     * vision providers see only an opaque {@code image_key} and the
+     * Feishu CDN URL needs tenant_access_token to fetch — neither of
+     * which the model can resolve. Admins who want to suppress image
+     * downloads (e.g. tighter privacy, no disk usage) can set
+     * {@code feishu_image_download_enabled=false} on the channel config.
+     */
+    private String maybeDownloadImage(String messageId, String imageKey) {
+        if (!getConfigBoolean("feishu_image_download_enabled", true)) {
+            return null;
+        }
+        return downloadResource(messageId, imageKey, "image", null);
     }
 
     /**
@@ -956,16 +1210,38 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
 
     // ==================== 消息发送 ====================
 
+    /**
+     * Conservative per-message char ceiling. Feishu's documented limit is on
+     * the encoded JSON body (~150KB), but UTF-8 Chinese is 3 bytes/char and
+     * JSON escape adds further overhead, so a 4000-char chunk is comfortably
+     * under any realistic limit and also gives readable IM chunking instead
+     * of one wall of text. Split at paragraph / line boundaries when possible.
+     */
+    static final int MAX_TEXT_MESSAGE_CHARS = 4000;
+
     @Override
     public void sendMessage(String targetId, String content) {
         if (httpClient == null) {
             log.warn("[feishu] Channel not started, cannot send message");
             return;
         }
+        if (content == null) {
+            return;
+        }
 
         ensureTokenValid();
-        String apiBase = getApiBaseUrl();
+        List<String> chunks = splitTextForFeishu(content, MAX_TEXT_MESSAGE_CHARS);
+        if (chunks.size() > 1) {
+            log.info("[feishu] Splitting message into {} chunks ({} chars total) before send",
+                    chunks.size(), content.length());
+        }
+        for (String chunk : chunks) {
+            sendOneTextChunk(targetId, chunk);
+        }
+    }
 
+    private void sendOneTextChunk(String targetId, String content) {
+        String apiBase = getApiBaseUrl();
         try {
             String jsonBody = objectMapper.writeValueAsString(Map.of(
                     "receive_id", targetId,
@@ -984,12 +1260,58 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
             if (response.statusCode() != 200) {
                 log.warn("[feishu] Send message failed: status={}, body={}", response.statusCode(), response.body());
             } else {
-                log.debug("[feishu] Message sent to chat_id={}", targetId);
+                log.debug("[feishu] Message sent to chat_id={} ({} chars)", targetId, content.length());
             }
 
         } catch (Exception e) {
             log.error("[feishu] Failed to send message: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * Split a possibly-oversized message into chunks no larger than
+     * {@code maxChars}, preferring paragraph (\n\n) then line (\n) then
+     * whitespace boundaries. Hard-cuts as a last resort so we never silently
+     * drop content.
+     */
+    static List<String> splitTextForFeishu(String content, int maxChars) {
+        if (content == null || content.isEmpty()) {
+            return List.of();
+        }
+        if (content.length() <= maxChars) {
+            return List.of(content);
+        }
+        List<String> chunks = new ArrayList<>();
+        int idx = 0;
+        int n = content.length();
+        while (idx < n) {
+            int end = Math.min(idx + maxChars, n);
+            if (end < n) {
+                int boundary = -1;
+                int paragraphCut = content.lastIndexOf("\n\n", end);
+                if (paragraphCut > idx + maxChars / 2) {
+                    boundary = paragraphCut + 2;
+                }
+                if (boundary < 0) {
+                    int lineCut = content.lastIndexOf('\n', end);
+                    if (lineCut > idx + maxChars / 2) {
+                        boundary = lineCut + 1;
+                    }
+                }
+                if (boundary < 0) {
+                    int spaceCut = content.lastIndexOf(' ', end);
+                    if (spaceCut > idx + maxChars / 2) {
+                        boundary = spaceCut + 1;
+                    }
+                }
+                if (boundary > idx) {
+                    end = boundary;
+                }
+            }
+            chunks.add(content.substring(idx, end));
+            idx = end;
+        }
+        return chunks;
     }
 
     @Override
@@ -1112,5 +1434,20 @@ public class FeishuChannelAdapter extends AbstractChannelAdapter {
     @Override
     public String getChannelType() {
         return CHANNEL_TYPE;
+    }
+
+    /**
+     * WebSocket mode opens a long-lived connection to Lark's gateway, which
+     * caps concurrent connections per bot app (~2). In a multi-instance
+     * deployment every node would race for that quota and reconnect-loop on
+     * {@code 1000040350: the number of connections exceeded the limit}.
+     * The leader gate ensures only one node holds the connection at a time.
+     *
+     * <p>Webhook mode is exempt: callbacks are HTTP-fanned by the load
+     * balancer, so all nodes can safely subscribe.
+     */
+    @Override
+    public boolean requiresSingleLeader() {
+        return "websocket".equals(getConfigString("connection_mode", "websocket"));
     }
 }

@@ -11,7 +11,6 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.util.StringUtils;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -21,6 +20,7 @@ import vip.mate.agent.GraphEventPublisher;
 import vip.mate.agent.graph.NodeStreamingChatHelper;
 import vip.mate.agent.graph.plan.state.PlanStateAccessor;
 import vip.mate.agent.graph.plan.state.PlanStateKeys;
+import vip.mate.agent.graph.state.DirectToolOutput;
 import vip.mate.agent.graph.state.MateClawStateKeys;
 import vip.mate.agent.context.ConversationWindowManager;
 import vip.mate.agent.context.RuntimeContextInjector;
@@ -36,7 +36,12 @@ import java.util.Map;
  * 步骤执行节点
  * <p>
  * 执行当前步骤，使用显式工具执行循环（internalToolExecutionEnabled=false）。
- * 单步最大工具调用次数限制为 5 次，防止无限循环。
+ * 单步最大工具调用次数限制为 {@link #MAX_TOOL_CALLS_PER_STEP} 次，与
+ * {@code BaseAgent.MAX_ITERATIONS_HARD_CEILING} 对齐——因此实际生效的上限
+ * 永远是 agent 的 {@code max_iterations}（DB 列），单步本身不会先于 agent
+ * 的整体预算被打掉。早期 5 次的硬限制对"查新闻 + 整理 Word"这种合理多
+ * 工具任务过紧，被 LimitExceededNode 提前拦截后用户看到的是冷冰冰的
+ * "工具调用次数超出最大限制"。
  * <p>
  * 支持 NEEDS_APPROVAL 审批流程：对需要审批的工具调用创建 pending，
  * 发出 SSE 事件后立即返回审批提示（非阻塞）。审批通过后通过 replay 重新执行。
@@ -54,8 +59,29 @@ public class StepExecutionNode implements NodeAction {
     private final ConversationWindowManager conversationWindowManager;
     private final String reasoningEffort;
     private final NodeStreamingChatHelper streamingHelper;
+    private final long stepWallClockTimeoutMs;
 
-    private static final int MAX_TOOL_CALLS_PER_STEP = 5;
+    /**
+     * Per-step tool-call ceiling, aligned with {@code BaseAgent.MAX_ITERATIONS_HARD_CEILING}.
+     * Matching the agent-level cap means this constant is never the bottleneck —
+     * the agent's own {@code max_iterations} (DB column) will fire first if a
+     * task is genuinely runaway, and a well-budgeted multi-tool step (e.g.
+     * web_search + browser_navigate + browser_read*N + file_write) is no longer
+     * cut short by an arbitrary 5-call ceiling.
+     */
+    private static final int MAX_TOOL_CALLS_PER_STEP = 100;
+
+    /**
+     * Wall-clock budget per step, complementing {@link #MAX_TOOL_CALLS_PER_STEP}.
+     * The call-count cap doesn't help when a single LLM stream stalls or a
+     * concurrency-unsafe tool runs synchronously without a per-tool deadline
+     * (the parallel batch path enforces {@code ToolTimeoutProperties}, but the
+     * single-unsafe path in {@code ToolExecutionExecutor#executeSingleTool}
+     * currently does not). 10 minutes is generous for legitimate long steps
+     * (large file edits, multi-page browser flows) while still cutting off the
+     * pathological cases where the agent appears frozen to the user.
+     */
+    private static final long STEP_WALL_CLOCK_TIMEOUT_MS = 10 * 60 * 1000L;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     public StepExecutionNode(ChatModel chatModel, AgentToolSet toolSet,
@@ -64,6 +90,19 @@ public class StepExecutionNode implements NodeAction {
                              ChatStreamTracker streamTracker,
                              String reasoningEffort, NodeStreamingChatHelper streamingHelper,
                              ConversationWindowManager conversationWindowManager) {
+        this(chatModel, toolSet, executor, planningService, streamTracker,
+                reasoningEffort, streamingHelper, conversationWindowManager,
+                STEP_WALL_CLOCK_TIMEOUT_MS);
+    }
+
+    /** Test-friendly overload — production callers use the default timeout. */
+    StepExecutionNode(ChatModel chatModel, AgentToolSet toolSet,
+                      ToolExecutionExecutor executor,
+                      PlanningService planningService,
+                      ChatStreamTracker streamTracker,
+                      String reasoningEffort, NodeStreamingChatHelper streamingHelper,
+                      ConversationWindowManager conversationWindowManager,
+                      long stepWallClockTimeoutMs) {
         this.chatModel = chatModel;
         this.toolSet = toolSet;
         this.executor = executor;
@@ -72,6 +111,7 @@ public class StepExecutionNode implements NodeAction {
         this.conversationWindowManager = conversationWindowManager;
         this.reasoningEffort = reasoningEffort;
         this.streamingHelper = streamingHelper;
+        this.stepWallClockTimeoutMs = stepWallClockTimeoutMs;
     }
 
     @Override
@@ -86,6 +126,12 @@ public class StepExecutionNode implements NodeAction {
         String conversationId = state.value(MateClawStateKeys.CONVERSATION_ID, "");
         String agentId = state.value(MateClawStateKeys.AGENT_ID, "");
         String workspaceBasePath = state.value(MateClawStateKeys.WORKSPACE_BASE_PATH, "");
+        // RFC-063r §2.5: read parent ChatOrigin from graph state so tools in
+        // this step (and any DelegateAgentTool sub-graphs) inherit channel /
+        // workspace / requester context.
+        vip.mate.agent.context.ChatOrigin chatOrigin =
+                state.<vip.mate.agent.context.ChatOrigin>value(MateClawStateKeys.CHAT_ORIGIN)
+                        .orElse(vip.mate.agent.context.ChatOrigin.EMPTY);
 
         if (stepIndex >= steps.size()) {
             log.warn("[StepExecution] stepIndex {} >= steps.size() {}, skipping", stepIndex, steps.size());
@@ -100,6 +146,15 @@ public class StepExecutionNode implements NodeAction {
         log.info("[StepExecution] Executing step {}/{}: {}", stepIndex + 1, steps.size(), step);
 
         List<GraphEventPublisher.GraphEvent> events = new ArrayList<>();
+        // Iteration boundary for the plan-execute loop: each step is one
+        // iteration that may itself fan out to multiple LLM calls. Reason is
+        // "plan_step" so consumers can distinguish it from ReAct's
+        // "react_step" / "first_turn" markers when both stream into the
+        // same SSE feed.
+        boolean iterationEventsOn = streamTracker == null || streamTracker.isIterationEventsEnabled();
+        if (iterationEventsOn) {
+            events.add(GraphEventPublisher.iterationStart(stepIndex, "plan_step", "parent", null));
+        }
         events.add(GraphEventPublisher.stepStarted(stepIndex, step));
         events.add(GraphEventPublisher.phase("executing", Map.of("stepIndex", stepIndex, "stepTitle", step)));
 
@@ -117,21 +172,50 @@ public class StepExecutionNode implements NodeAction {
         int stepPromptTokens = 0;
         int stepCompletionTokens = 0;
 
+        // RFC-052: any returnDirect tool that fires inside this step must
+        // short-circuit the entire plan (not just this step). We accumulate
+        // outputs across the inner loop and break out as soon as one appears.
+        List<DirectToolOutput> stepDirectOutputs = new ArrayList<>();
+
+        // Wall-clock budget guards against a single hung LLM stream or
+        // synchronous unsafe-tool call (the per-tool timeout is enforced only
+        // in the parallel batch path of ToolExecutionExecutor). Checked at the
+        // top of each iteration so we never issue another LLM call after the
+        // budget is gone.
+        long stepStartedAtMs = System.currentTimeMillis();
+        boolean wallClockExceeded = false;
+
         try {
             while (toolCallCount < MAX_TOOL_CALLS_PER_STEP) {
-                ChatOptions options;
+                long elapsedMs = System.currentTimeMillis() - stepStartedAtMs;
+                if (elapsedMs > stepWallClockTimeoutMs) {
+                    log.warn("[StepExecution] Step {} exceeded wall-clock budget " +
+                            "({} ms > {} ms) after {} tool round(s); aborting step",
+                            stepIndex, elapsedMs, stepWallClockTimeoutMs, toolCallCount);
+                    wallClockExceeded = true;
+                    break;
+                }
+                // PR-2 (RFC-049 §2.3.4): always use OpenAiChatOptions so the relay
+                // producer in NodeStreamingChatHelper.doStreamCall can attach the
+                // user-token. Using ToolCallingChatOptions when reasoningEffort is
+                // null (e.g. DeepSeek-Reasoner whose thinking is model-inherent,
+                // or Kimi-K2.5) would bypass the relay and multi-round tool-calls
+                // would 400 again.
+                OpenAiChatOptions oaiOpts = OpenAiChatOptions.builder()
+                        .toolCallbacks(toolSet.callbacks())
+                        .build();
                 if (StringUtils.hasText(reasoningEffort)) {
-                    OpenAiChatOptions oaiOpts = OpenAiChatOptions.builder()
-                            .toolCallbacks(toolSet.callbacks())
-                            .reasoningEffort(reasoningEffort)
-                            .build();
-                    oaiOpts.setInternalToolExecutionEnabled(false);
-                    options = oaiOpts;
-                } else {
-                    options = ToolCallingChatOptions.builder()
-                            .toolCallbacks(toolSet.callbacks())
-                            .internalToolExecutionEnabled(false)
-                            .build();
+                    oaiOpts.setReasoningEffort(reasoningEffort);
+                }
+                oaiOpts.setInternalToolExecutionEnabled(false);
+                ChatOptions options = oaiOpts;
+
+                if (conversationWindowManager != null) {
+                    // Pass conversationId + workspaceBasePath so oversized
+                    // older tool results can be spilled to disk instead of
+                    // being rewritten into a lossy single-line summary.
+                    messages = conversationWindowManager.pruneOldToolResultsForModelInput(
+                            messages, conversationId, workspaceBasePath);
                 }
 
                 NodeStreamingChatHelper.StreamResult result = streamingHelper.streamCall(
@@ -180,16 +264,23 @@ public class StepExecutionNode implements NodeAction {
                         if (isPreApprovedToolCall(toolCall.name(), preApprovedPayload)) {
                             String storedArguments = extractArgumentsFromPayload(preApprovedPayload);
                             events.add(GraphEventPublisher.toolStart(toolCall.name(), toolCall.arguments()));
+                            // RFC-052: pass the directOutputs collector so that an
+                            // approved direct tool's full content is captured here
+                            // (instead of leaking into the next LLM round).
                             ToolResponseMessage.ToolResponse response = executor.executePreApproved(
-                                    toolCall, storedArguments, events);
+                                    toolCall, storedArguments, events, conversationId, workspaceBasePath,
+                                    stepDirectOutputs);
                             toolResponses.add(response);
                             preApprovedPayload = ""; // 只消费一次
                         } else {
                             // 非预批准工具走正常执行器
                             ToolExecutionExecutor.ToolExecutionResult execResult = executor.execute(
-                                    List.of(toolCall), conversationId, agentId, false, "", workspaceBasePath);
+                                    List.of(toolCall), conversationId, agentId, false, "", workspaceBasePath, chatOrigin);
                             toolResponses.addAll(execResult.responses());
                             events.addAll(execResult.events());
+                            if (execResult.hasDirectOutputs()) {
+                                stepDirectOutputs.addAll(execResult.directOutputs());
+                            }
                             if (execResult.awaitingApproval()) {
                                 approvalTriggered = true;
                                 approvalToolName = toolCall.name();
@@ -200,9 +291,12 @@ public class StepExecutionNode implements NodeAction {
                 } else {
                     // 正常路径：委托 ToolExecutionExecutor（支持并发执行 + 审批 barrier）
                     ToolExecutionExecutor.ToolExecutionResult execResult = executor.execute(
-                            allToolCalls, conversationId, agentId, false, "", workspaceBasePath);
+                            allToolCalls, conversationId, agentId, false, "", workspaceBasePath, chatOrigin);
                     toolResponses.addAll(execResult.responses());
                     events.addAll(execResult.events());
+                    if (execResult.hasDirectOutputs()) {
+                        stepDirectOutputs.addAll(execResult.directOutputs());
+                    }
                     if (execResult.awaitingApproval()) {
                         approvalTriggered = true;
                         approvalToolName = execResult.barrierToolName() != null
@@ -219,6 +313,16 @@ public class StepExecutionNode implements NodeAction {
 
                 // 如果审批触发，退出 while 循环
                 if (approvalTriggered) {
+                    break;
+                }
+
+                // RFC-052: returnDirect short-circuit. Any direct tool in this
+                // step ends the plan immediately; the dispatcher routes via
+                // currentPhase=plan_aborted so no further LLM call happens.
+                if (!stepDirectOutputs.isEmpty()) {
+                    log.info("[StepExecution] RETURN_DIRECT — step {} produced {} direct " +
+                            "tool output(s); aborting plan execution",
+                            stepIndex, stepDirectOutputs.size());
                     break;
                 }
             }
@@ -239,9 +343,52 @@ public class StepExecutionNode implements NodeAction {
                         .build();
             }
 
+            // RFC-052: direct tool short-circuit at the plan level. Treat the
+            // assembled direct text as the final summary and abort the plan;
+            // the dispatcher routes plan_aborted to END so no further LLM call
+            // is made. Persisting RETURN_DIRECT_TRIGGERED + DIRECT_TOOL_OUTPUTS
+            // lets the SSE accumulator pick up directToolNames metadata so
+            // history scrub (BaseAgent.isDirectToolMessage) kicks in next turn.
+            //
+            // Plan status is "completed" (not "failed"): the user got their
+            // answer correctly, the plan just terminated earlier than the
+            // model's planning stage anticipated. Marking as failed would skew
+            // operational dashboards and confuse plan-history readers.
+            if (!stepDirectOutputs.isEmpty()) {
+                String assembled = assembleDirectAnswerText(stepDirectOutputs);
+                planningService.updateSubPlanResult(planId, stepIndex, assembled);
+                planningService.completePlan(planId,
+                        "Plan completed via returnDirect tool: " +
+                        stepDirectOutputs.get(0).toolName());
+                events.add(GraphEventPublisher.stepCompleted(stepIndex, assembled));
+                if (iterationEventsOn) {
+                    events.add(GraphEventPublisher.iterationEnd(stepIndex, "parent", null,
+                            assembled != null ? assembled.length() : 0, 0));
+                }
+                return PlanStateAccessor.output()
+                        .currentStepResult(assembled)
+                        .currentStepIndex(steps.size())  // 越界 → dispatcher 收束
+                        .currentPhase("plan_aborted")
+                        .finalSummary(assembled)
+                        .contentStreamed(false)  // 由 StateGraphPlanExecuteAgent 经 finalSummary 推送
+                        .put(MateClawStateKeys.RETURN_DIRECT_TRIGGERED, true)
+                        .put(MateClawStateKeys.DIRECT_TOOL_OUTPUTS, List.copyOf(stepDirectOutputs))
+                        .put(MateClawStateKeys.PROMPT_TOKENS,
+                                state.value(MateClawStateKeys.PROMPT_TOKENS, 0) + stepPromptTokens)
+                        .put(MateClawStateKeys.COMPLETION_TOKENS,
+                                state.value(MateClawStateKeys.COMPLETION_TOKENS, 0) + stepCompletionTokens)
+                        .events(events)
+                        .build();
+            }
+
             if (finalResult == null) {
-                finalResult = "步骤执行超过最大工具调用次数限制（" + MAX_TOOL_CALLS_PER_STEP + "次）";
-                log.warn("[StepExecution] Step {} exceeded max tool call limit", stepIndex);
+                if (wallClockExceeded) {
+                    finalResult = "步骤执行超过最大耗时限制（"
+                            + (stepWallClockTimeoutMs / 1000) + "秒），已中止本步骤";
+                } else {
+                    finalResult = "步骤执行超过最大工具调用次数限制（" + MAX_TOOL_CALLS_PER_STEP + "次）";
+                    log.warn("[StepExecution] Step {} exceeded max tool call limit", stepIndex);
+                }
             }
 
         } catch (Exception e) {
@@ -250,6 +397,10 @@ public class StepExecutionNode implements NodeAction {
             planningService.updateSubPlanFailure(planId, stepIndex, shortError);
             planningService.markPlanFailed(planId, "步骤" + (stepIndex + 1) + " 执行失败：" + shortError);
             events.add(GraphEventPublisher.stepCompleted(stepIndex, shortError));
+            if (iterationEventsOn) {
+                events.add(GraphEventPublisher.iterationEnd(stepIndex, "parent", null,
+                        shortError != null ? shortError.length() : 0, 0));
+            }
             return PlanStateAccessor.output()
                     .currentStepResult(shortError)
                     .currentPhase("plan_aborted")
@@ -262,15 +413,32 @@ public class StepExecutionNode implements NodeAction {
 
         planningService.updateSubPlanResult(planId, stepIndex, finalResult);
         events.add(GraphEventPublisher.stepCompleted(stepIndex, finalResult));
+        if (iterationEventsOn) {
+            events.add(GraphEventPublisher.iterationEnd(stepIndex, "parent", null,
+                    finalResult != null ? finalResult.length() : 0,
+                    stepThinking != null ? stepThinking.length() : 0));
+        }
 
         log.info("[StepExecution] Step {}/{} completed: {}",
                 stepIndex + 1, steps.size(),
                 finalResult.length() > 100 ? finalResult.substring(0, 100) + "..." : finalResult);
 
-        // 更新 working context：将最新完成的步骤结果纳入摘要
-        List<String> allCompleted = new ArrayList<>(accessor.completedResults());
-        allCompleted.add(formatStepResult(stepIndex, finalResult));
-        String updatedWorkingContext = rebuildWorkingContext(accessor, allCompleted);
+        // RFC-008 P4.2: incremental working-context update.
+        // Previous behavior rebuilt the entire context from history + every
+        // completed result on every step (O(N) per step). On long plans this
+        // re-walks the same conversation history each iteration. Now we take
+        // the previous context as-is (which already encodes earlier history
+        // and earlier completed steps) and append just the freshly-completed
+        // step, then trim from the head if the running total exceeds the cap.
+        // For first-step calls where prior context is empty, fall through to
+        // the original rebuild path so the conversation history seed is still
+        // captured.
+        String prevWorkingContext = accessor.workingContext();
+        String formattedNewStep = formatStepResult(stepIndex, finalResult);
+        String updatedWorkingContext = prevWorkingContext.isEmpty()
+                ? rebuildWorkingContext(accessor,
+                    appendOne(accessor.completedResults(), formattedNewStep))
+                : appendStepIncremental(prevWorkingContext, formattedNewStep);
 
         return PlanStateAccessor.output()
                 .currentStepResult(finalResult)
@@ -285,6 +453,26 @@ public class StepExecutionNode implements NodeAction {
                 .put(MateClawStateKeys.COMPLETION_TOKENS, state.value(MateClawStateKeys.COMPLETION_TOKENS, 0) + stepCompletionTokens)
                 .events(events)
                 .build();
+    }
+
+    /**
+     * RFC-052: assemble the final answer text from direct tool outputs in this
+     * step. Mirrors {@code FinalAnswerNode#assembleDirectAnswer} so the user
+     * sees the same shape regardless of which graph (ReAct / Plan-Execute)
+     * produced the answer.
+     */
+    private static String assembleDirectAnswerText(List<DirectToolOutput> outputs) {
+        if (outputs.size() == 1) {
+            return outputs.get(0).fullResult();
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < outputs.size(); i++) {
+            DirectToolOutput out = outputs.get(i);
+            if (i > 0) sb.append("\n\n");
+            sb.append("### ").append(out.toolName()).append("\n");
+            sb.append(out.fullResult());
+        }
+        return sb.toString();
     }
 
     private List<Message> buildStepMessages(PlanStateAccessor accessor, String step, String systemPrompt, String workspaceBasePath) {
@@ -414,9 +602,51 @@ public class StepExecutionNode implements NodeAction {
         }
     }
 
+    /** Append helper used by the incremental working-context fast path. */
+    private static List<String> appendOne(List<String> previous, String item) {
+        List<String> out = new ArrayList<>(previous);
+        out.add(item);
+        return out;
+    }
+
     /**
-     * 根据当前 accessor 中的会话历史消息和更新后的已完成步骤结果，
-     * 重建 working context。复用与 StateGraphPlanExecuteAgent.buildWorkingContext 相同的逻辑。
+     * Incrementally extend the previous working context with one new step
+     * result. Cheap O(1) path used for steps 2..N: avoids walking the full
+     * conversation history again. The result is trimmed from the head if it
+     * exceeds the same overall cap that {@link #rebuildWorkingContext}
+     * enforces, so the budget invariant is preserved.
+     *
+     * <p>Per-step truncation: a single step result longer than 800 chars is
+     * abbreviated before append, mirroring the per-step caps in
+     * {@code rebuildWorkingContext}.</p>
+     */
+    private static String appendStepIncremental(String previousContext, String formattedStepResult) {
+        final int OVERALL_CAP = 6000;
+        final int PER_STEP_CAP = 800;
+        String stepLine = formattedStepResult.length() > PER_STEP_CAP
+                ? formattedStepResult.substring(0, PER_STEP_CAP) + "…"
+                : formattedStepResult;
+        String combined = previousContext + "\n" + stepLine + "\n";
+        if (combined.length() <= OVERALL_CAP) {
+            return combined;
+        }
+        // Drop oldest content from the head until we fit. Cut on a newline
+        // boundary so we don't truncate mid-line.
+        int overshoot = combined.length() - OVERALL_CAP;
+        int cutFrom = combined.indexOf('\n', overshoot);
+        if (cutFrom < 0 || cutFrom >= combined.length() - 1) {
+            cutFrom = overshoot;
+        } else {
+            cutFrom += 1; // skip the newline itself
+        }
+        return "…(earlier context truncated)\n" + combined.substring(cutFrom);
+    }
+
+    /**
+     * Full rebuild of working context from conversation history plus all
+     * completed step results. Reused on the cold path (first step, or when
+     * the incremental path can't be applied). Mirrors
+     * {@code StateGraphPlanExecuteAgent.buildWorkingContext}.
      */
     private static String rebuildWorkingContext(PlanStateAccessor accessor, List<String> allCompletedResults) {
         List<Message> messages = accessor.messages();

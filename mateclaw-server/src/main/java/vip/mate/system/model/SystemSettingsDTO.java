@@ -70,6 +70,16 @@ public class SystemSettingsDTO {
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String minimaxApiKey;
     private String minimaxApiKeyMasked;
+    /**
+     * MiniMax API region — selects which host to call. Shared by image + video
+     * providers because the API key is the same across both:
+     * <ul>
+     *   <li>{@code "global"} (default) → {@code https://api.minimax.io}</li>
+     *   <li>{@code "cn"} → {@code https://api.minimaxi.com} (lower latency from
+     *       mainland China; required for accounts registered there).</li>
+     * </ul>
+     */
+    private String minimaxRegion;
 
     // ===== 图片生成配置 =====
     /** 是否启用图片生成能力 */
@@ -98,10 +108,48 @@ public class SystemSettingsDTO {
     /** 首选 STT provider: auto / openai / dashscope */
     private String sttProvider;
     private Boolean sttFallbackEnabled;
+    /**
+     * Issue #76: which {@code mate_model_provider} row should the OpenAI STT
+     * provider read its baseUrl + apiKey from. Defaults to "openai" so existing
+     * deployments keep working; swap to a custom OpenAI-compatible provider row
+     * (FunASR / SiliconFlow / Groq / Together / Volcano / etc.) to point STT
+     * at any compatible endpoint without a code change.
+     */
+    private String sttOpenAiCompatProviderId;
+    /**
+     * Issue #76: model id sent in the multipart "model" field. Defaults to
+     * whisper-1; override with paraformer-large / FunAudioLLM-Whisper / etc.
+     * when the configured provider exposes a different identifier.
+     */
+    private String sttOpenAiCompatModel;
 
     // ===== 音乐生成配置 =====
     private Boolean musicEnabled;
     /** 首选音乐 provider: auto / google-lyria / minimax */
     private String musicProvider;
     private Boolean musicFallbackEnabled;
+
+    // ===== 3D 模型生成配置 =====
+    private Boolean model3dEnabled;
+    /** 首选 3D provider: auto / hunyuan-3d */
+    private String model3dProvider;
+    private Boolean model3dFallbackEnabled;
+
+    // ===== Multimodal sidecar routing =====
+    /**
+     * Default vision-capable model id used to caption image attachments when the
+     * agent's primary model lacks the VISION modality. References mate_model_config.id;
+     * provider+model_name pairs are not unique so we store the surrogate key.
+     * null / non-existent / disabled rows are treated as "not configured" — the
+     * runtime then leaves the attachment out and asks the user to pick a model.
+     */
+    private Long defaultVisionModelId;
+
+    /**
+     * Default video-capable model id used when the agent's primary model lacks
+     * the VIDEO modality. Same semantics as defaultVisionModelId. v1 routing does
+     * not yet implement video sidecar; this is reserved for the next iteration so
+     * the configuration surface is stable.
+     */
+    private Long defaultVideoModelId;
 }

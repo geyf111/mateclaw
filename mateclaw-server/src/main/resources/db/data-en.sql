@@ -5,26 +5,26 @@ MERGE INTO mate_user (id, username, password, nickname, role, enabled, create_ti
 KEY (id)
 VALUES (1, 'admin', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOZTH.ulu33dHOiBE8ByOhJIrdAu2', 'MateClaw Admin', 'admin', TRUE, NOW(), NOW(), 0);
 
--- Default Agent: General Assistant (ReAct mode)
+-- Default digital employee: General Assistant (ReAct mode)
 MERGE INTO mate_agent (id, name, description, agent_type, system_prompt, model_name, max_iterations, enabled, icon, tags, create_time, update_time, deleted)
 KEY (id)
-VALUES (1000000001, 'MateClaw Assistant', 'Default AI assistant with ReAct mode and tool calling', 'react',
-        'You are MateClaw, an intelligent AI assistant. You can help users answer questions, analyze data, and execute tasks. Please respond professionally and in a friendly manner.',
-        NULL, 25, TRUE, '🤖', 'default,assistant', NOW(), NOW(), 0);
+VALUES (1000000001, 'General Assistant', 'All-purpose helper for day-to-day questions, data analysis, and tool calling', 'react',
+        'You are MateClaw''s General Assistant. You can help users answer questions, analyze data, and call tools to get things done. Please respond professionally and in a friendly manner.',
+        NULL, 100, TRUE, 'pi:robot-face-happy', 'default,assistant', NOW(), NOW(), 0);
 
--- Default Agent: Task Planner (Plan-Execute mode)
+-- Default digital employee: Task Planner (Plan-Execute mode)
 MERGE INTO mate_agent (id, name, description, agent_type, system_prompt, model_name, max_iterations, enabled, icon, tags, create_time, update_time, deleted)
 KEY (id)
-VALUES (1000000002, 'Task Planner', 'Task planning assistant for complex multi-step tasks', 'plan_execute',
-        'You are a professional task planning and execution assistant. You excel at breaking complex goals into executable steps and completing them systematically.',
-        NULL, 20, TRUE, '📋', 'planning,task', NOW(), NOW(), 0);
+VALUES (1000000002, 'Task Planner', 'Breaks complex goals into executable steps and drives them forward to completion', 'plan_execute',
+        'You are a professional Task Planner. You excel at breaking complex goals into executable steps and completing them systematically.',
+        NULL, 100, TRUE, 'pi:clipboard-note', 'planning,task', NOW(), NOW(), 0);
 
--- StateGraph ReAct Agent (StateGraph architecture)
+-- Default digital employee: Reasoning Analyst (explicit reasoning loops + tool calling)
 MERGE INTO mate_agent (id, name, description, agent_type, system_prompt, model_name, max_iterations, enabled, icon, tags, create_time, update_time, deleted)
 KEY (id)
-VALUES (1000000003, 'StateGraph ReAct', 'StateGraph-based ReAct Agent with explicit reasoning loops and tool calling', 'react',
-        'You are an intelligent assistant based on the StateGraph architecture. You can use tools to help users solve problems. Please respond professionally and in a friendly manner.',
-        NULL, 25, TRUE, '🔄', 'react,stategraph,tools', NOW(), NOW(), 0);
+VALUES (1000000003, 'Reasoning Analyst', 'Thinks step by step with visible reasoning, ideal for problems that need thorough deliberation', 'react',
+        'You are a Reasoning Analyst, an assistant that excels at deep reasoning. When facing a problem, first think through it step by step with a clear reasoning trace, then call tools or give the answer. Please respond professionally and in a friendly manner.',
+        NULL, 100, TRUE, 'pi:cpu', 'react,reasoning,tools', NOW(), NOW(), 0);
 
 -- ==================== Local Model Providers (displayed first) ====================
 
@@ -50,6 +50,13 @@ MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, a
 KEY (provider_id)
 VALUES ('dashscope', 'DashScope', 'sk-', 'DashScopeChatModel', '', '', '{}', FALSE, FALSE, TRUE, TRUE, FALSE, TRUE, NOW(), NOW());
 
+-- DashScope OpenAI-compatible endpoint: shares the same sk- key as the
+-- dashscope provider but routes to compatible-mode/v1. Dot-versioned qwen
+-- families (qwen3.5-*, qwen3.6-*) are only callable here.
+MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+KEY (provider_id)
+VALUES ('dashscope-compat', 'DashScope (OpenAI-compatible)', 'sk-', 'OpenAIChatModel', '', 'https://dashscope.aliyuncs.com/compatible-mode/v1', '{}', FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, NOW(), NOW());
+
 MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
 KEY (provider_id)
 VALUES ('modelscope', 'ModelScope', 'ms', 'OpenAIChatModel', '', 'https://api-inference.modelscope.cn/v1', '{}', FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, NOW(), NOW());
@@ -57,6 +64,10 @@ VALUES ('modelscope', 'ModelScope', 'ms', 'OpenAIChatModel', '', 'https://api-in
 MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
 KEY (provider_id)
 VALUES ('aliyun-codingplan', 'Aliyun Coding Plan', 'sk-sp', 'OpenAIChatModel', '', 'https://coding.dashscope.aliyuncs.com/v1', '{}', FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, NOW(), NOW());
+
+MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+KEY (provider_id)
+VALUES ('aliyun-codingplan-intl', 'Aliyun Coding Plan (International)', 'sk-sp', 'OpenAIChatModel', '', 'https://coding-intl.dashscope.aliyuncs.com/v1', '{}', FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, NOW(), NOW());
 
 MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
 KEY (provider_id)
@@ -112,11 +123,31 @@ VALUES ('zhipu-intl', 'Zhipu AI (International)', '', 'OpenAIChatModel', '', 'ht
 
 MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
 KEY (provider_id)
-VALUES ('volcengine', 'Volcano Engine', '', 'OpenAIChatModel', '', 'https://ark.cn-beijing.volces.com/api/v3', '{}', FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, NOW(), NOW());
+VALUES ('volcengine', 'Volcano Engine', '', 'OpenAIChatModel', '', 'https://ark.cn-beijing.volces.com/api/v3', '{}', FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, NOW(), NOW());
+
+MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+KEY (provider_id)
+VALUES ('volcengine-plan', 'Volcano Engine Coding Plan', '', 'OpenAIChatModel', '', 'https://ark.cn-beijing.volces.com/api/coding/v3', '{}', FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, NOW(), NOW());
+
+MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+KEY (provider_id)
+VALUES ('zhipu-cn-codingplan', 'Zhipu Coding Plan (BigModel)', '', 'OpenAIChatModel', '', 'https://open.bigmodel.cn/api/coding/paas/v4', '{"completionsPath":"/chat/completions"}', FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, NOW(), NOW());
+
+MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)
+KEY (provider_id)
+VALUES ('zhipu-intl-codingplan', 'Zhipu Coding Plan (Z.AI)', '', 'OpenAIChatModel', '', 'https://api.z.ai/api/coding/paas/v4', '{"completionsPath":"/chat/completions"}', FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, NOW(), NOW());
 
 MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, auth_type, create_time, update_time)
 KEY (provider_id)
-VALUES ('openai-chatgpt', 'OpenAI ChatGPT (OAuth)', '', 'ChatGPTChatModel', '', 'https://chatgpt.com/backend-api', '{}', FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, 'oauth', NOW(), NOW());
+VALUES ('openai-chatgpt', 'OpenAI ChatGPT (OAuth)', '', 'ChatGPTChatModel', '', 'https://chatgpt.com/backend-api', '{}', FALSE, FALSE, TRUE, FALSE, TRUE, FALSE, 'oauth', NOW(), NOW());
+
+-- RFC-062: Anthropic Claude Code OAuth provider. Credentials live on local
+-- disk (Keychain / ~/.claude/.credentials.json), not in this row — leave
+-- api_key + oauth_access_token blank. Bearer-auth requests bypass model
+-- discovery + connection check, hence both FALSE.
+MERGE INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, auth_type, create_time, update_time)
+KEY (provider_id)
+VALUES ('anthropic-claude-code', 'Anthropic Claude Code (OAuth)', '', 'ClaudeCodeChatModel', '', 'https://api.anthropic.com', '{}', FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, 'oauth', NOW(), NOW());
 
 -- ==================== Local model pre-configs (Ollama, disabled by default) ====================
 MERGE INTO mate_model_config (id, name, provider, model_name, description, temperature, max_tokens, top_p, builtin, enabled, is_default, create_time, update_time, deleted)
@@ -159,9 +190,20 @@ MERGE INTO mate_model_config (id, name, provider, model_name, description, tempe
 (1000000101, 'Qwen3 Max', 'dashscope', 'qwen3-max', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000102, 'Qwen3 235B A22B Thinking', 'dashscope', 'qwen3-235b-a22b-thinking-2507', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000103, 'DeepSeek-V3.2', 'dashscope', 'deepseek-v3.2', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
--- Removed: qwen3.5-plus / qwen3.5-max — unavailable on DashScope native protocol (returns 400 InvalidParameter)
-(1000000172, 'Qwen3 Plus', 'dashscope', 'qwen3-plus', 'Qwen3 balanced model', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- Note: dotted Qwen3 versions (qwen3-plus / qwen3.5-plus / qwen3.5-max / qwen3.6-*) only ship on the
+-- OpenAI-compatible endpoint. Calling them through DashScope native (text-generation/generation)
+-- returns 400 InvalidParameter. They are registered under the dashscope-compat provider, which shares
+-- the same sk- key but routes to compatible-mode/v1.
 (1000000173, 'Qwen Long', 'dashscope', 'qwen-long', 'Long-context model with extended context support', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000174, 'Qwen Plus (latest)',  'dashscope', 'qwen-plus-latest',  'Latest stable snapshot of Qwen Plus — auto-updates as Bailian rolls new releases', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000175, 'Qwen Max (latest)',   'dashscope', 'qwen-max-latest',   'Latest stable snapshot of Qwen Max — strongest reasoning capability',              0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000176, 'Qwen Turbo (latest)', 'dashscope', 'qwen-turbo-latest', 'Latest stable snapshot of Qwen Turbo — low latency, high frequency',               0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- DashScope OpenAI-compat exclusive models (dot-versioned families) — share the same sk- key.
+-- Only the -plus variants are seeded; -max / -vl-max are visible in the model market but return
+-- 404 for general accounts. Users on a whitelist can add them via Settings → Models manually.
+(1000000601, 'Qwen3.6 Plus',  'dashscope-compat', 'qwen3.6-plus',  'Qwen3.6 Plus flagship — balanced reasoning and speed (compat-mode only)',     0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000603, 'Qwen3.5 Plus',  'dashscope-compat', 'qwen3.5-plus',  'Qwen3.5 Plus (compat-mode only)',                                              0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000605, 'Qwen3 VL Plus', 'dashscope-compat', 'qwen3-vl-plus', 'Qwen3 vision-language Plus — accepts image / video input (compat-mode only)', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000104, 'Qwen3.5-122B-A10B', 'modelscope', 'Qwen/Qwen3.5-122B-A10B', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000105, 'GLM-5', 'modelscope', 'ZhipuAI/GLM-5', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000106, 'Qwen3.5 Plus', 'aliyun-codingplan', 'qwen3.5-plus', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
@@ -172,6 +214,16 @@ MERGE INTO mate_model_config (id, name, provider, model_name, description, tempe
 (1000000111, 'Qwen3 Max 2026-01-23', 'aliyun-codingplan', 'qwen3-max-2026-01-23', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000112, 'Qwen3 Coder Next', 'aliyun-codingplan', 'qwen3-coder-next', '', 0.2, 8192, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000113, 'Qwen3 Coder Plus', 'aliyun-codingplan', 'qwen3-coder-plus', '', 0.2, 8192, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000162, 'Qwen3.6 Plus',         'aliyun-codingplan',      'qwen3.6-plus',         'Aliyun Coding Plan — Qwen3.6 Plus flagship',                  0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000241, 'Qwen3.6 Plus',         'aliyun-codingplan-intl', 'qwen3.6-plus',         'Aliyun Coding Plan (Intl) — Qwen3.6 Plus flagship',           0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000242, 'Qwen3.5 Plus',         'aliyun-codingplan-intl', 'qwen3.5-plus',         'Aliyun Coding Plan (Intl) — Qwen3.5 balanced',                0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000243, 'GLM-5',                'aliyun-codingplan-intl', 'glm-5',                'Aliyun Coding Plan (Intl) — GLM-5 hosted on DashScope',       0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000244, 'GLM-4.7',              'aliyun-codingplan-intl', 'glm-4.7',              'Aliyun Coding Plan (Intl) — GLM-4.7 hosted on DashScope',     0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000245, 'MiniMax M2.5',         'aliyun-codingplan-intl', 'MiniMax-M2.5',         'Aliyun Coding Plan (Intl) — MiniMax M2.5 hosted on DashScope', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000246, 'Kimi K2.5',            'aliyun-codingplan-intl', 'kimi-k2.5',            'Aliyun Coding Plan (Intl) — Kimi K2.5 hosted on DashScope',   0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000247, 'Qwen3 Max 2026-01-23', 'aliyun-codingplan-intl', 'qwen3-max-2026-01-23', 'Aliyun Coding Plan (Intl) — Qwen3 Max pinned snapshot',       0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000248, 'Qwen3 Coder Next',     'aliyun-codingplan-intl', 'qwen3-coder-next',     'Aliyun Coding Plan (Intl) — Qwen3 Coder Next, agentic coding', 0.2, 8192, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000249, 'Qwen3 Coder Plus',     'aliyun-codingplan-intl', 'qwen3-coder-plus',     'Aliyun Coding Plan (Intl) — Qwen3 Coder Plus, agentic coding', 0.2, 8192, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000114, 'GPT-5.2', 'openai', 'gpt-5.2', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000115, 'GPT-5', 'openai', 'gpt-5', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000116, 'GPT-5 Mini', 'openai', 'gpt-5-mini', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
@@ -213,6 +265,9 @@ MERGE INTO mate_model_config (id, name, provider, model_name, description, tempe
 (1000000152, 'Kimi K2 Thinking Turbo', 'kimi-intl', 'kimi-k2-thinking-turbo', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000153, 'DeepSeek Chat', 'deepseek', 'deepseek-chat', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000154, 'DeepSeek Reasoner', 'deepseek', 'deepseek-reasoner', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- DeepSeek V4 (1M context, native thinking via DeepSeekV4ThinkingDecorator)
+(1000000282, 'DeepSeek V4 Flash', 'deepseek', 'deepseek-v4-flash', 'DeepSeek V4 Flash (1M context, reasoning via thinking-enabled mode)', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000283, 'DeepSeek V4 Pro', 'deepseek', 'deepseek-v4-pro', 'DeepSeek V4 Pro (1M context, reasoning via thinking-enabled mode)', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000155, 'Gemini 3.1 Pro Preview', 'gemini', 'gemini-3.1-pro-preview', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000156, 'Gemini 3 Flash Preview', 'gemini', 'gemini-3-flash-preview', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000157, 'Gemini 3.1 Flash Lite Preview', 'gemini', 'gemini-3.1-flash-lite-preview', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
@@ -237,15 +292,46 @@ MERGE INTO mate_model_config (id, name, provider, model_name, description, tempe
 (1000000221, 'GLM-5V-Turbo', 'zhipu-intl', 'glm-5v-turbo', 'Multimodal vision model (International, recommended)', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000222, 'GLM-5', 'zhipu-intl', 'glm-5', 'Flagship model (International)', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000223, 'GLM-5.1', 'zhipu-intl', 'glm-5.1', 'Latest flagship model (International)', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000230, 'Doubao 1.5 Pro 256K', 'volcengine', 'doubao-1.5-pro-256k', 'Doubao flagship model with 256K context', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000231, 'Doubao 1.5 Pro 32K', 'volcengine', 'doubao-1.5-pro-32k', 'Doubao flagship model with 32K context', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000232, 'Doubao 1.5 Lite 32K', 'volcengine', 'doubao-1.5-lite-32k', 'Doubao lite model, cost-effective', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000233, 'Doubao 1.5 Vision Pro 32K', 'volcengine', 'doubao-1.5-vision-pro-32k', 'Doubao multimodal vision model', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000234, 'Doubao 1.5 Thinking Pro', 'volcengine', 'doubao-1.5-thinking-pro', 'Doubao deep reasoning model', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000235, 'Doubao 1.5 Thinking Lite', 'volcengine', 'doubao-1.5-thinking-lite', 'Doubao lite reasoning model', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000230, 'GLM-5 Coding',       'zhipu-cn-codingplan',   'glm-5',       'Zhipu Coding Plan — GLM-5 flagship',                    0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000231, 'GLM-5.1 Coding',     'zhipu-cn-codingplan',   'glm-5.1',     'Zhipu Coding Plan — GLM-5.1 latest flagship',           0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000232, 'GLM-5-Turbo Coding', 'zhipu-cn-codingplan',   'glm-5-turbo', 'Zhipu Coding Plan — GLM-5 fast variant',                0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000233, 'GLM-4.7 Coding',     'zhipu-cn-codingplan',   'glm-4.7',     'Zhipu Coding Plan — GLM-4.7',                           0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000234, 'GLM-5 Coding',       'zhipu-intl-codingplan', 'glm-5',       'Zhipu Coding Plan — GLM-5 flagship (International)',    0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000235, 'GLM-5.1 Coding',     'zhipu-intl-codingplan', 'glm-5.1',     'Zhipu Coding Plan — GLM-5.1 flagship (International)',  0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000236, 'GLM-5-Turbo Coding', 'zhipu-intl-codingplan', 'glm-5-turbo', 'Zhipu Coding Plan — GLM-5 fast (International)',        0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000237, 'GLM-4.7 Coding',     'zhipu-intl-codingplan', 'glm-4.7',     'Zhipu Coding Plan — GLM-4.7 (International)',           0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000310, 'Doubao Seed 1.8', 'volcengine', 'doubao-seed-1-8-251228', 'Doubao flagship multimodal model, text + image, 256K context', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000311, 'Doubao Seed Code Preview', 'volcengine', 'doubao-seed-code-preview-251028', 'Doubao code preview model, text + image, 256K context', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000312, 'Kimi K2.5', 'volcengine', 'kimi-k2-5-260127', 'Kimi K2.5 (hosted on Volcano Ark), text + image, 256K context', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000313, 'GLM 4.7', 'volcengine', 'glm-4-7-251222', 'GLM 4.7 (hosted on Volcano Ark), text + image, 200K context', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000314, 'DeepSeek V3.2', 'volcengine', 'deepseek-v3-2-251201', 'DeepSeek V3.2 (hosted on Volcano Ark), text + image, 128K context', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000320, 'Ark Coding Plan', 'volcengine-plan', 'ark-code-latest', 'Ark Coding Plan flagship model, 256K context', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000321, 'Doubao Seed Code', 'volcengine-plan', 'doubao-seed-code', 'Doubao code model, 256K context', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000322, 'Doubao Seed Code Preview', 'volcengine-plan', 'doubao-seed-code-preview-251028', 'Doubao code preview model, 256K context', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000323, 'GLM 4.7 Coding', 'volcengine-plan', 'glm-4.7', 'GLM 4.7 coding edition (hosted on Volcano Ark), 200K context', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000324, 'Kimi K2 Thinking', 'volcengine-plan', 'kimi-k2-thinking', 'Kimi K2 Thinking (hosted on Volcano Ark), 256K context', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000325, 'Kimi K2.5 Coding', 'volcengine-plan', 'kimi-k2.5', 'Kimi K2.5 coding edition (hosted on Volcano Ark), 256K context', 0.2, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000240, 'Kimi for Coding', 'kimi-code', 'kimi-for-coding', 'Kimi Code dedicated coding model', 0.2, 32768, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000250, 'GPT-5.4', 'openai-chatgpt', 'gpt-5.4', 'ChatGPT Plus/Pro member model (OAuth login)', NULL, 128000, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
-(1000000251, 'GPT-5.4 Mini', 'openai-chatgpt', 'gpt-5.4-mini', 'ChatGPT member lightweight model', NULL, 128000, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0);
+(1000000251, 'GPT-5.4 Mini', 'openai-chatgpt', 'gpt-5.4-mini', 'ChatGPT member lightweight model', NULL, 128000, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000252, 'GPT-5.5', 'openai-chatgpt', 'gpt-5.5', 'ChatGPT Plus/Pro flagship model', NULL, 128000, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- GPT-5.5 series (direct OpenAI / Azure / OpenRouter / ChatGPT)
+(1000000260, 'GPT-5.5', 'openai', 'gpt-5.5', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000261, 'GPT-5.5 Mini', 'openai', 'gpt-5.5-mini', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000262, 'GPT-5.5 Nano', 'openai', 'gpt-5.5-nano', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000263, 'GPT-5.5', 'azure-openai', 'gpt-5.5', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000264, 'GPT-5.5 Mini', 'azure-openai', 'gpt-5.5-mini', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000265, 'GPT-5.5', 'openrouter', 'openai/gpt-5.5', 'GPT-5.5 via OpenRouter', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- Claude 4.7 series (direct Anthropic + OpenRouter). Sonnet/Opus.
+-- Note: Claude 4.7 forbids temperature/top_p/top_k — handled in AgentAnthropicChatModelBuilder.
+(1000000270, 'Claude Opus 4.7', 'anthropic', 'claude-opus-4-7', 'Anthropic Claude Opus 4.7 (xhigh adaptive thinking)', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- Anthropic only released Opus 4.7 — Sonnet stays at 4.6 until further notice.
+(1000000271, 'Claude Sonnet 4.6', 'anthropic', 'claude-sonnet-4-6', 'Anthropic Claude Sonnet 4.6 (latest Sonnet — 4.7 not yet released)', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000272, 'Claude Opus 4.7', 'openrouter', 'anthropic/claude-opus-4-7', 'Claude Opus 4.7 via OpenRouter', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000273, 'Claude Sonnet 4.6', 'openrouter', 'anthropic/claude-sonnet-4-6', 'Claude Sonnet 4.6 via OpenRouter', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+-- RFC-062: Claude 4.7 via Claude Code OAuth subscription (Pro/Max plan).
+(1000000280, 'Claude Opus 4.7', 'anthropic-claude-code', 'claude-opus-4-7', 'Claude Opus 4.7 via Claude Code Pro/Max subscription', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
+(1000000281, 'Claude Sonnet 4.6', 'anthropic-claude-code', 'claude-sonnet-4-6', 'Claude Sonnet 4.6 via Claude Code Pro/Max subscription', NULL, 4096, NULL, TRUE, TRUE, FALSE, NOW(), NOW(), 0);
 
 -- Default system settings
 MERGE INTO mate_system_setting (id, setting_key, setting_value, description, create_time, update_time)
@@ -300,6 +386,22 @@ VALUES (1000000012, 'duckduckgoEnabled', 'true', 'DuckDuckGo keyless search fall
 MERGE INTO mate_system_setting (id, setting_key, setting_value, description, create_time, update_time)
 KEY (id)
 VALUES (1000000013, 'searxngBaseUrl', '', 'SearXNG instance base URL (auto-configured in Docker)', NOW(), NOW());
+
+-- Speech-to-text (STT) defaults — enabled out of the box so users only need to configure an API key.
+-- Skip-if-exists on setting_key (NOT MERGE BY id) so we don't trip the
+-- UNIQUE index when an existing user has the row at a runtime-assigned id
+-- from toggling the UI before this seed shipped. V46 covers the same.
+INSERT INTO mate_system_setting (id, setting_key, setting_value, description, create_time, update_time)
+SELECT 1000000020, 'sttEnabled', 'true', 'Enable speech-to-text (TalkMode mic input)', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM mate_system_setting WHERE setting_key = 'sttEnabled');
+
+INSERT INTO mate_system_setting (id, setting_key, setting_value, description, create_time, update_time)
+SELECT 1000000021, 'sttProvider', 'auto', 'STT provider: auto / openai / dashscope', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM mate_system_setting WHERE setting_key = 'sttProvider');
+
+INSERT INTO mate_system_setting (id, setting_key, setting_value, description, create_time, update_time)
+SELECT 1000000022, 'sttFallbackEnabled', 'true', 'Try alternate STT provider when the primary fails', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM mate_system_setting WHERE setting_key = 'sttFallbackEnabled');
 
 -- Built-in tool: Date & Time
 MERGE INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
@@ -389,6 +491,26 @@ MERGE INTO mate_tool (id, name, display_name, description, tool_type, bean_name,
 KEY (id)
 VALUES (1000000018, 'CronJobTool', 'Scheduled Tasks', 'Create, list, enable/disable, and delete scheduled tasks (cron jobs) through chat. Supports 5-field cron expressions for flexible scheduling.', 'builtin', 'cronJobTool', '⏰', TRUE, TRUE, NOW(), NOW(), 0);
 
+-- Built-in tool: DOCX Render (RFC-045 — in-process Apache POI, millisecond .docx creation)
+MERGE INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
+KEY (id)
+VALUES (1000000019, 'DocxRenderTool', 'DOCX Render', 'Render Markdown directly into a .docx and return a one-time download link. In-process Apache POI implementation, no Node.js subprocess; supports headings, bold, lists, tables. Preferred tool for creating new documents.', 'builtin', 'docxRenderTool', '📝', TRUE, TRUE, NOW(), NOW(), 0);
+
+-- Built-in tool: XLSX Render (in-process Apache POI; markdown tables -> multi-sheet workbook)
+MERGE INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
+KEY (id)
+VALUES (1000000020, 'XlsxRenderTool', 'XLSX Render', 'Render Markdown directly into a .xlsx workbook and return a one-time download link. In-process Apache POI; each # heading becomes a sheet, pipe tables become rows, numeric cells auto-detected.', 'builtin', 'xlsxRenderTool', '📊', TRUE, TRUE, NOW(), NOW(), 0);
+
+-- Built-in tool: PPTX Render (in-process Apache POI; Marp-style markdown -> .pptx deck)
+MERGE INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
+KEY (id)
+VALUES (1000000021, 'PptxRenderTool', 'PPTX Render', 'Render Marp-style Markdown directly into a .pptx deck and return a one-time download link. In-process Apache POI; --- separates slides, # / ## titles, - bullets, <!-- speaker notes -->.', 'builtin', 'pptxRenderTool', '🎞️', TRUE, TRUE, NOW(), NOW(), 0);
+
+-- Built-in tool: PDF Render (dual backend: LibreOffice subprocess preferred, OpenPDF + Flying Saucer fallback)
+MERGE INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
+KEY (id)
+VALUES (1000000022, 'PdfRenderTool', 'PDF Render', 'Render Markdown into a final-form .pdf and return a one-time download link. Two backends (LibreOffice subprocess preferred, OpenPDF + Flying Saucer fallback); supports YAML frontmatter for cover / page header / page footer.', 'builtin', 'pdfRenderTool', '📄', TRUE, TRUE, NOW(), NOW(), 0);
+
 -- Example MCP Server: Filesystem (see MateClaw docs mcpServers.filesystem)
 MERGE INTO mate_mcp_server (
     id, name, description, transport, url, headers_json, command, args_json, env_json, cwd,
@@ -452,6 +574,11 @@ VALUES (
 );
 
 -- Built-in skills: skill metadata
+-- DEPRECATED (RFC-044 §4.2): The authoritative source for builtin skills is now
+-- classpath:skills/<name>/SKILL.md, upserted on startup by BuiltinSkillSeedService.
+-- These MERGE blocks remain as a one-version compatibility shim and will be
+-- removed in the next release. New skills should NOT be added here — drop a
+-- SKILL.md under skills/<name>/ and the seed service will register it.
 MERGE INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
 KEY (id)
 VALUES (1000000001, 'cron', 'Cron job management. Create, query, pause, resume, delete tasks via commands or console. Execute on schedule and send results to channels.', 'builtin', '⏰', '1.0.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'cron,schedule,automation', NOW(), NOW(), 0);
@@ -511,6 +638,46 @@ VALUES (1000000014, 'sql_query', 'Query databases using natural language. Discov
 MERGE INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
 KEY (id)
 VALUES (1000000015, 'steve_jobs_perspective', 'Steve Jobs thinking OS. Analyze products, evaluate decisions, and give feedback through Jobs'' perspective, using his six mental models and distinctive expression style.', 'builtin', '🍎', '1.0.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'persona,jobs,product,strategy,thinking', NOW(), NOW(), 0);
+
+MERGE INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
+KEY (id)
+VALUES (1000000016, 'make_plan', 'When a task requires multi-step breakdown or uncertain execution path, request a step-by-step actionable plan from a stronger Agent, then execute it yourself.', 'builtin', '🗺️', '1.3.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'plan,delegate,agent,collaboration', NOW(), NOW(), 0);
+
+MERGE INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
+KEY (id)
+VALUES (1000000017, 'chat_with_agent', 'When you need to consult another Agent, seek help, or the user explicitly requests an Agent to participate, use this skill for single or parallel delegation.', 'builtin', '💬', '1.2.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'agent,chat,collaborate,delegate', NOW(), NOW(), 0);
+
+MERGE INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
+KEY (id)
+VALUES (1000000018, 'channel_message', 'Use when you need to proactively push one-way messages to users, sessions, or channels. For task completion notifications, scheduled reminders, and async result delivery.', 'builtin', '📤', '1.3.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'channel,message,push,notify,dingtalk,feishu', NOW(), NOW(), 0);
+
+MERGE INTO mate_skill (id, name, description, skill_type, icon, version, author, config_json, enabled, builtin, tags, create_time, update_time, deleted)
+KEY (id)
+VALUES (1000000019, 'multi_agent_collaboration', 'When a task requires the professional capabilities of multiple Agents, orchestrate parallel or serial multi-agent collaboration and integrate results.', 'builtin', '🤝', '1.4.0', 'MateClaw', '{"upstream":"mateclaw","entryFile":"SKILL.md"}', TRUE, TRUE, 'multi-agent,collaboration,orchestration,parallel', NOW(), NOW(), 0);
+
+-- RFC-042 §2.2 — bilingual display names for the 19 builtin skills.
+-- Identical across all four data-*.sql files because name_zh / name_en are
+-- permanent attributes, not locale-conditional. The UI picks which one to
+-- show based on the active i18n locale and falls back to `name` when null.
+UPDATE mate_skill SET name_zh = '定时任务',       name_en = 'Cron Jobs'                WHERE name = 'cron';
+UPDATE mate_skill SET name_zh = '文件阅读器',     name_en = 'File Reader'              WHERE name = 'file_reader';
+UPDATE mate_skill SET name_zh = '钉钉渠道接入',   name_en = 'DingTalk Channel'         WHERE name = 'dingtalk_channel_connect';
+UPDATE mate_skill SET name_zh = '邮件管理',       name_en = 'Email (Himalaya)'         WHERE name = 'himalaya';
+UPDATE mate_skill SET name_zh = '新闻查询',       name_en = 'News'                     WHERE name = 'news';
+UPDATE mate_skill SET name_zh = 'PDF 处理',       name_en = 'PDF'                      WHERE name = 'pdf';
+UPDATE mate_skill SET name_zh = 'Word 文档',      name_en = 'Word Document'            WHERE name = 'docx';
+UPDATE mate_skill SET name_zh = 'PPT 演示',       name_en = 'PowerPoint'               WHERE name = 'pptx';
+UPDATE mate_skill SET name_zh = 'Excel 表格',     name_en = 'Excel'                    WHERE name = 'xlsx';
+UPDATE mate_skill SET name_zh = '可见浏览器',     name_en = 'Visible Browser'          WHERE name = 'browser_visible';
+UPDATE mate_skill SET name_zh = '浏览器 CDP',     name_en = 'Browser CDP'              WHERE name = 'browser_cdp';
+UPDATE mate_skill SET name_zh = '安装指引',       name_en = 'Setup Guidance'           WHERE name = 'guidance';
+UPDATE mate_skill SET name_zh = '源码索引',       name_en = 'Source Index'             WHERE name = 'mateclaw_source_index';
+UPDATE mate_skill SET name_zh = 'SQL 查询',       name_en = 'SQL Query'                WHERE name = 'sql_query';
+UPDATE mate_skill SET name_zh = '乔布斯视角',     name_en = 'Steve Jobs Perspective'   WHERE name = 'steve_jobs_perspective';
+UPDATE mate_skill SET name_zh = '制定计划',       name_en = 'Make Plan'                WHERE name = 'make_plan';
+UPDATE mate_skill SET name_zh = '咨询智能体',     name_en = 'Chat with Agent'          WHERE name = 'chat_with_agent';
+UPDATE mate_skill SET name_zh = '渠道推送',       name_en = 'Channel Push'             WHERE name = 'channel_message';
+UPDATE mate_skill SET name_zh = '多智能体协作',   name_en = 'Multi-Agent Collaboration' WHERE name = 'multi_agent_collaboration';
 
 -- Populate skill_content for key built-in skills (SKILL.md execution protocol)
 -- NOTE: For pdf/docx/pptx/xlsx/himalaya, the authoritative SKILL.md is bundled in
@@ -1101,162 +1268,17 @@ Automatically activate when user message contains:
 Use read_skill_file to access references/ for more background material.' WHERE id = 1000000015;
 
 -- ==================== Channel Seed Data ====================
--- MateClaw supports multiple channels
+-- Only the Web channel is seeded — it's always-on and needs no
+-- credentials. Other channel types are added through the wizard
+-- (ChannelTypePicker → ChannelOnboardingWizard) so the list page
+-- doesn't start with 8 empty placeholders staring at the user.
+-- See V64__cleanup_unused_channel_seeds.sql for the matching cleanup
+-- of those placeholders on existing installs.
 
--- 1. Web Console (enabled by default)
 MERGE INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
 KEY (id)
 VALUES (1000000001, 'Web Console', 'web', 1000000001, '', '{}', TRUE,
         'Default Web console channel with browser SSE streaming', NOW(), NOW(), 0);
-
--- 2. DingTalk (disabled by default, requires client_id/client_secret)
-MERGE INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-KEY (id)
-VALUES (1000000002, 'DingTalk Bot', 'dingtalk', 1000000001, '', '{
-  "client_id": "",
-  "client_secret": "",
-  "robot_code": "",
-  "message_type": "markdown",
-  "card_template_id": "",
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "Sorry, you do not have permission",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        'DingTalk bot channel. Supports Stream callback and sessionWebhook reply. Create app on DingTalk Open Platform and set Webhook URL to /api/v1/channels/webhook/dingtalk', NOW(), NOW(), 0);
-
--- 3. Feishu (disabled by default, requires app_id/app_secret)
-MERGE INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-KEY (id)
-VALUES (1000000003, 'Feishu Bot', 'feishu', 1000000001, '', '{
-  "app_id": "",
-  "app_secret": "",
-  "encrypt_key": "",
-  "verification_token": "",
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "Sorry, you do not have permission",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        'Feishu bot channel. Supports event subscription callback. Create app on Feishu Open Platform and set event callback URL to /api/v1/channels/webhook/feishu', NOW(), NOW(), 0);
-
--- 4. Telegram (disabled by default, requires bot_token)
-MERGE INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-KEY (id)
-VALUES (1000000004, 'Telegram Bot', 'telegram', 1000000001, '', '{
-  "bot_token": "",
-  "http_proxy": "",
-  "show_typing": true,
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "Sorry, you do not have permission",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        'Telegram bot channel. Get Token from @BotFather, set Webhook URL to /api/v1/channels/webhook/telegram', NOW(), NOW(), 0);
-
--- 5. Discord (disabled by default, requires bot_token)
-MERGE INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-KEY (id)
-VALUES (1000000005, 'Discord Bot', 'discord', 1000000001, '!mc ', '{
-  "bot_token": "",
-  "http_proxy": "",
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "Sorry, you do not have permission",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        'Discord bot channel. Create Bot and get Token from Discord Developer Portal. Use !mc prefix in group chats', NOW(), NOW(), 0);
-
--- 6. WeCom Bot (disabled by default, requires bot_id/secret)
-MERGE INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-KEY (id)
-VALUES (1000000006, 'WeCom Bot', 'wecom', 1000000001, '', '{
-  "bot_id": "",
-  "secret": "",
-  "welcome_text": "",
-  "media_download_enabled": true,
-  "media_dir": "data/media",
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "Sorry, you do not have permission",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto",
-  "max_reconnect_attempts": -1
-}', FALSE,
-        'WeCom smart bot channel (WebSocket long connection). Create a smart bot in WeCom admin console, select API mode with long connection, get bot_id and secret. No public IP needed', NOW(), NOW(), 0);
-
--- 7. QQ Bot (disabled by default, requires app_id/client_secret)
-MERGE INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-KEY (id)
-VALUES (1000000007, 'QQ Bot', 'qq', 1000000001, '', '{
-  "app_id": "",
-  "client_secret": "",
-  "markdown_enabled": true,
-  "max_reconnect_attempts": 100,
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "Sorry, you do not have permission",
-  "require_mention": false,
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        'QQ bot channel (WebSocket long connection). Create a bot app on QQ Open Platform, get AppID and AppSecret. No public IP needed', NOW(), NOW(), 0);
-
--- 8. WeChat iLink Bot (disabled by default, requires QR code scan for bot_token)
-MERGE INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-KEY (id)
-VALUES (1000000008, 'WeChat', 'weixin', 1000000001, '', '{
-  "bot_token": "",
-  "base_url": "https://ilinkai.weixin.qq.com",
-  "media_download_enabled": true,
-  "media_dir": "data/media",
-  "dm_policy": "open",
-  "group_policy": "open",
-  "allow_from": [],
-  "deny_message": "Sorry, you do not have permission",
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        'WeChat personal account channel (iLink Bot HTTP long polling). Get bot_token by scanning QR code to login, or enter existing token. Based on iLink Bot API, supports text, image, voice (ASR), file, and video messages', NOW(), NOW(), 0);
-
--- 9. Slack (disabled by default, requires bot_token / app_token)
-MERGE INTO mate_channel (id, name, channel_type, agent_id, bot_prefix, config_json, enabled, description, create_time, update_time, deleted)
-KEY (id)
-VALUES (1000000009, 'Slack Bot', 'slack', 1000000001, '', '{
-  "bot_token": "",
-  "app_token": "",
-  "signing_secret": "",
-  "dm_policy": "open",
-  "group_policy": "mention",
-  "allow_from": [],
-  "deny_message": "Sorry, you do not have permission",
-  "filter_thinking": true,
-  "filter_tool_messages": true,
-  "message_format": "auto"
-}', FALSE,
-        'Slack channel (Socket Mode). Get Bot Token (xoxb-) and App-Level Token (xapp-) from Slack App settings, enable Socket Mode to start using.', NOW(), NOW(), 0);
 
 -- ==================== Example Cron Jobs ====================
 MERGE INTO mate_cron_job (id, name, cron_expression, timezone, agent_id, task_type, trigger_message, request_body, enabled, create_time, update_time, deleted)
@@ -1822,7 +1844,7 @@ SELECT
     1000000001,
     TRUE,
     'all',
-    '["write_file","edit_file","execute_shell_command"]',
+    '["execute_shell_command"]',
     '[]',
     TRUE,
     '["/etc","/usr","/bin","/sbin","/boot","/sys","/proc","/dev"]',

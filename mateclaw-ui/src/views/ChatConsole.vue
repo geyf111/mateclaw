@@ -26,7 +26,7 @@
 
           <div class="agent-selector">
             <button class="agent-select-trigger" @click="agentDropdownOpen = !agentDropdownOpen" :title="`${$t('chat.selectAgent')} (⌘K)`">
-              <span class="agent-select-trigger__icon">{{ currentAgent?.icon || '🤖' }}</span>
+              <span class="agent-select-trigger__icon" :style="{ color: agentIconColor(currentAgent?.icon) }"><SkillIcon :value="currentAgent?.icon" :size="24" :fallback="'🤖'" /></span>
               <span v-if="!convPanelCollapsed || isMobile" class="agent-select-trigger__name">{{ currentAgent?.name || $t('chat.selectAgent') }}</span>
               <svg v-if="!convPanelCollapsed || isMobile" class="agent-select-trigger__arrow" :class="{ open: agentDropdownOpen }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
@@ -42,10 +42,10 @@
                   :class="{ active: String(agent.id) === String(selectedAgentId) }"
                   @click="selectAgent(agent)"
                 >
-                  <span class="agent-dropdown-item__icon">{{ agent.icon || '🤖' }}</span>
+                  <span class="agent-dropdown-item__icon" :style="{ color: agentIconColor(agent.icon) }"><SkillIcon :value="agent.icon" :size="18" :fallback="'🤖'" /></span>
                   <div class="agent-dropdown-item__info">
                     <span class="agent-dropdown-item__name">{{ agent.name }}</span>
-                    <span class="agent-dropdown-item__desc">{{ agent.description || agent.agentType }}</span>
+                    <span class="agent-dropdown-item__desc">{{ agentTagline(agent) }}</span>
                   </div>
                   <span v-if="String(agent.id) === String(selectedAgentId)" class="agent-dropdown-item__check">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -90,7 +90,17 @@
                   />
                   <div v-else class="conv-title" @dblclick.stop="startRename(conv)">
                     <span>{{ conv.title }}</span>
-                    <span
+                    <!-- Unread dot for the unified tasks conversation: when a
+                     cron run lands but the user hasn't opened the conversation
+                     since, show a small accent dot. Avoids needing a server-side
+                     last-viewed table for MVP — localStorage tracks per-conv
+                     last-view timestamp, sidebar compares to lastActiveTime. -->
+                <span
+                  v-if="hasUnread(conv)"
+                  class="conv-unread-dot"
+                  :title="$t('chat.hasUnread', '有新内容')"
+                ></span>
+                <span
                       v-if="conv.streamStatus === 'running'"
                       class="conv-running-badge"
                       :title="$t('chat.streamGenerating')"
@@ -118,77 +128,88 @@
           </div>
         </div>
 
-        <!-- 主聊天区域 -->
-        <div
-          class="chat-area"
-          @dragenter.prevent="onDragEnter"
-          @dragover.prevent
-          @dragleave="onDragLeave"
-          @drop.prevent="onDrop"
-        >
-          <!-- 拖拽上传遮罩 -->
-          <Transition name="fade">
-            <div v-if="isDragging" class="drop-overlay">
-              <div class="drop-overlay__content">
-                <el-icon><UploadFilled /></el-icon>
-                <span>{{ $t('chat.dropToUpload') }}</span>
+    <!-- 主聊天区域 -->
+    <div
+      class="chat-area"
+      @dragenter.prevent="onDragEnter"
+      @dragover.prevent
+      @dragleave="onDragLeave"
+      @drop.prevent="onDrop"
+    >
+      <!-- 拖拽上传遮罩 -->
+      <Transition name="fade">
+        <div v-if="isDragging" class="drop-overlay">
+          <div class="drop-overlay__content">
+            <el-icon><UploadFilled /></el-icon>
+            <span>{{ $t('chat.dropToUpload') }}</span>
+          </div>
+        </div>
+      </Transition>
+      <!-- 头部 -->
+      <div class="chat-header">
+        <div class="chat-header-left">
+          <button v-if="isMobile" class="conv-toggle-btn" @click="convPanelOpen = !convPanelOpen" :title="$t('chat.conversations')">
+            <el-icon><ChatDotRound /></el-icon>
+          </button>
+          <div class="chat-stage-copy" v-if="currentAgent">
+            <div class="chat-stage-kicker">{{ $t('nav.chat') }}</div>
+            <!--
+              Header reads as "who is this employee" — name + tagline.
+              The runtime mode (ReAct / Plan-Execute) is technical jargon
+              to end users and lives in the badge tooltip instead, so the
+              header doesn't get polluted.
+            -->
+            <div
+              class="agent-badge"
+              :title="`${currentAgent.name}${currentAgentRuntimeMode ? ' · ' + currentAgentRuntimeMode : ''}`"
+            >
+              <span class="agent-badge-icon" :style="{ color: agentIconColor(currentAgent.icon) }"><SkillIcon :value="currentAgent.icon" :size="22" :fallback="'🤖'" /></span>
+              <div class="agent-badge-text">
+                <span class="agent-badge-name">{{ currentAgent.name }}</span>
+                <span v-if="currentAgentTagline" class="agent-badge-tagline">{{ currentAgentTagline }}</span>
               </div>
-            </div>
-          </Transition>
-          <!-- 头部 -->
-          <div class="chat-header">
-            <div class="chat-header-left">
-              <button v-if="isMobile" class="conv-toggle-btn" @click="convPanelOpen = !convPanelOpen" :title="$t('chat.conversations')">
-                <el-icon><ChatDotRound /></el-icon>
-              </button>
-              <div class="chat-stage-copy" v-if="currentAgent">
-                <div class="chat-stage-kicker">{{ $t('nav.chat') }}</div>
-                <div class="agent-badge" :title="currentAgent.name">
-                  <span class="agent-badge-icon">{{ currentAgent.icon || '🤖' }}</span>
-                  <span class="agent-badge-name">{{ currentAgent.name }}</span>
-                  <span class="agent-badge-type">{{ currentAgent.agentType === 'react' ? 'ReAct' : 'Plan-Execute' }}</span>
-                  <span class="status-dot" :class="connectionStatusClass" :title="connectionStatusLabel"></span>
-                </div>
-              </div>
-              <div v-else class="no-agent-hint">{{ $t('chat.selectAgent') }}</div>
-            </div>
-            <div class="chat-header-right">
-              <!-- Model selector -->
-              <ModelSelector
-                v-if="eligibleModels.length > 0"
-                :providers="availableProviders"
-                :active-value="activeModelValue"
-                :active-label="activeModelLabel"
-                :saving="modelSaving"
-                @select="selectModel"
-              />
-              <button v-else class="header-btn" @click="goToModelSettings" :title="$t('chat.configModel')">
-                <el-icon><Setting /></el-icon>
-              </button>
-              <!-- Overflow menu -->
-              <div class="header-overflow-wrap">
-                <button class="header-btn" @click="headerMenuOpen = !headerMenuOpen" :title="$t('common.more') || 'More'">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-                </button>
-                <Transition name="fade">
-                  <div v-if="headerMenuOpen" class="header-menu-backdrop" @click="headerMenuOpen = false"></div>
-                </Transition>
-                <Transition name="agent-dropdown">
-                  <div v-if="headerMenuOpen" class="header-menu">
-                    <button class="header-menu-item" @click="headerMenuOpen = false; goToModelSettings()">
-                      <el-icon><Setting /></el-icon>
-                      <span>{{ $t('chat.configModel') }}</span>
-                    </button>
-                    <div class="header-menu-divider"></div>
-                    <button class="header-menu-item header-menu-item--danger" @click="handleClearMessages">
-                      <el-icon><Delete /></el-icon>
-                      <span>{{ $t('chat.clearMessages') }}</span>
-                    </button>
-                  </div>
-                </Transition>
-              </div>
+              <span class="status-dot" :class="connectionStatusClass" :title="connectionStatusLabel"></span>
             </div>
           </div>
+          <div v-else class="no-agent-hint">{{ $t('chat.selectAgent') }}</div>
+        </div>
+        <div class="chat-header-right">
+          <!-- Model selector — Issue #81 v2 R3: always pass full providers + show-all-states
+               so unhealthy rows render as dimmed entries with status chips and a Fix
+               button instead of disappearing entirely. -->
+          <ModelSelector
+            :providers="providers"
+            :active-value="activeModelValue"
+            :active-label="activeModelLabel"
+            :saving="modelSaving"
+            :show-all-states="true"
+            @select="selectModel"
+            @navigate-fix="onModelSelectorFix"
+          />
+          <!-- Overflow menu -->
+          <div class="header-overflow-wrap">
+            <button class="header-btn" @click="headerMenuOpen = !headerMenuOpen" :title="$t('common.more') || 'More'">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+            </button>
+            <Transition name="fade">
+              <div v-if="headerMenuOpen" class="header-menu-backdrop" @click="headerMenuOpen = false"></div>
+            </Transition>
+            <Transition name="agent-dropdown">
+              <div v-if="headerMenuOpen" class="header-menu">
+                <button class="header-menu-item" @click="headerMenuOpen = false; goToModelSettings()">
+                  <el-icon><Setting /></el-icon>
+                  <span>{{ $t('chat.configModel') }}</span>
+                </button>
+                <div class="header-menu-divider"></div>
+                <button class="header-menu-item header-menu-item--danger" @click="handleClearMessages">
+                  <el-icon><Delete /></el-icon>
+                  <span>{{ $t('chat.clearMessages') }}</span>
+                </button>
+              </div>
+            </Transition>
+          </div>
+        </div>
+      </div>
 
           <!-- 使用组件化的 MessageList -->
           <MessageList
@@ -197,28 +218,64 @@
             :loading="isGenerating"
             :assistant-icon="currentAgent?.icon || '🤖'"
             :user-icon="userInitial"
-            :title="showModelPrompt ? modelPromptTitle : $t('app.title')"
-            :subtitle="showModelPrompt ? modelPromptDesc : $t('chat.subtitle')"
-            :suggestions="showModelPrompt ? [] : suggestions"
+            :title="blockingPrompt ? modelPromptText.title : $t('app.title')"
+            :subtitle="blockingPrompt ? modelPromptText.desc : $t('chat.subtitle')"
+            :suggestions="blockingPrompt ? [] : suggestions"
             @regenerate="handleRegenerate"
             @suggestion-click="sendSuggestion"
             @toggle-thinking="handleToggleThinking"
             @approve="handleApprove"
             @deny="handleDeny"
           >
-            <!-- 自定义模型提示空状态 -->
-            <template v-if="showModelPrompt" #empty>
+            <!-- Issue #81 v2 R2: blocking-only popup. Recoverable cases use the
+             non-blocking <RecoverableModelBanner> below instead. -->
+            <template v-if="blockingPrompt" #empty>
               <div class="model-prompt">
-                <div class="model-prompt-title">{{ modelPromptTitle }}</div>
-                <div class="model-prompt-desc">{{ modelPromptDesc }}</div>
-                <button class="btn-primary" @click="goToModelSettings">{{ $t('chat.goToModelSettings') }}</button>
+                <div class="model-prompt-title">{{ modelPromptText.title }}</div>
+                <div class="model-prompt-desc">{{ modelPromptText.desc }}</div>
+                <div class="model-prompt-actions">
+              <button class="btn-primary" @click="handlePrimaryAction">
+                {{ primaryActionLabel }}
+              </button>
+              <button
+                v-if="bestSwitchTarget"
+                class="btn-secondary"
+                @click="switchToBestTarget"
+              >
+                {{ $t('chat.promptAction.switchToModel', { name: bestSwitchTarget.label }) }}
+              </button>
+            </div>
               </div>
             </template>
           </MessageList>
 
+      <!-- Issue #81: non-blocking banner — active provider is unhealthy but the
+           backend fallback chain has a LIVE provider to take over. -->
+      <RecoverableModelBanner
+        v-if="recoverablePrompt && activeProvider && bestFallbackName"
+        :provider-name="activeProvider.name"
+        :fallback-name="bestFallbackName"
+        @dismiss="recoverableDismissed = true"
+      />
+
+      <!-- Cron job in-flight placeholder — visible while T2 hasn't committed
+           the assistant message yet. Populated by pollActivity → /cron-jobs/active-runs. -->
+      <div v-if="activeCronRuns.length > 0" class="cron-running-bar">
+        <div v-for="run in activeCronRuns" :key="run.runId" class="cron-running-item">
+          <span class="cron-running-spinner">🌀</span>
+          <span class="cron-running-text">
+            <strong>{{ run.jobName || $t('chat.cronRunning.fallbackName') }}</strong>
+            <span class="cron-running-meta">
+              · {{ $t('chat.cronRunning.executing') }}
+              <template v-if="run.startedAt"> · {{ elapsedLabel(run.startedAt) }}</template>
+            </span>
+          </span>
+        </div>
+      </div>
+
           <!-- 流式处理 Loading 栏（消息和输入框之间） -->
           <StreamLoadingBar
-            :is-loading="isGenerating && !showModelPrompt"
+            :is-loading="isGenerating && !blockingPrompt"
             :tool-count="toolCallCount"
             :completion-tokens="currentGeneratingTokens"
             :prompt-tokens="currentPromptTokens"
@@ -226,14 +283,23 @@
             :phase-info="phaseInfo"
             :running-tool-name="currentRunningToolName"
             :has-queued="hasQueued"
-          />
+            :lifecycle-stage="lifecycleStage"
+        :compact-status="compactStatus"
+      />
+
+      <!-- Multimodal routing hint: shown when pending attachments require a
+           modality the primary model lacks. -->
+      <MultimodalRoutingHint
+        :attachments="pendingAttachments"
+        :capabilities="agentCapabilities"
+      />
 
           <!-- 使用组件化的 ChatInput -->
           <ChatInput
             ref="chatInputRef"
             v-model="inputText"
             :loading="isGenerating && !hasPendingApproval"
-            :disabled="showModelPrompt || !currentAgent"
+            :disabled="blockingPrompt || !currentAgent"
             :placeholder="$t('chat.messagePlaceholder')"
             :hint="currentRuntimeModel"
             :attachments="pendingAttachments"
@@ -252,7 +318,8 @@
             @deny="handleDeny"
             :enable-talk-mode="!!selectedAgentId"
             :thinking-enabled="thinkingEnabled"
-            @toggle-thinking="thinkingEnabled = !thinkingEnabled"
+            :thinking-supported="currentModelSupportsThinking"
+        @toggle-thinking="thinkingEnabled = !thinkingEnabled"
             @talk="showTalkMode = true"
           />
         </div>
@@ -274,10 +341,12 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
+import { mcConfirm } from '@/components/common/useConfirm'
 import { ChatDotRound, Delete, Plus, Setting, UploadFilled } from '@element-plus/icons-vue'
-import { conversationApi, agentApi, modelApi, chatApi } from '@/api/index'
+import { conversationApi, agentApi, modelApi, chatApi, cronJobApi } from '@/api/index'
 import { channelIconUrl } from '@/utils/channelSource'
+import { copyToClipboard } from '@/utils/clipboard'
 import { useChat } from '@/composables/chat/useChat'
 import { reconstructErrorInfo } from '@/types/chatError'
 import { reconcileMessages, extractMessages } from '@/utils/messageReconcile'
@@ -285,11 +354,18 @@ import type { Conversation, Agent, ModelConfig, ProviderInfo, ActiveModelsInfo, 
 
 // 导入组件化组件
 import MessageList from '@/components/chat/MessageList.vue'
+import RecoverableModelBanner from '@/components/chat/RecoverableModelBanner.vue'
+import SkillIcon from '@/components/common/SkillIcon.vue'
+import { parsePrompt, deriveTagline } from '@/utils/agentPromptProfile'
+import { agentIconColor } from '@/utils/agentIconColor'
 import ChatInput from '@/components/chat/ChatInput.vue'
+import MultimodalRoutingHint from '@/components/chat/MultimodalRoutingHint.vue'
 import StreamLoadingBar from '@/components/chat/StreamLoadingBar.vue'
 import TalkMode from '@/components/chat/TalkMode.vue'
 import ModelSelector from '@/components/chat/ModelSelector.vue'
 import { useEChartsRenderer } from '@/composables/useEChartsRenderer'
+import { useKatexRenderer } from '@/composables/useKatexRenderer'
+import { useMermaidRenderer, handleMermaidDownload } from '@/composables/useMermaidRenderer'
 
 // ============ Talk Mode ============
 const showTalkMode = ref(false)
@@ -358,12 +434,23 @@ const selectedAgentId = ref<string | number>('')
 const currentConversationId = ref<string>('')
 const inputText = ref('')
 const modelSaving = ref(false)
-const showModelPrompt = ref(false)
+// Issue #81 v2 R2: split the single showModelPrompt boolean into two flags so
+// the chat surface can either hard-block (blockingPrompt) or warn but let the
+// backend fallback chain take over (recoverablePrompt). Driven by
+// recomputePromptFlags() — see the watcher below.
+const blockingPrompt = ref(false)
+const recoverablePrompt = ref(false)
+const recoverableDismissed = ref(false)
 const defaultModel = ref<ModelConfig | null>(null)
 const providers = ref<ProviderInfo[]>([])
 const activeModels = ref<ActiveModelsInfo | null>(null)
 const pendingAttachments = ref<ChatAttachment[]>([])
 const uploadingAttachment = ref(false)
+
+// Per-agent capability snapshot for the multimodal routing hint above the
+// input box. Refetched whenever the active agent changes; cached locally to
+// avoid an extra request per attachment change.
+const agentCapabilities = ref<import('@/types').AgentCapabilities | null>(null)
 
 // 思考模式：只有两个状态 — 开或关
 const thinkingEnabled = ref(localStorage.getItem('mateclaw_thinking') !== 'off')
@@ -435,12 +522,13 @@ function cancelRename() {
 }
 
 // Delete with confirmation
-function confirmDeleteConversation(conversationId: string) {
-  ElMessageBox.confirm(
-    t('chat.deleteConfirm') || 'Delete this conversation?',
-    t('common.confirm'),
-    { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
-  ).then(() => deleteConversation(conversationId)).catch(() => {})
+async function confirmDeleteConversation(conversationId: string) {
+  const ok = await mcConfirm({
+    title: t('common.confirm'),
+    message: t('chat.deleteConfirm') || 'Delete this conversation?',
+    tone: 'danger',
+  })
+  if (ok) deleteConversation(conversationId)
 }
 
 // 拖拽上传
@@ -554,9 +642,18 @@ async function collectFilesFromEntries(dirEntries: FileSystemDirectoryEntry[]): 
 const messageListRef = ref<InstanceType<typeof MessageList> | null>(null)
 const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 
-// ECharts: extract DOM element from MessageList component ref
+// Post-render augmentations (ECharts, KaTeX, Mermaid) all watch the same
+// MessageList container — placeholders emitted by useMarkdownRenderer get
+// upgraded in place after Vue paints the rendered Markdown HTML.
 const echartsContainerRef = computed(() => messageListRef.value?.$el as HTMLElement | null)
 const { startObserving: startECharts, dispose: disposeECharts } = useEChartsRenderer(echartsContainerRef)
+const { startObserving: startKatex, dispose: disposeKatex } = useKatexRenderer(echartsContainerRef)
+const { startObserving: startMermaid, dispose: disposeMermaid } = useMermaidRenderer(echartsContainerRef)
+
+// Last-attempt draft, restored into the input box when the SSE error event
+// arrives async (sendChatMessage resolves on connect, the error fires later,
+// so the catch in handleSendMessage cannot recover input by itself).
+const pendingSendDraft = ref<{ input: string; attachments: any[] } | null>(null)
 
 // 使用 useChat composable
 const {
@@ -568,6 +665,8 @@ const {
   hasQueued,
   queueSize,
   heartbeat,
+  compactStatus,
+  lifecycleStage,
   sendMessage: sendChatMessage,
   stopGeneration: stopChatGeneration,
   cancelQueued,
@@ -577,11 +676,29 @@ const {
   baseUrl: '',
   thinkingLevel,
   onStreamEnd: async (meta) => {
+    // Restore the input/attachments if the turn ended in an error and the
+    // user hasn't typed something else in the meantime.
+    if (meta.reason === 'error' && pendingSendDraft.value) {
+      const draft = pendingSendDraft.value
+      if (!inputText.value) inputText.value = draft.input
+      if (pendingAttachments.value.length === 0) pendingAttachments.value = draft.attachments
+    }
+    if (meta.reason !== 'error') {
+      pendingSendDraft.value = null
+    }
     // 流结束后刷新会话列表（更新 lastActiveTime / 标题等）
     await loadConversations()
     if (meta.conversationId && meta.conversationId === currentConversationId.value) {
-      // 审批挂起或中断续跑时不从 DB 刷新消息，避免覆盖本地状态或破坏消息顺序
-      if (meta.reason !== 'awaiting_approval' && meta.reason !== 'interrupted') {
+      // Skip DB refresh for awaiting_approval / interrupted / error:
+      //  - awaiting_approval / interrupted: avoids overwriting local-only state
+      //    or breaking message ordering.
+      //  - error: the failed turn (e.g. SSE setup failure like "无权操作该会话")
+      //    was never persisted, so refreshing would wipe the user's just-sent
+      //    bubble and the failed assistant placeholder, leaving no trace of
+      //    the attempt in the chat window.
+      if (meta.reason !== 'awaiting_approval'
+          && meta.reason !== 'interrupted'
+          && meta.reason !== 'error') {
         await refreshCurrentConversationMessages(meta.conversationId)
       }
     }
@@ -603,14 +720,72 @@ const connectionStatusLabel = computed(() => {
 // ============ 计算属性 ============
 const currentAgent = computed(() => agents.value.find(a => String(a.id) === String(selectedAgentId.value)))
 
+/** Tagline derived from the agent's role/goal — same source of truth as the
+ *  Agents page card, so the chat header reads the employee identically.
+ *  Falls back to the agent's description when no triad is set. */
+function agentTagline(agent: Agent): string {
+  const profile = parsePrompt(agent.systemPrompt)
+  return deriveTagline(profile, agent.description) || (agent.description || '')
+}
+
+const currentAgentTagline = computed(() =>
+  currentAgent.value ? agentTagline(currentAgent.value) : '',
+)
+/** Human label for the agent's runtime mode — surfaces in the badge tooltip
+ *  only, never in the visible header. */
+const currentAgentRuntimeMode = computed(() => {
+  const a = currentAgent.value
+  if (!a) return ''
+  return a.agentType === 'react' ? t('agents.types.react') : t('agents.types.planExecute')
+})
+
 // 按日期分组的会话列表
+// Per-conversation last-viewed timestamp store (localStorage-backed, MVP).
+// Keyed by conversationId. Updated when user opens a conversation; read by
+// hasUnread() to decide whether to render the small accent dot in the sidebar.
+// Will move to a server-side table once we want cross-device read state.
+const VIEWED_KEY_PREFIX = 'mc-conv-viewed:'
+function markConversationViewed(conversationId: string | undefined, lastActiveTime?: string) {
+  if (!conversationId) return
+  const ts = lastActiveTime ? new Date(lastActiveTime).getTime() : Date.now()
+  try {
+    localStorage.setItem(VIEWED_KEY_PREFIX + conversationId, String(ts))
+  } catch {
+    // localStorage full / disabled — degrade silently; dot just stays on.
+  }
+}
+function hasUnread(conv: Conversation): boolean {
+  // Only the unified tasks_<wsId> conversation gets the unread treatment.
+  // Regular chats have explicit user attention via the streaming bubble itself,
+  // and IM-mirror conversations carry their own platform badges in IM apps.
+  if (!conv.conversationId || !conv.conversationId.startsWith('tasks_')) return false
+  if (!conv.lastActiveTime) return false
+  const lastActive = new Date(conv.lastActiveTime).getTime()
+  if (!Number.isFinite(lastActive)) return false
+  let viewed = 0
+  try {
+    viewed = Number(localStorage.getItem(VIEWED_KEY_PREFIX + conv.conversationId) || '0')
+  } catch {
+    // Treat as never-viewed when storage is unavailable.
+  }
+  // Currently-active conversation is implicitly read.
+  if (currentConversationId.value === conv.conversationId) return false
+  return lastActive > viewed
+}
+
 const groupedConversations = computed(() => {
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const yesterdayStart = todayStart - 86400000
   const last7Start = todayStart - 7 * 86400000
 
+  // Pinned group always sits at the top so the unified cron output (tasks_<wsId>)
+  // is reachable in one glance even after a busy day pushes other conversations
+  // ahead of it. Only the unified-cron conversation pattern is pinned for now;
+  // we'll generalize when we have other always-visible conversations.
+  const pinned: Conversation[] = []
   const groups: { label: string; items: Conversation[] }[] = [
+    { label: t('chat.datePinned', '置顶'), items: pinned },
     { label: t('chat.dateToday'), items: [] },
     { label: t('chat.dateYesterday'), items: [] },
     { label: t('chat.dateLast7Days'), items: [] },
@@ -618,11 +793,15 @@ const groupedConversations = computed(() => {
   ]
 
   for (const conv of conversations.value) {
+    if (conv.conversationId && conv.conversationId.startsWith('tasks_')) {
+      pinned.push(conv)
+      continue
+    }
     const ts = conv.lastActiveTime ? new Date(conv.lastActiveTime).getTime() : 0
-    if (ts >= todayStart) groups[0].items.push(conv)
-    else if (ts >= yesterdayStart) groups[1].items.push(conv)
-    else if (ts >= last7Start) groups[2].items.push(conv)
-    else groups[3].items.push(conv)
+    if (ts >= todayStart) groups[1].items.push(conv)
+    else if (ts >= yesterdayStart) groups[2].items.push(conv)
+    else if (ts >= last7Start) groups[3].items.push(conv)
+    else groups[4].items.push(conv)
   }
 
   return groups.filter(g => g.items.length > 0)
@@ -633,6 +812,28 @@ const currentRuntimeModel = computed(() => {
     return `${defaultModel.value.name} (${defaultModel.value.modelName})`
   }
   return currentAgent.value?.modelName || 'default'
+})
+
+/**
+ * RFC-049 PR-1-UI: whether the active runtime model supports <em>any</em> form
+ * of deep thinking (OpenAI reasoning_effort / Kimi native / DeepSeek-Reasoner
+ * native / Anthropic extended thinking). Drives the enable/disable state of
+ * the thinking-depth toggle in ChatInput.
+ *
+ * Reads the broad capability (`supportsThinking`) from ProviderModelInfo,
+ * populated server-side in ModelInfoDTO. The narrow `supportsReasoningEffort`
+ * only covers OpenAI gpt-5/o1/o3/o4 and would wrongly gray out Kimi K2.x,
+ * DeepSeek-Reasoner, and Claude — all of which legitimately support thinking.
+ */
+const currentModelSupportsThinking = computed<boolean>(() => {
+  const providerId = activeModels.value?.activeLlm?.providerId
+  const modelName = activeModels.value?.activeLlm?.model
+  if (!providerId || !modelName) return false
+  const provider = providers.value.find((p) => p.id === providerId)
+  if (!provider) return false
+  const all = [...(provider.models || []), ...(provider.extraModels || [])]
+  const hit = all.find((m) => m.id === modelName || m.name === modelName)
+  return Boolean(hit?.supportsThinking)
 })
 
 const userInitial = computed(() => (localStorage.getItem('username') || 'U').charAt(0).toUpperCase())
@@ -654,25 +855,106 @@ const activeProvider = computed(() => {
   return providerId ? providers.value.find((provider) => provider.id === providerId) || null : null
 })
 
-const modelPromptTitle = computed(() => {
-  if (!activeModels.value?.activeLlm?.providerId || !activeModels.value?.activeLlm?.model) {
-    return t('chat.configModelFirst')
+// Issue #81: liveness-aware popup state machine. modelPromptKind picks one of
+// six branches; modelPromptText derives title + desc; primaryActionLabel +
+// handlePrimaryAction map to the suggestedAction the backend computed.
+type ModelPromptKind = 'no-active' | 'unconfigured' | 'removed' | 'cooldown' | 'unprobed' | 'no-models'
+
+const modelPromptKind = computed<ModelPromptKind>(() => {
+  if (!activeModels.value?.activeLlm?.providerId) return 'no-active'
+  const p = activeProvider.value
+  if (!p) return 'no-active'
+  switch (p.liveness) {
+    case 'UNCONFIGURED': return 'unconfigured'
+    case 'REMOVED':      return 'removed'
+    case 'COOLDOWN':     return 'cooldown'
+    case 'UNPROBED':     return 'unprobed'
+    case 'LIVE':         return 'no-models'
+    default:             return 'no-active'
   }
-  if (activeProvider.value && !activeProvider.value.available) {
-    return t('chat.modelUnavailable')
-  }
-  return t('chat.configModelFirst')
 })
 
-const modelPromptDesc = computed(() => {
-  if (!activeModels.value?.activeLlm?.providerId || !activeModels.value?.activeLlm?.model) {
-    return t('chat.noActiveModel')
-  }
-  if (activeProvider.value && !activeProvider.value.available) {
-    return t('chat.providerNotReady', { name: activeProvider.value.name })
-  }
-  return t('chat.noAvailableModel')
+const hintText = computed(() => {
+  const p = activeProvider.value
+  if (!p?.suggestedActionHintKey) return ''
+  return t(p.suggestedActionHintKey, (p.suggestedActionHintArgs || {}) as Record<string, unknown>)
 })
+
+const modelPromptText = computed<{ title: string; desc: string }>(() => {
+  const p = activeProvider.value
+  switch (modelPromptKind.value) {
+    case 'no-active':
+      return { title: t('chat.prompt.noActive.title'), desc: t('chat.prompt.noActive.desc') }
+    case 'unconfigured':
+      return {
+        title: t('chat.prompt.unconfigured.title', { name: p?.name || '' }),
+        desc:  t('chat.prompt.unconfigured.desc', { fields: p?.missingFields || '', hint: hintText.value }),
+      }
+    case 'removed':
+      return {
+        title: t('chat.prompt.removed.title', { name: p?.name || '' }),
+        desc:  p?.unavailableReason || t('chat.prompt.removed.descFallback'),
+      }
+    case 'cooldown':
+      return {
+        title: t('chat.prompt.cooldown.title', { name: p?.name || '' }),
+        desc:  t('chat.prompt.cooldown.desc', {
+          seconds: Math.max(1, Math.ceil((p?.cooldownRemainingMs || 0) / 1000)),
+        }),
+      }
+    case 'unprobed':
+      return { title: t('chat.prompt.unprobed.title'), desc: t('chat.prompt.unprobed.desc') }
+    case 'no-models':
+      return {
+        title: t('chat.prompt.noModels.title', { name: p?.name || '' }),
+        desc:  t('chat.prompt.noModels.desc'),
+      }
+  }
+})
+
+const primaryActionLabel = computed(() => {
+  const action = activeProvider.value?.suggestedAction || 'configure_required_fields'
+  switch (action) {
+    case 'fill_base_url':              return t('chat.promptAction.fillBaseUrl')
+    case 'fill_api_key':               return t('chat.promptAction.fillApiKey')
+    case 'start_oauth':                return t('chat.promptAction.startOAuth')
+    case 'test_connection':            return t('chat.promptAction.testConnection')
+    case 'pull_model':                 return t('chat.promptAction.pullModel')
+    case 'wait_cooldown':              return t('chat.promptAction.waitCooldown')
+    case 'reprobe':                    return t('chat.promptAction.reprobe')
+    case 'configure_required_fields':
+    default:                           return t('chat.goToModelSettings')
+  }
+})
+
+function handlePrimaryAction() {
+  goToModelSettings(activeProvider.value?.id)
+}
+
+/** First eligible model that is NOT the active one — what the secondary button switches to. */
+const bestSwitchTarget = computed<{ value: string; label: string } | null>(() => {
+  for (const m of eligibleModels.value) {
+    if (m.value !== activeModelValue.value) return m
+  }
+  return null
+})
+
+/** First LIVE provider name — used by RecoverableModelBanner. */
+const bestFallbackName = computed<string>(() => {
+  const target = bestSwitchTarget.value
+  if (!target) return ''
+  const [providerId] = target.value.split('::')
+  return providers.value.find(p => p.id === providerId)?.name || ''
+})
+
+function switchToBestTarget() {
+  const t = bestSwitchTarget.value
+  if (t) selectModel(t.value)
+}
+
+function onModelSelectorFix(provider: { id: string }) {
+  goToModelSettings(provider.id)
+}
 
 const availableProviders = computed(() =>
   providers.value.filter((p) => p.available && [...(p.models || []), ...(p.extraModels || [])].length > 0)
@@ -707,6 +989,74 @@ function handleKeyboardShortcuts(e: KeyboardEvent) {
 let activityPollTimer: number | null = null
 const ACTIVITY_POLL_MS = 4000
 
+// Cron progress placeholder: when a cron job is mid-run on the currently
+// visible conversation (tasks_<wsId> / cron_<id>) the assistant bubble only
+// appears after T2 commits, which can be 1–5 minutes for tool-heavy ReAct
+// loops. activeCronRuns is filled by the same pollActivity tick so the user
+// sees a "executing…" placeholder instead of staring at a blank screen.
+interface ActiveCronRun {
+  runId: number | string
+  jobId: number | string
+  jobName?: string
+  triggerType?: string
+  conversationId?: string
+  startedAt?: string
+}
+const activeCronRuns = ref<ActiveCronRun[]>([])
+function isCronConversation(cid: string | null | undefined): boolean {
+  return !!cid && (cid.startsWith('tasks_') || cid.startsWith('cron_'))
+}
+async function refreshActiveCronRuns(cid: string) {
+  if (!isCronConversation(cid)) {
+    activeCronRuns.value = []
+    return
+  }
+  try {
+    const res: any = await cronJobApi.activeRuns(cid)
+    if (currentConversationId.value !== cid) return
+    const next: ActiveCronRun[] = res?.data ?? []
+    const wasRunning = activeCronRuns.value.length > 0
+    activeCronRuns.value = next
+    // Transition from "had runs" to "no runs" → assistant bubble was just
+    // persisted by T2; fetch messages so it shows up without waiting for the
+    // next pollActivity tick to align.
+    if (wasRunning && next.length === 0) {
+      await refreshCurrentConversationMessages(cid)
+    }
+  } catch {
+    // Network blip — keep the previous state, next tick will retry.
+  }
+}
+// Reactive ticker so the elapsed label updates without depending on a poll.
+const elapsedNow = ref(Date.now())
+let elapsedTickTimer: number | null = null
+function elapsedLabel(startedAt?: string): string {
+  if (!startedAt) return ''
+  const ms = elapsedNow.value - new Date(startedAt).getTime()
+  if (ms < 0 || !Number.isFinite(ms)) return ''
+  const sec = Math.floor(ms / 1000)
+  if (sec < 60) return `${sec}s`
+  const min = Math.floor(sec / 60)
+  const rem = sec % 60
+  return `${min}m${rem > 0 ? rem + 's' : ''}`
+}
+
+/**
+ * 判断当前消息列表的末尾是不是一条"本地仅有的失败气泡"。
+ * 典型场景：SSE setup 阶段就抛错（如"无权操作该会话"），
+ * 这次 turn 的 user / assistant 消息从未持久化进 DB。
+ * 数据库快照不知道它们存在，pollActivity 的对齐会把它们冲掉。
+ *
+ * 识别条件：末尾 assistant 状态为 failed、带 errorInfo、且 id 不是 DB 数值 id（client uuid）。
+ */
+function hasLocalOnlyFailedTail(): boolean {
+  const last = messages.value[messages.value.length - 1] as any
+  if (!last || last.role !== 'assistant') return false
+  if (last.status !== 'failed') return false
+  if (!last.errorInfo) return false
+  return !/^\d+$/.test(String(last.id))
+}
+
 async function pollActivity() {
   // 页面不可见时不轮询，避免切到别的标签还在空耗
   if (typeof document !== 'undefined' && document.hidden) return
@@ -730,13 +1080,19 @@ async function pollActivity() {
         await refreshCurrentConversationMessages(cid)
         if (currentConversationId.value !== cid || isGenerating.value) return
         await reconnectStream(cid)
-      } else {
-        // 不在跑：从 DB 对齐消息（新 user 消息 / 刚落库 assistant 会合并进来）
+      } else if (!hasLocalOnlyFailedTail()) {
+        // 不在跑：从 DB 对齐消息（新 user 消息 / 刚落库 assistant 会合并进来）。
+        // 但若末尾是本地失败气泡（SSE setup 失败一类，后端从未持久化过），
+        // 就跳过对齐 —— 不然这次的 user/失败 assistant 会被 DB 快照覆盖掉，
+        // 用户除了上面的 toast 看不到任何痕迹。
         await refreshCurrentConversationMessages(cid)
       }
     } catch {
       // 忽略探测失败
     }
+    // Cron progress placeholder — independent of streamStatus because cron
+    // runs use the non-streaming chat() path, so streamStatus stays idle.
+    await refreshActiveCronRuns(cid)
   }
 }
 
@@ -744,6 +1100,8 @@ onMounted(async () => {
   document.addEventListener('keydown', handleKeyboardShortcuts)
   document.addEventListener('click', handleCodeCopy)
   startECharts()
+  startKatex()
+  startMermaid()
   mobileQuery = window.matchMedia('(max-width: 768px)')
   handleMobileChange(mobileQuery)
   mobileQuery.addEventListener('change', handleMobileChange)
@@ -753,19 +1111,32 @@ onMounted(async () => {
   await Promise.all([loadAgents(), loadModelState(), loadConversations()])
   await hydrateStateFromRoute()
   activityPollTimer = window.setInterval(pollActivity, ACTIVITY_POLL_MS)
+  elapsedTickTimer = window.setInterval(() => {
+    if (activeCronRuns.value.length > 0) elapsedNow.value = Date.now()
+  }, 1000)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleKeyboardShortcuts)
   document.removeEventListener('click', handleCodeCopy)
   disposeECharts()
+  disposeKatex()
+  disposeMermaid()
   mobileQuery?.removeEventListener('change', handleMobileChange)
   mediumQuery?.removeEventListener('change', handleConvMediumChange)
   if (activityPollTimer !== null) {
     clearInterval(activityPollTimer)
     activityPollTimer = null
   }
-  stopChatGeneration()
+  if (elapsedTickTimer !== null) {
+    clearInterval(elapsedTickTimer)
+    elapsedTickTimer = null
+  }
+  // Switching tabs / route changes / mouse-detach unmount this component, but the
+  // backend agent should keep running so the user can reconnect later. Use
+  // resetForNewConversation (front-end SSE disconnect only) instead of
+  // stopChatGeneration which would POST /stop and abort the in-flight turn.
+  resetForNewConversation()
   // 释放所有附件的 ObjectURL，防止内存泄漏
   revokeAllPreviewUrls()
 })
@@ -778,10 +1149,26 @@ watch([selectedAgentId, currentConversationId], () => {
   syncRouteState()
 })
 
+// Refetch agent capabilities (modalities + sidecar config) on agent change so
+// the multimodal routing hint above the input box can react synchronously when
+// the user attaches an image / video.
+watch(selectedAgentId, async (id) => {
+  if (!id) { agentCapabilities.value = null; return }
+  try {
+    const res: any = await agentApi.getCapabilities(id)
+    agentCapabilities.value = res.data || null
+  } catch {
+    agentCapabilities.value = null
+  }
+}, { immediate: true })
+
 // ============ 方法 ============
 async function loadAgents() {
   try {
-    const res: any = await agentApi.list()
+    // Hide disabled agents from the picker — they cannot be chatted with
+    // (the chat endpoints reject disabled agents), so showing them invites
+    // a confusing failure path. The admin Agents view passes no filter.
+    const res: any = await agentApi.list({ enabled: true })
     agents.value = res.data || []
     // 只有在 URL 没有指定 agentId 且当前无选中时，才默认选第一个
     if (agents.value.length > 0 && !selectedAgentId.value && !route.query.agentId) {
@@ -802,18 +1189,52 @@ async function loadModelState() {
     defaultModel.value = defaultRes.data || null
     providers.value = providersRes.data || []
     activeModels.value = activeRes.data || null
-    const providerId = activeModels.value?.activeLlm?.providerId
-    const activeProviderInfo = providerId
-      ? providers.value.find((provider) => provider.id === providerId)
-      : null
-    showModelPrompt.value = !activeModels.value?.activeLlm?.providerId
-      || !activeModels.value?.activeLlm?.model
-      || (Boolean(providerId) && !activeProviderInfo?.available)
+    recomputePromptFlags()
   } catch (e) {
     ElMessage.error(t('chat.loadModelFailed'))
-    showModelPrompt.value = true
+    blockingPrompt.value = true
+    recoverablePrompt.value = false
   }
 }
+
+/**
+ * Issue #81 v2 R2: derive blocking / recoverable prompt flags from the current
+ * providers + active model snapshot. Called from loadModelState after every
+ * /providers refresh, and from a watcher when the user switches model. The
+ * runtime fallback chain in NodeStreamingChatHelper picks the first LIVE
+ * provider regardless of which one is "active", so as long as ANY provider is
+ * LIVE we should NOT block — we just hint with a banner.
+ */
+function recomputePromptFlags() {
+  const active = activeModels.value?.activeLlm
+  if (!active?.providerId || !active?.model) {
+    blockingPrompt.value = true
+    recoverablePrompt.value = false
+    recoverableDismissed.value = false
+    return
+  }
+  const ap = providers.value.find(p => p.id === active.providerId) || null
+  const apHasModels = ap
+    ? ((ap.models?.length || 0) + (ap.extraModels?.length || 0)) > 0
+    : false
+  const activeUsable = ap?.liveness === 'LIVE' && apHasModels
+  if (activeUsable) {
+    blockingPrompt.value = false
+    recoverablePrompt.value = false
+    recoverableDismissed.value = false
+    return
+  }
+  const anyUsable = providers.value.some(p =>
+    p.liveness === 'LIVE'
+    && ((p.models?.length || 0) + (p.extraModels?.length || 0)) > 0)
+  blockingPrompt.value = !anyUsable
+  recoverablePrompt.value = anyUsable && !recoverableDismissed.value
+}
+
+// Issue #81 v2 R2: keep blocking/recoverable in sync with the providers list
+// and the active model selection without forcing every mutation site to call
+// recomputePromptFlags() manually.
+watch([providers, activeModels], recomputePromptFlags, { deep: true })
 
 async function loadConversations() {
   try {
@@ -906,6 +1327,16 @@ async function selectConversation(conv: Conversation) {
   }
   currentConversationId.value = conv.conversationId
   selectedAgentId.value = conv.agentId || selectedAgentId.value
+  // Reset cron placeholder state up front; the immediate fetch below repopulates
+  // it for cron conversations so the user doesn't wait up to 4s for the next tick.
+  activeCronRuns.value = []
+  if (isCronConversation(conv.conversationId)) {
+    void refreshActiveCronRuns(conv.conversationId)
+  }
+  // Mark as read when opened — clears the unread dot on tasks_<wsId> after
+  // the user actually visits the cron output. localStorage-only for MVP;
+  // server-side last-viewed table is a future enhancement.
+  markConversationViewed(conv.conversationId, conv.lastActiveTime)
   const requestedConvId = conv.conversationId
   try {
     const res: any = await conversationApi.listMessages(requestedConvId)
@@ -916,30 +1347,83 @@ async function selectConversation(conv: Conversation) {
       messages.value = extractMessages(res).messages.map((msg: Message) => normalizeMessage(msg))
     }
 
-    // Hydrate pending approvals：恢复刷新后丢失的审批卡片
+    // Hydrate pending approvals：恢复刷新后丢失的审批卡片（RFC-067 §4.9）
+    //
+    // Two-way reconciliation between the server's pending list and each
+    // message's metadata.pendingApproval:
+    //   1. Forward — server pending → align onto the message that already
+    //      carries the same pendingId (so multi-pending convs don't have
+    //      every banner overwrite the same row); fallback to last assistant
+    //      only when no message has that id yet.
+    //   2. Reverse — local message metadata still says pending_approval but
+    //      the server no longer lists that pendingId → flip to 'expired'
+    //      locally. This closes the GC/timeout loop without requiring an
+    //      extra server-side broadcast: the next refresh sees a clean state.
     try {
       const approvalRes: any = await chatApi.getPendingApprovals(requestedConvId)
       if (currentConversationId.value !== requestedConvId) return
-      const pendingApprovals = approvalRes.data || []
-      if (pendingApprovals.length > 0) {
-        const assistantMessages = messages.value.filter(m => m.role === 'assistant')
-        const lastAssistant = assistantMessages[assistantMessages.length - 1]
-        if (lastAssistant) {
-          for (const pa of pendingApprovals) {
-            (lastAssistant as any).metadata = {
+      const pendingApprovals: any[] = approvalRes.data || []
+
+      // Index existing messages by their embedded pendingId (assistant only).
+      const indexById = new Map<string, Message>()
+      for (const m of messages.value) {
+        if (m.role !== 'assistant') continue
+        const pid = (m as any).metadata?.pendingApproval?.pendingId
+        if (typeof pid === 'string' && pid) indexById.set(pid, m)
+      }
+
+      // Forward direction: align server-known pending onto its owning message.
+      for (const pa of pendingApprovals) {
+        const enriched = {
+          pendingId: pa.pendingId,
+          toolName: pa.toolName,
+          arguments: pa.toolArguments,
+          reason: pa.reason,
+          status: 'pending_approval' as const,
+          findings: pa.findingsJson ? JSON.parse(pa.findingsJson) : undefined,
+          maxSeverity: pa.maxSeverity || undefined,
+          summary: pa.summary || undefined,
+        }
+        const target = indexById.get(pa.pendingId)
+        if (target) {
+          (target as any).metadata = {
+            ...(target as any).metadata,
+            currentPhase: 'awaiting_approval',
+            pendingApproval: enriched,
+          }
+        } else {
+          // Fallback: no message in the loaded history claims this pendingId
+          // (typical when the assistant message hasn't been persisted yet —
+          // e.g., approval fired before doOnComplete). Append to the last
+          // assistant; same as pre-RFC behavior, but logged so a regression
+          // where multiple unmatched pendings collide is observable.
+          const assistantMessages = messages.value.filter(m => m.role === 'assistant')
+          const lastAssistant = assistantMessages[assistantMessages.length - 1]
+          if (lastAssistant) {
+            console.warn('[hydrate] pendingId %s has no owning message — falling back to last assistant', pa.pendingId)
+            ;(lastAssistant as any).metadata = {
               ...(lastAssistant as any).metadata,
               currentPhase: 'awaiting_approval',
-              pendingApproval: {
-                pendingId: pa.pendingId,
-                toolName: pa.toolName,
-                arguments: pa.toolArguments,
-                reason: pa.reason,
-                status: 'pending_approval',
-                findings: pa.findingsJson ? JSON.parse(pa.findingsJson) : undefined,
-                maxSeverity: pa.maxSeverity || undefined,
-                summary: pa.summary || undefined,
-              }
+              pendingApproval: enriched,
             }
+          }
+        }
+      }
+
+      // Reverse direction: any local pending_approval whose pendingId is not
+      // in the server's list got resolved (timeout / consume) without a UI
+      // event — flip to expired so MessageBubble hides the banner.
+      const serverIds = new Set<string>(pendingApprovals.map((p: any) => p.pendingId))
+      for (const m of messages.value) {
+        if (m.role !== 'assistant') continue
+        const meta = (m as any).metadata
+        const local = meta?.pendingApproval
+        if (local?.status === 'pending_approval'
+            && local.pendingId
+            && !serverIds.has(local.pendingId)) {
+          (m as any).metadata = {
+            ...meta,
+            pendingApproval: { ...local, status: 'expired' },
           }
         }
       }
@@ -969,7 +1453,9 @@ async function selectConversation(conv: Conversation) {
 }
 
 function newConversation() {
-  resetStreamingState()
+  // Creating a new chat is just local navigation. Keep any previous backend
+  // run alive so the user can return and reconnect to it later.
+  resetForNewConversation()
   currentConversationId.value = `conv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   messages.value = []
 }
@@ -1003,8 +1489,12 @@ async function clearMessages() {
 
 // onModelChange removed — replaced by selectModel()
 
-function goToModelSettings() {
-  router.push('/models')
+function goToModelSettings(providerId?: string) {
+  // Issue #81: when called with a providerId (e.g. from the unhealthy popup or
+  // ModelSelector's Fix button), pass it as a query param so a follow-up PR can
+  // scroll/focus the right card on the settings page. Today the consumer just
+  // ignores it; harmless meanwhile.
+  router.push({ path: '/models', query: providerId ? { focus: providerId } : {} })
 }
 
 // ============ 计算属性：是否有待审批 ============
@@ -1058,7 +1548,7 @@ async function handleSendMessage(content: string) {
   // 允许在等待审批时发送审批命令
   const isApprovalCommand = /^\/(approve|deny)$/i.test(content.trim())
 
-  if ((!content && pendingAttachments.value.length === 0) || !selectedAgentId.value || showModelPrompt.value) return
+  if ((!content && pendingAttachments.value.length === 0) || !selectedAgentId.value || blockingPrompt.value) return
   // 不再阻止运行中发送 — useChat 会自动走 interrupt/queue 路径
 
   // 拦截 /approve 和 /deny 命令 —— 通过 SSE 流发送（和普通消息相同通道）
@@ -1109,12 +1599,15 @@ async function handleSendMessage(content: string) {
     currentConversationId.value = `conv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   }
 
+  // Issue #81 v2 R2: only abort when there is genuinely no usable provider.
+  // If the active provider is unhealthy but another is LIVE, let the request
+  // through — NodeStreamingChatHelper's fallback walker will pick it up and
+  // emit a "warning" SSE delta which the input handler surfaces as a toast.
   if (!activeModels.value?.activeLlm?.providerId || !activeModels.value?.activeLlm?.model) {
-    showModelPrompt.value = true
+    blockingPrompt.value = true
     return
   }
-  if (!activeProvider.value?.available) {
-    showModelPrompt.value = true
+  if (blockingPrompt.value) {
     return
   }
 
@@ -1124,6 +1617,8 @@ async function handleSendMessage(content: string) {
   // 先暂存，发送成功后再清空（失败时恢复）
   const savedInput = inputText.value
   const savedAttachments = [...pendingAttachments.value]
+  // Stash for async-error recovery in onStreamEnd (sync catch can't reach this).
+  pendingSendDraft.value = { input: savedInput, attachments: savedAttachments }
   inputText.value = ''
   chatInputRef.value?.clear?.()
   pendingAttachments.value = []
@@ -1310,6 +1805,8 @@ function normalizeMessage(raw: Message): Message {
   // 保留后端返回的 token 字段（MessageVO 新增）
   if ((raw as any).promptTokens) msg.promptTokens = (raw as any).promptTokens
   if ((raw as any).completionTokens) msg.completionTokens = (raw as any).completionTokens
+  if ((raw as any).runtimeModel) msg.runtimeModel = (raw as any).runtimeModel
+  if ((raw as any).runtimeProvider) msg.runtimeProvider = (raw as any).runtimeProvider
 
   if (msg.contentParts.length === 0 && msg.content) {
     if (msg.role === 'assistant') {
@@ -1417,12 +1914,22 @@ function formatConversationTime(time?: string) {
 }
 
 function handleCodeCopy(e: MouseEvent) {
+  // Mermaid download button shares the same global click delegation. Handle
+  // it first so the SVG export beats the copy-button selector below if the
+  // user happens to click in an area where both ancestors are reachable.
+  if (handleMermaidDownload(e)) return
   const btn = (e.target as HTMLElement).closest('.code-block__copy') as HTMLElement | null
   if (!btn) return
+  // The copy button now sits inside <details><summary> for collapsible code
+  // blocks. Without preventDefault the click would also toggle the details
+  // open state — a regression introduced when we wrapped long blocks in
+  // <details>. stopPropagation guards against any future ancestor handlers.
+  e.preventDefault()
+  e.stopPropagation()
   const encoded = btn.getAttribute('data-code')
   if (!encoded) return
   const code = decodeURIComponent(encoded)
-  navigator.clipboard.writeText(code).then(() => {
+  copyToClipboard(code).then(() => {
     btn.classList.add('copied')
     const textEl = btn.querySelector('.code-block__copy-text')
     if (textEl) textEl.textContent = t('chat.copied')
@@ -1437,6 +1944,35 @@ function handleCodeCopy(e: MouseEvent) {
 </script>
 
 <style scoped>
+.cron-running-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 16px;
+  margin: 0 12px;
+  background: var(--mc-warning-bg, rgba(255, 159, 67, 0.08));
+  border: 1px solid var(--mc-warning, rgba(255, 159, 67, 0.35));
+  border-radius: 10px;
+  color: var(--mc-text-primary);
+  font-size: 13px;
+}
+.cron-running-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cron-running-spinner {
+  display: inline-block;
+  font-size: 16px;
+  animation: cron-spin 1.6s linear infinite;
+}
+@keyframes cron-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.cron-running-text { line-height: 1.4; }
+.cron-running-meta { color: var(--mc-text-secondary); margin-left: 4px; }
+
 .chat-console-shell {
   background: transparent;
   min-height: 0;
@@ -1783,6 +2319,19 @@ function handleCodeCopy(e: MouseEvent) {
   pointer-events: none;
 }
 
+/* Inline unread accent dot — shown next to title when a conversation has
+   activity since the user's last view (currently scoped to tasks_<wsId>). */
+.conv-unread-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mc-primary, #d97757);
+  margin-left: 6px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
 .conv-item.is-running {
   background: color-mix(in srgb, #fbbf24 8%, transparent);
 }
@@ -2005,6 +2554,13 @@ function handleCodeCopy(e: MouseEvent) {
   font-size: 14px;
 }
 
+.agent-badge-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
 .agent-badge-name {
   font-size: 13px;
   font-weight: 600;
@@ -2012,14 +2568,18 @@ function handleCodeCopy(e: MouseEvent) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
-.agent-badge-type {
+/* The tagline answers "what does this employee do" — runtime mode lives in
+   the badge tooltip, not on screen, so we don't compete for attention. */
+.agent-badge-tagline {
   font-size: 11px;
-  color: var(--mc-sidebar-text-active);
-  background: var(--mc-bg-elevated);
-  padding: 1px 6px;
-  border-radius: 10px;
+  color: var(--mc-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 .status-dot {
@@ -2146,6 +2706,30 @@ function handleCodeCopy(e: MouseEvent) {
   background: var(--mc-primary-hover);
 }
 
+/* Issue #81: side-by-side primary + secondary actions in the model prompt. */
+.model-prompt-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.btn-secondary {
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--mc-text-primary);
+  border: 1px solid var(--mc-border);
+  border-radius: 12px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.btn-secondary:hover {
+  background: var(--mc-panel-raised);
+  border-color: var(--mc-primary);
+}
+
 /* ===== 移动端元素（桌面端隐藏） ===== */
 .conv-backdrop {
   display: none;
@@ -2232,8 +2816,7 @@ function handleCodeCopy(e: MouseEvent) {
     display: none;
   }
 
-  .agent-badge-name,
-  .agent-badge-type {
+  .agent-badge-text {
     display: none;
   }
 

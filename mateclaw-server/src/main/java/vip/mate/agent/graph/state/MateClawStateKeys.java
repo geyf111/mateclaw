@@ -83,6 +83,15 @@ public final class MateClawStateKeys {
     // ===== 事件流（APPEND 策略）=====
     public static final String PENDING_EVENTS = "pending_events";
 
+    /**
+     * Multimodal routing decision for the current turn (REPLACE strategy).
+     * Stored as a Map ready for JSON serialization. Set by BaseAgent before
+     * the reasoning node runs; read back by FinalAnswerNode and (separately)
+     * emitted as a graph event for the SSE accumulator to write into the
+     * persisted message metadata under {@code metadata.routing}.
+     */
+    public static final String ROUTING_DECISION = "routing_decision";
+
     // ===== 阶段标记（REPLACE 策略）=====
     public static final String CURRENT_PHASE = "current_phase";
 
@@ -140,4 +149,34 @@ public final class MateClawStateKeys {
     // ===== 运行时模型快照（REPLACE 策略，buildInitialState 注入）=====
     public static final String RUNTIME_MODEL_NAME = "runtime_model_name";
     public static final String RUNTIME_PROVIDER_ID = "runtime_provider_id";
+
+    // ===== RFC-052: Tool returnDirect 与数据隔离 =====
+
+    /**
+     * RFC-052: when true the latest tool batch contained at least one tool
+     * declared as returnDirect, so the graph must short-circuit to
+     * {@link #FINAL_ANSWER_NODE} without re-entering the LLM.
+     */
+    public static final String RETURN_DIRECT_TRIGGERED = "return_direct_triggered";
+
+    /**
+     * RFC-052: list of {@code DirectToolOutput} accumulated from the most recent
+     * tool batch, used by FinalAnswerNode to assemble the final answer.
+     */
+    public static final String DIRECT_TOOL_OUTPUTS = "direct_tool_outputs";
+
+    /** Source references observed from successful tool results during this run. */
+    public static final String SOURCE_EVIDENCE_LEDGER = "source_evidence_ledger";
+
+    // ===== RFC-063r: ChatOrigin propagation through the StateGraph =====
+
+    /**
+     * RFC-063r §2.5: top-level agent writes the {@code ChatOrigin} value object
+     * into graph state once at {@code buildInitialState}; nodes (especially
+     * {@code StepExecutionNode} in the Plan-Execute sub-graph) read it
+     * read-only when invoking {@link vip.mate.agent.graph.executor.ToolExecutionExecutor}
+     * so child graphs and delegated agents inherit the originating channel /
+     * workspace context.
+     */
+    public static final String CHAT_ORIGIN = "chat_origin";
 }

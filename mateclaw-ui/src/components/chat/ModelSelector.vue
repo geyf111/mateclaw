@@ -34,13 +34,47 @@
               <div class="model-group-header">
                 <span class="model-group-header__name">{{ group.provider.name }}</span>
                 <span v-if="group.provider.isLocal" class="model-group-header__badge model-group-header__badge--local">Local</span>
+                <!-- Liveness dot — UNPROBED = grey, COOLDOWN = amber, LIVE = none.
+                     v2 R3: when showAllStates, also surface UNCONFIGURED / REMOVED chips
+                     so the user can see what's wrong without leaving chat. -->
+                <span
+                  v-if="group.provider.liveness === 'UNPROBED'"
+                  class="model-group-header__dot model-group-header__dot--unprobed"
+                  :title="$t('provider.status.unprobed')"
+                ></span>
+                <span
+                  v-else-if="group.provider.liveness === 'COOLDOWN'"
+                  class="model-group-header__dot model-group-header__dot--cooldown"
+                  :title="$t('provider.status.cooldown', { s: cooldownSeconds(group.provider) })"
+                ></span>
+                <span
+                  v-if="group.provider.liveness === 'UNCONFIGURED'"
+                  class="model-group-header__chip model-group-header__chip--warn"
+                >{{ $t('provider.status.unconfigured') }}</span>
+                <span
+                  v-else-if="group.provider.liveness === 'REMOVED'"
+                  class="model-group-header__chip model-group-header__chip--err"
+                >{{ $t('provider.status.removed') }}</span>
+                <span
+                  v-else-if="group.provider.liveness === 'COOLDOWN'"
+                  class="model-group-header__chip model-group-header__chip--info"
+                >{{ $t('provider.status.cooldown', { s: cooldownSeconds(group.provider) }) }}</span>
+                <button
+                  v-if="!isSelectable(group.provider)"
+                  class="model-group-header__fix"
+                  @click.stop="emitNavigateFix(group.provider)"
+                  type="button"
+                >{{ $t('chat.promptAction.fixThis') }}</button>
               </div>
               <div
                 v-for="item in group.models"
                 :key="item.value"
                 class="model-dropdown-item"
-                :class="{ active: item.value === activeValue }"
-                @click="handleSelect(item.value)"
+                :class="{
+                  active: item.value === activeValue,
+                  dimmed: !isSelectable(group.provider),
+                }"
+                @click="onItemClick(group.provider, item.value)"
               >
                 <span class="model-dropdown-item__name">{{ item.name }}</span>
                 <svg v-if="item.value === activeValue" class="model-dropdown-item__check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -49,7 +83,19 @@
 
             <!-- 无结果 -->
             <div v-if="filteredGroups.length === 0" class="model-empty">
-              {{ $t('chat.noMatchModel') }}
+              <!-- RFC-074 PR-2: when there are zero usable models AND the user
+                   isn't searching, this is the "no providers configured" empty
+                   state. Push them into Settings/Models with the drawer
+                   pre-opened via ?addProvider=1. -->
+              <template v-if="query.trim() === '' && groups.length === 0">
+                {{ emptyHint || $t('chat.noProvidersConfigured') }}
+                <RouterLink class="model-empty__cta" to="/settings/models?addProvider=1" @click="open = false">
+                  {{ $t('chat.goConfigure') }}
+                </RouterLink>
+              </template>
+              <template v-else>
+                {{ $t('chat.noMatchModel') }}
+              </template>
             </div>
           </div>
         </div>
@@ -61,6 +107,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, type CSSProperties } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 import type { ProviderInfo } from '@/types'
 
 const { t } = useI18n()
@@ -81,10 +128,19 @@ const props = defineProps<{
   activeValue: string
   activeLabel: string
   saving?: boolean
+  /**
+   * v2 R3: when true, render UNCONFIGURED / REMOVED rows too (dimmed, with
+   * status chip + Fix button) so users see what's wrong without leaving chat.
+   * Defaults to false to keep the legacy filtered behavior for any other call site.
+   */
+  showAllStates?: boolean
+  /** Optional override for the empty-state text. */
+  emptyHint?: string
 }>()
 
 const emit = defineEmits<{
   select: [value: string]
+  'navigate-fix': [provider: ProviderInfo]
 }>()
 
 const open = ref(false)
@@ -118,14 +174,40 @@ function toggle() {
 }
 
 // 按 provider 分组，云端在前，本地在后
+// v2 R3: when showAllStates is true, keep UNCONFIGURED/REMOVED visible (dimmed +
+// status chip + Fix button) so the user can act in-place. Default behavior
+// (showAllStates=false) preserves the original filter for non-popup contexts.
+function isHidden(p: ProviderInfo): boolean {
+  if (props.showAllStates) return false
+  if (!p.liveness) return !p.available
+  return p.liveness === 'UNCONFIGURED' || p.liveness === 'REMOVED'
+}
+
+function isSelectable(p: ProviderInfo): boolean {
+  if (!p.liveness) return p.available === true
+  return p.liveness === 'LIVE' || p.liveness === 'COOLDOWN'
+}
+
 const groups = computed<ModelGroup[]>(() => {
   const cloud: ModelGroup[] = []
   const local: ModelGroup[] = []
 
   for (const provider of props.providers) {
-    if (!provider.available) continue
+    if (isHidden(provider)) continue
     const allModels = [...(provider.models || []), ...(provider.extraModels || [])]
-    if (allModels.length === 0) continue
+    // When showAllStates is on we still want UNCONFIGURED rows to appear even
+    // if they have no models — synthesize one placeholder so the header chip +
+    // Fix button render. Otherwise (legacy call site) skip empty groups.
+    if (allModels.length === 0) {
+      if (!props.showAllStates) continue
+      const group: ModelGroup = {
+        provider,
+        models: [],
+      }
+      if (provider.isLocal) local.push(group)
+      else cloud.push(group)
+      continue
+    }
 
     const group: ModelGroup = {
       provider,
@@ -145,6 +227,10 @@ const groups = computed<ModelGroup[]>(() => {
 
   return [...cloud, ...local]
 })
+
+function cooldownSeconds(provider: ProviderInfo): number {
+  return Math.max(1, Math.ceil((provider.cooldownRemainingMs || 0) / 1000))
+}
 
 const totalCount = computed(() =>
   groups.value.reduce((n, g) => n + g.models.length, 0)
@@ -175,6 +261,25 @@ function handleSelect(value: string) {
   open.value = false
   query.value = ''
   emit('select', value)
+}
+
+/**
+ * v2 R3: a row is selectable iff its provider can serve a request now (LIVE) or
+ * is just throttled (COOLDOWN — backend lets the request go and the chain
+ * walker handles fallback). UNCONFIGURED / REMOVED / UNPROBED need user action,
+ * so clicking those routes to the Fix flow instead of trying to switch.
+ */
+function onItemClick(provider: ProviderInfo, value: string) {
+  if (isSelectable(provider)) {
+    handleSelect(value)
+  } else {
+    emitNavigateFix(provider)
+  }
+}
+
+function emitNavigateFix(provider: ProviderInfo) {
+  open.value = false
+  emit('navigate-fix', provider)
 }
 
 // 打开时聚焦搜索框 + 滚动到当前选中项
@@ -245,11 +350,11 @@ watch(open, async (isOpen) => {
 .model-dropdown-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 2000;
+  z-index: 4000;
 }
 
 .model-dropdown {
-  z-index: 2001;
+  z-index: 4001;
   min-width: 280px;
   max-width: 360px;
   background: var(--mc-bg-elevated);
@@ -329,6 +434,72 @@ watch(open, async (isOpen) => {
   color: var(--mc-success, #34c759);
 }
 
+/* RFC-073 liveness dot — sits next to the provider name */
+.model-group-header__dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  cursor: help;
+}
+.model-group-header__dot--unprobed {
+  background: var(--mc-text-quaternary, #c0c4cc);
+  animation: model-dot-pulse 1.6s ease-in-out infinite;
+}
+.model-group-header__dot--cooldown {
+  background: #f59e0b;
+}
+@keyframes model-dot-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* Liveness status chips — surfaced when ModelSelector is in show-all-states mode. */
+.model-group-header__chip {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.model-group-header__chip--warn {
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+}
+.model-group-header__chip--err {
+  background: rgba(239, 68, 68, 0.15);
+  color: #b91c1c;
+}
+.model-group-header__chip--info {
+  background: rgba(59, 130, 246, 0.15);
+  color: #1d4ed8;
+}
+.dark .model-group-header__chip--warn { color: #fbbf24; }
+.dark .model-group-header__chip--err  { color: #fca5a5; }
+.dark .model-group-header__chip--info { color: #93c5fd; }
+
+.model-group-header__fix {
+  margin-left: auto;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid var(--mc-border);
+  background: transparent;
+  color: var(--mc-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.model-group-header__fix:hover {
+  background: var(--mc-primary);
+  color: #fff;
+  border-color: var(--mc-primary);
+}
+
 /* ---- Items ---- */
 
 .model-dropdown-item {
@@ -348,6 +519,14 @@ watch(open, async (isOpen) => {
 
 .model-dropdown-item.active {
   background: var(--mc-primary-bg);
+}
+
+/* RFC-073: cooldown / unprobed models render dimmed but still selectable. */
+.model-dropdown-item.dimmed {
+  opacity: 0.55;
+}
+.model-dropdown-item.dimmed:hover {
+  opacity: 0.85;
 }
 
 .model-dropdown-item__name {
@@ -371,6 +550,18 @@ watch(open, async (isOpen) => {
   font-size: 13px;
   color: var(--mc-text-quaternary);
 }
+.model-empty__cta {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--mc-primary);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.model-empty__cta:hover { background: var(--mc-primary-hover, var(--mc-primary)); }
 
 /* ---- Transition ---- */
 

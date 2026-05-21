@@ -53,15 +53,32 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
     private final CompiledGraph compiledGraph;
     private final org.springframework.ai.chat.model.ChatModel chatModel;
     private final ConversationWindowManager conversationWindowManager;
+    /**
+     * Held only so {@link #buildInitialState} can include the tools schema in
+     * the context-window budget — those bytes ride along on every LLM call
+     * and were previously ignored, making compression decisions fire late.
+     * Nullable for the legacy 5-arg constructor used by older tests.
+     */
+    private final vip.mate.agent.AgentToolSet toolSet;
 
     public StateGraphReActAgent(ChatClient chatClient, ConversationService conversationService,
                                 CompiledGraph compiledGraph,
                                 org.springframework.ai.chat.model.ChatModel chatModel,
                                 ConversationWindowManager conversationWindowManager) {
+        this(chatClient, conversationService, compiledGraph, chatModel,
+                conversationWindowManager, null);
+    }
+
+    public StateGraphReActAgent(ChatClient chatClient, ConversationService conversationService,
+                                CompiledGraph compiledGraph,
+                                org.springframework.ai.chat.model.ChatModel chatModel,
+                                ConversationWindowManager conversationWindowManager,
+                                vip.mate.agent.AgentToolSet toolSet) {
         super(chatClient, conversationService);
         this.compiledGraph = compiledGraph;
         this.chatModel = chatModel;
         this.conversationWindowManager = conversationWindowManager;
+        this.toolSet = toolSet;
     }
 
     @Override
@@ -175,8 +192,13 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
             // 防重保护：同 chatStructuredStream
             AtomicBoolean finalAnswerEmitted = new AtomicBoolean(false);
             AtomicBoolean finalThinkingEmitted = new AtomicBoolean(false);
+            AtomicReference<String> lastEmittedStreamedContent = new AtomicReference<>("");
+            // Silent-termination guard (mirrors chatStructuredStream)
+            AtomicInteger lastIteration = new AtomicInteger(0);
+            AtomicInteger lastSoftCap = new AtomicInteger(0);
+            AtomicBoolean sawLegitimateExit = new AtomicBoolean(false);
 
-            return compiledGraph.stream(inputs, config)
+            return BaseAgent.routingStartupDelta(inputs).concatWith(compiledGraph.stream(inputs, config)
                     .flatMapIterable(output -> {
                         List<AgentService.StreamDelta> deltas = new ArrayList<>();
                         List<GraphEventPublisher.GraphEvent> allEvents = GraphEventPublisher.extractEvents(output);
@@ -192,7 +214,33 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
                         boolean contentAlreadyStreamed = output.state().value(CONTENT_STREAMED, false);
                         boolean thinkingAlreadyStreamed = output.state().value(THINKING_STREAMED, false);
 
-                        if (hasFinalAnswer(output) && finalAnswerEmitted.compareAndSet(false, true)) {
+                        // Route per-iteration STREAMED_CONTENT (reasoning preamble +
+                        // SummarizingNode output) into segments only — final-answer
+                        // text arrives via the FINAL_ANSWER branch below. Pre-#120
+                        // this used persistOnly, which appended every iteration's
+                        // narration into the persisted assistant content; next-turn
+                        // replay then saw a chain of "Let me try X..." with no
+                        // observations and looped retrying tools.
+                        //
+                        // Exception — evidence-insufficient terminal turn
+                        // (ReasoningNode.java:617): when an answer is rejected for
+                        // unsupported references, FINAL_ANSWER is replaced with a
+                        // short "[证据不足]" warning and STREAMED_CONTENT carries the
+                        // actual answer body the user/UI need to see. Falling back
+                        // to persistOnly for that case keeps both the original
+                        // answer text and the warning in mate_message.content; with
+                        // pure segmentOnly the persisted content would shrink to
+                        // just the warning, breaking single-segment renderers like
+                        // copy / TTS / history reload (segments.length<=1 disables
+                        // the segmented view in MessageBubble).
+                        boolean isFinalAnswerTurn = hasFinalAnswer(output);
+                        String streamed = output.state().<String>value(STREAMED_CONTENT).orElse("");
+                        if (!streamed.isEmpty() && !streamed.equals(lastEmittedStreamedContent.get())) {
+                            lastEmittedStreamedContent.set(streamed);
+                            deltas.add(streamedContentDelta(isFinalAnswerTurn, streamed));
+                        }
+
+                        if (isFinalAnswerTurn && finalAnswerEmitted.compareAndSet(false, true)) {
                             String answer = extractFinalAnswer(output);
                             if (answer != null && !answer.isEmpty()) {
                                 deltas.add(contentAlreadyStreamed
@@ -213,6 +261,14 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
                         finalModelName.set(output.state().value(RUNTIME_MODEL_NAME, ""));
                         finalProviderId.set(output.state().value(RUNTIME_PROVIDER_ID, ""));
 
+                        lastIteration.set(output.state().value(CURRENT_ITERATION, 0));
+                        lastSoftCap.set(output.state().value(MAX_ITERATIONS, 0));
+                        if (hasFinalAnswer(output)
+                                || Boolean.TRUE.equals(output.state().value(LIMIT_EXCEEDED, false))
+                                || !output.state().<String>value(FINISH_REASON).orElse("").isBlank()) {
+                            sawLegitimateExit.set(true);
+                        }
+
                         return deltas;
                     })
                     .concatWith(Mono.fromSupplier(() -> {
@@ -225,8 +281,16 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
                             ));
                         }
                         return null;
-                    }).flatMapMany(d -> d != null ? Flux.just(d) : Flux.empty()))
-                    .doOnComplete(() -> setState(AgentState.IDLE))
+                    }).flatMapMany(d -> d != null ? Flux.just(d) : Flux.empty())))
+                    .doOnComplete(() -> {
+                        setState(AgentState.IDLE);
+                        if (!sawLegitimateExit.get()) {
+                            log.error("[{}] StateGraph replay stream completed WITHOUT a final answer / "
+                                            + "limit_exceeded / finish_reason — likely framework-level silent "
+                                            + "termination. conversationId={}, lastIteration={}, softCap={}",
+                                    agentName, conversationId, lastIteration.get(), lastSoftCap.get());
+                        }
+                    })
                     .doOnError(e -> {
                         log.error("[{}] StateGraph replay stream error: {}", agentName, e.getMessage());
                         setState(AgentState.ERROR);
@@ -265,8 +329,22 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
             // 用 compareAndSet 保证只取第一次，避免 content/thinking 被重复追加
             AtomicBoolean finalAnswerEmitted = new AtomicBoolean(false);
             AtomicBoolean finalThinkingEmitted = new AtomicBoolean(false);
+            // STREAMED_CONTENT 是 REPLACE 策略（每轮 ReasoningNode/SummarizingNode 覆写），
+            // 用 lastEmitted 跟踪已发送的值，避免在 ActionNode/ObservationNode 的 NodeOutput 上重复发送同一段内容。
+            AtomicReference<String> lastEmittedStreamedContent = new AtomicReference<>("");
+            // Silent-termination guardrail: track the highest iteration / soft cap
+            // observed and whether the graph reached a legitimate exit (final answer
+            // or limit-exceeded node). If the framework completes the Flux without
+            // either signal we log.error in doOnComplete — the graph framework
+            // historically treated its own recursion cap as a silent normal
+            // completion, which masked turns ending mid-execution. Decoupling the
+            // recursionLimit at compile time should keep this from firing, but the
+            // guard catches any future regression instead of letting it ship silent.
+            AtomicInteger lastIteration = new AtomicInteger(0);
+            AtomicInteger lastSoftCap = new AtomicInteger(0);
+            AtomicBoolean sawLegitimateExit = new AtomicBoolean(false);
 
-            return compiledGraph.stream(inputs, config)
+            return BaseAgent.routingStartupDelta(inputs).concatWith(compiledGraph.stream(inputs, config)
                     .flatMapIterable(output -> {
                         List<AgentService.StreamDelta> deltas = new ArrayList<>();
                         // 1. 提取所有累积的事件，只发送新增部分
@@ -287,7 +365,30 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
                         boolean thinkingAlreadyStreamed = output.state()
                                 .value(THINKING_STREAMED, false);
 
-                        if (hasFinalAnswer(output) && finalAnswerEmitted.compareAndSet(false, true)) {
+                        // 2a. Route per-iteration narrative into the segments timeline
+                        //     so the segmented UI view still shows "我来…" preludes
+                        //     between tool cards, but keep the top-level content
+                        //     field (= persisted mate_message.content) reserved for
+                        //     the final-answer span. NodeStreamingChatHelper already
+                        //     broadcast the live deltas; segmentOnly suppresses
+                        //     re-broadcast and skips content.append while still
+                        //     populating the segments[] entry.
+                        //
+                        //     Exception — evidence-insufficient terminal turn
+                        //     (ReasoningNode.java:617): STREAMED_CONTENT carries
+                        //     the rejected answer body, FINAL_ANSWER is just the
+                        //     short "[证据不足]" warning. Use persistOnly there so
+                        //     mate_message.content keeps both the answer text and
+                        //     the warning — single-segment renderers (copy / TTS /
+                        //     history reload) read content, not segments.
+                        boolean isFinalAnswerTurn = hasFinalAnswer(output);
+                        String streamed = output.state().<String>value(STREAMED_CONTENT).orElse("");
+                        if (!streamed.isEmpty() && !streamed.equals(lastEmittedStreamedContent.get())) {
+                            lastEmittedStreamedContent.set(streamed);
+                            deltas.add(streamedContentDelta(isFinalAnswerTurn, streamed));
+                        }
+
+                        if (isFinalAnswerTurn && finalAnswerEmitted.compareAndSet(false, true)) {
                             String answer = extractFinalAnswer(output);
                             if (answer != null && !answer.isEmpty()) {
                                 deltas.add(contentAlreadyStreamed
@@ -310,6 +411,15 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
                         finalModelName.set(output.state().value(RUNTIME_MODEL_NAME, ""));
                         finalProviderId.set(output.state().value(RUNTIME_PROVIDER_ID, ""));
 
+                        // 4. Silent-termination guard inputs
+                        lastIteration.set(output.state().value(CURRENT_ITERATION, 0));
+                        lastSoftCap.set(output.state().value(MAX_ITERATIONS, 0));
+                        if (hasFinalAnswer(output)
+                                || Boolean.TRUE.equals(output.state().value(LIMIT_EXCEEDED, false))
+                                || !output.state().<String>value(FINISH_REASON).orElse("").isBlank()) {
+                            sawLegitimateExit.set(true);
+                        }
+
                         return deltas;
                     })
                     // 流正常完成后追加内部 usage 事件
@@ -323,8 +433,17 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
                             ));
                         }
                         return null;
-                    }).flatMapMany(d -> d != null ? Flux.just(d) : Flux.empty()))
-                    .doOnComplete(() -> setState(AgentState.IDLE))
+                    }).flatMapMany(d -> d != null ? Flux.just(d) : Flux.empty())))
+                    .doOnComplete(() -> {
+                        setState(AgentState.IDLE);
+                        if (!sawLegitimateExit.get()) {
+                            log.error("[{}] StateGraph structured stream completed WITHOUT a final answer / "
+                                            + "limit_exceeded / finish_reason — likely framework-level silent "
+                                            + "termination (recursionLimit reached or upstream truncation). "
+                                            + "conversationId={}, lastIteration={}, softCap={}",
+                                    agentName, conversationId, lastIteration.get(), lastSoftCap.get());
+                        }
+                    })
                     .doOnError(e -> {
                         log.error("[{}] StateGraph structured stream error: {}", agentName, e.getMessage());
                         setState(AgentState.ERROR);
@@ -350,12 +469,16 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
                     maxInputTokens,
                     chatModel,
                     conversationId,
-                    parsedAgentId);
+                    parsedAgentId,
+                    toolSet != null ? toolSet.callbacks() : null,
+                    workspaceBasePath);
         }
 
         List<Message> messages = new ArrayList<>(historyMessages);
         // 构建当前用户消息：支持 multimodal（如果有图片附件，直接注入 Media）
-        messages.add(buildCurrentUserMessage(conversationId, userMessage));
+        // 同步获取 routing decision，写入 state 供后续节点 / accumulator 读取。
+        BaseAgent.CurrentTurnUserMessage currentTurn = buildCurrentUserMessageWithRouting(conversationId, userMessage);
+        messages.add(currentTurn.userMessage());
 
         Map<String, Object> inputs = new HashMap<>();
         // 输入
@@ -366,9 +489,13 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
         inputs.put(SYSTEM_PROMPT, systemPrompt != null ? systemPrompt : "你是一个有帮助的AI助手。");
         inputs.put(MESSAGES, messages);
         // 迭代控制：深度思考模式允许更多迭代（思考需要更多轮工具调用）
+        // maxIterations<=0 表示软上限解除（由 LLM 自己决定何时收尾），加分要短路，
+        // 否则 thinking-on 会把"无限"误算成 5（变成"5 步就停"）。
         String thinkingLevel = vip.mate.agent.ThinkingLevelHolder.get();
         boolean thinkingOn = thinkingLevel != null && !"off".equalsIgnoreCase(thinkingLevel);
-        int effectiveMaxIterations = thinkingOn ? maxIterations + 5 : maxIterations;
+        int effectiveMaxIterations = (maxIterations <= 0)
+                ? 0
+                : (thinkingOn ? maxIterations + 5 : maxIterations);
         inputs.put(MAX_ITERATIONS, effectiveMaxIterations);
         inputs.put(CURRENT_ITERATION, 0);
         // 初始化新字段
@@ -388,7 +515,58 @@ public class StateGraphReActAgent extends BaseAgent implements StructuredStreamC
         inputs.put(RUNTIME_MODEL_NAME, modelName != null ? modelName : "");
         inputs.put(RUNTIME_PROVIDER_ID, runtimeProviderId != null ? runtimeProviderId : "");
         inputs.put(TRACE_ID, UUID.randomUUID().toString().substring(0, 8));
+
+        // Multimodal sidecar routing — null when the turn carries no media or
+        // the primary model already covers the modalities. Stored as a Map so
+        // graph state stays JSON-friendly.
+        if (currentTurn.routingDecision() != null
+                && currentTurn.routingDecision().strategy() != vip.mate.llm.routing.model.MultimodalRoutingDecision.Strategy.NONE
+                || (currentTurn.routingDecision() != null && !currentTurn.routingDecision().skipped().isEmpty())) {
+            inputs.put(MateClawStateKeys.ROUTING_DECISION, currentTurn.routingDecision().toMap());
+        }
+
+        // RFC-063r §2.5: enrich the originating ChatOrigin with this agent's id
+        // and workspace, then write it into graph state so ActionNode +
+        // StepExecutionNode can forward it to ToolExecutionExecutor → ToolContext.
+        vip.mate.agent.context.ChatOrigin origin = vip.mate.agent.context.ChatOriginHolder.get();
+        Long parsedAgentIdForOrigin = null;
+        try { parsedAgentIdForOrigin = agentId != null ? Long.valueOf(agentId) : null; } catch (Exception ignored) {}
+        if (parsedAgentIdForOrigin != null) {
+            origin = origin.withAgent(parsedAgentIdForOrigin);
+        }
+        origin = origin.withConversationId(conversationId)
+                .withWorkspace(origin.workspaceId(), workspaceBasePath);
+        inputs.put(CHAT_ORIGIN, origin);
         return inputs;
+    }
+
+    /**
+     * Pick the right {@link AgentService.StreamDelta} flavor for the per-iteration
+     * {@code STREAMED_CONTENT} the graph just emitted.
+     *
+     * <p>The contract:
+     * <ul>
+     *   <li>Intermediate ReAct iterations (no {@code FINAL_ANSWER} yet) →
+     *       {@code segmentOnly}. The content is reasoning preamble / mid-loop
+     *       summary that belongs in the segments timeline, not in the persisted
+     *       {@code mate_message.content}.</li>
+     *   <li>Terminal turn where {@code FINAL_ANSWER} is set →
+     *       {@code persistOnly}. This covers the evidence-insufficient path
+     *       (ReasoningNode.java:617) where {@code STREAMED_CONTENT} carries the
+     *       actual rejected answer body and {@code FINAL_ANSWER} is just a short
+     *       "[证据不足]" warning. Persisting the streamed body keeps single-segment
+     *       renderers (copy / TTS / history reload) showing the full text.</li>
+     * </ul>
+     *
+     * <p>Package-private so the unit test can pin the decision without standing
+     * up a full StateGraph fixture. Returning {@code null} for blank input is the
+     * caller's responsibility — this helper just decides flavor for non-blank
+     * content.
+     */
+    static AgentService.StreamDelta streamedContentDelta(boolean isFinalAnswerTurn, String streamed) {
+        return isFinalAnswerTurn
+                ? AgentService.StreamDelta.persistOnly(streamed, null)
+                : AgentService.StreamDelta.segmentOnly(streamed, null);
     }
 
     private boolean hasFinalAnswer(NodeOutput output) {

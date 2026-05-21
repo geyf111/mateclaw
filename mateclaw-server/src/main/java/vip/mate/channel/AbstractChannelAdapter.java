@@ -4,8 +4,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import vip.mate.channel.health.ChannelHealth;
 import vip.mate.channel.model.ChannelEntity;
 
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -225,6 +227,33 @@ public abstract class AbstractChannelAdapter implements ChannelAdapter {
     }
 
     /**
+     * Map the existing {@code ConnectionState} machine to a typed
+     * {@link ChannelHealth} snapshot. The "UP" status requires
+     * {@code running=true} AND {@code state==CONNECTED} — this is what
+     * makes the green dot honest: "stopped admins" and "started but
+     * disconnected" both report something other than UP.
+     */
+    @Override
+    public ChannelHealth health() {
+        Long id = channelEntity != null ? channelEntity.getId() : null;
+        String type = getChannelType();
+        if (!running.get()) {
+            return ChannelHealth.outOfService(type, id);
+        }
+        Instant lastEvent = Instant.ofEpochMilli(lastEventTimeMs.get());
+        ConnectionState s = connectionState.get();
+        return switch (s) {
+            case CONNECTED -> ChannelHealth.up(type, id, lastEvent);
+            case RECONNECTING -> ChannelHealth.reconnecting(type, id,
+                    lastError != null ? lastError : "reconnecting", lastEvent);
+            case ERROR -> ChannelHealth.down(type, id,
+                    lastError != null ? lastError : "channel error", lastEvent);
+            case DISCONNECTED -> ChannelHealth.down(type, id,
+                    "disconnected", lastEvent);
+        };
+    }
+
+    /**
      * RFC-024 Change 1：刷新"活跃时间"的标准入口。
      *
      * <p>任何代表"连接仍然有效"的事件都应调用本方法：
@@ -288,6 +317,27 @@ public abstract class AbstractChannelAdapter implements ChannelAdapter {
         for (String segment : segments) {
             sendMessage(targetId, segment);
         }
+    }
+
+    /**
+     * Approval notice rendering — primary implementation position.
+     *
+     * <p>Subclasses that support a native card surface (WeCom
+     * {@code button_interaction}, DingTalk {@code ActionCard}, etc.)
+     * override this method and may call
+     * {@code super.sendApprovalNotice(...)} to fall back to the text
+     * path on render failure / payload-too-large / etc.
+     *
+     * <p>Lives on the abstract class rather than as an interface
+     * default method so the {@code super.x(...)} call from subclasses
+     * resolves cleanly via Java's normal class inheritance — see
+     * RFC-32 §2.0.4 (C-4 fix).
+     */
+    @Override
+    public void sendApprovalNotice(String targetId,
+            vip.mate.channel.notification.ApprovalNotice notice) {
+        sendMessage(targetId,
+                vip.mate.channel.notification.ApprovalNotificationService.staticBuildText(notice));
     }
 
     // ==================== 模板方法（子类实现） ====================
@@ -455,6 +505,15 @@ public abstract class AbstractChannelAdapter implements ChannelAdapter {
         Object value = config.get(key);
         if (value instanceof Boolean b) return b;
         if (value instanceof String s) return Boolean.parseBoolean(s);
+        return defaultValue;
+    }
+
+    protected long getConfigLong(String key, long defaultValue) {
+        Object value = config.get(key);
+        if (value instanceof Number n) return n.longValue();
+        if (value instanceof String s && !s.isBlank()) {
+            try { return Long.parseLong(s.trim()); } catch (NumberFormatException ignored) {}
+        }
         return defaultValue;
     }
 

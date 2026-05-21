@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClient;
 import vip.mate.exception.MateClawException;
 import vip.mate.llm.model.ModelProviderEntity;
 import vip.mate.llm.repository.ModelProviderMapper;
+import vip.mate.llm.service.ModelProviderService;
 
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -28,10 +29,37 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * OpenAI OAuth 服务 — 基于 PKCE 的 OAuth 2.0 流程。
- * <p>
- * 核心机制：在本地 1455 端口启动临时 HTTP 服务器接收回调，
- * redirect_uri 固定为 http://localhost:1455/auth/callback（与 OpenAI 注册的一致）。
+ * OpenAI OAuth service — supports three flow modes for the same Codex CLI client_id.
+ *
+ * <ul>
+ *   <li><b>LOCAL</b>: Authorization Code + PKCE with a temporary HTTP server bound on
+ *       127.0.0.1:1455 to receive the callback. Used when MateClaw is reached via
+ *       localhost — the browser can hit our loopback callback. The Codex CLI client_id
+ *       only accepts {@code http://localhost:1455/auth/callback} as redirect_uri, so
+ *       this path is impossible for remote deployments.</li>
+ *   <li><b>DEVICE_CODE</b>: OAuth 2.0 Device Authorization Grant (RFC 8628) — the
+ *       authorization happens entirely inside {@code auth.openai.com}; no callback
+ *       server is needed. This is the default for remote deployments. Token exchange
+ *       still goes through {@link #exchangeTokenWithVerifier} so downstream
+ *       persistence and refresh logic stay identical to the PKCE path. Driven by
+ *       {@code OpenAIDeviceCodeService}.</li>
+ *   <li><b>MANUAL_PASTE</b>: graceful fallback when LOCAL bind fails or DEVICE_CODE
+ *       endpoints are unavailable. The user copies the (unreachable) callback URL
+ *       from the browser address bar and pastes it back; we parse {@code code} and
+ *       {@code state} from the query string and complete the exchange.</li>
+ * </ul>
+ *
+ * <p>Mode selection:
+ * <ol>
+ *   <li>Config override {@code mateclaw.oauth.openai.deployment-mode}: one of
+ *       {@code local} / {@code device_code} / {@code manual_paste} / {@code auto}
+ *       (default). Alias: {@code server} maps to {@code device_code} for
+ *       compatibility with older configs that pre-date device code support.</li>
+ *   <li>{@code auto} dispatches by Host header: localhost / 127.0.0.1 / ::1 → LOCAL,
+ *       any other host → DEVICE_CODE.</li>
+ *   <li>LOCAL bind failure degrades to MANUAL_PASTE so the user always has a path
+ *       forward.</li>
+ * </ol>
  */
 @Slf4j
 @Service
@@ -41,13 +69,16 @@ public class OpenAIOAuthService {
     private static final String CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
     private static final String AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
     private static final String TOKEN_URL = "https://auth.openai.com/oauth/token";
+    /** OpenAI Codex CLI client_id only accepts http://localhost:1455/auth/callback. */
     private static final String REDIRECT_URI = "http://localhost:1455/auth/callback";
     private static final String SCOPES = "openid profile email offline_access";
     private static final String PROVIDER_ID = "openai-chatgpt";
     private static final int CALLBACK_PORT = 1455;
+    private static final String DEFAULT_CALLBACK_BIND_HOST = "127.0.0.1";
 
     private final ModelProviderMapper modelProviderMapper;
     private final ObjectMapper objectMapper;
+    private final ModelProviderService modelProviderService;
     private final RestClient restClient = RestClient.create();
 
     /** state → code_verifier 缓存 */
@@ -56,27 +87,47 @@ public class OpenAIOAuthService {
     /** 当前运行中的回调服务器（用于启动新服务器前关闭旧的） */
     private volatile HttpServer activeCallbackServer;
 
+    /**
+     * OAuth flow mode — selects how the authorization code reaches the backend.
+     */
+    public enum OAuthFlowMode {
+        /** Authorization Code + PKCE with a temporary localhost:1455 callback server. */
+        LOCAL,
+        /** Device Authorization Grant (RFC 8628) — no callback server, polling-based. */
+        DEVICE_CODE,
+        /** User pastes the callback URL back into the UI. Last-resort fallback. */
+        MANUAL_PASTE
+    }
+
     // ==================== OAuth 流程 ====================
 
     /**
-     * 生成授权 URL 并启动本地回调服务器。
-     * <p>
-     * 流程：
-     * 1. 生成 PKCE code_verifier + code_challenge
-     * 2. 启动 localhost:1455 临时 HTTP 服务器
-     * 3. 返回授权 URL，前端打开浏览器
-     * 4. 用户在 OpenAI 登录后，浏览器重定向到 localhost:1455/auth/callback
-     * 5. 临时服务器收到 code，交换 token，保存凭证
+     * 生成授权 URL — 自动按部署形态选 LOCAL / MANUAL_PASTE 模式。
+     *
+     * @param requestHost 来自 controller 的 Host header（可空 → 默认 LOCAL 行为）
      */
-    public OAuthAuthorizeResult buildAuthorizeUrl() {
+    public OAuthAuthorizeResult buildAuthorizeUrl(String requestHost) {
+        OAuthFlowMode mode = resolveFlowMode(requestHost);
+
+        // DEVICE_CODE flow does not produce an authorize URL or PKCE state here — the
+        // frontend sees mode=DEVICE_CODE and calls OpenAIDeviceCodeService directly.
+        if (mode == OAuthFlowMode.DEVICE_CODE) {
+            return new OAuthAuthorizeResult("", "", mode);
+        }
+
         String codeVerifier = generateCodeVerifier();
         String codeChallenge = generateCodeChallenge(codeVerifier);
         String state = generateState();
-
         pendingStates.put(state, codeVerifier);
 
-        // 启动本地回调服务器（异步等待回调）
-        startCallbackServer(state);
+        if (mode == OAuthFlowMode.LOCAL) {
+            boolean serverStarted = startCallbackServer(state);
+            if (!serverStarted) {
+                log.warn("Callback server bind failed on port {} — degrading to MANUAL_PASTE flow",
+                        CALLBACK_PORT);
+                mode = OAuthFlowMode.MANUAL_PASTE;
+            }
+        }
 
         String url = AUTHORIZE_URL
                 + "?response_type=code"
@@ -90,21 +141,127 @@ public class OpenAIOAuthService {
                 + "&codex_cli_simplified_flow=true"
                 + "&originator=pi";
 
-        return new OAuthAuthorizeResult(url, state);
+        return new OAuthAuthorizeResult(url, state, mode);
+    }
+
+    /** Backwards-compatible overload (used by tests / older callers). */
+    public OAuthAuthorizeResult buildAuthorizeUrl() {
+        return buildAuthorizeUrl(null);
     }
 
     /**
-     * 启动临时 HTTP 服务器在 localhost:1455 监听回调
+     * Pick the flow mode based on (1) explicit config override, (2) deployment
+     * heuristic from the request Host header.
+     *
+     * <p>Heuristic: if Host is localhost / 127.0.0.1 / ::1, the user is hitting
+     * MateClaw on the same machine they'll do the OAuth login on — LOCAL works.
+     * Any other host (a domain, a public IP, a private LAN IP) means the user's
+     * browser cannot resolve {@code localhost:1455} to MateClaw's server, so we
+     * use DEVICE_CODE (browser-agnostic, no callback server needed).
+     *
+     * <p>Config override values: {@code local} / {@code device_code} /
+     * {@code manual_paste} / {@code auto}. {@code server} is kept as an alias for
+     * {@code device_code} so older configs do not break.
      */
-    private void startCallbackServer(String expectedState) {
+    OAuthFlowMode resolveFlowMode(String requestHost) {
+        String configMode = System.getProperty("mateclaw.oauth.openai.deployment-mode",
+                System.getenv("MATECLAW_OAUTH_OPENAI_DEPLOYMENT_MODE"));
+        if (configMode != null) {
+            String norm = configMode.trim().toLowerCase();
+            if ("local".equals(norm)) return OAuthFlowMode.LOCAL;
+            if ("device_code".equals(norm) || "server".equals(norm)) return OAuthFlowMode.DEVICE_CODE;
+            if ("manual_paste".equals(norm)) return OAuthFlowMode.MANUAL_PASTE;
+            // "auto" / unknown → fall through to heuristic
+        }
+
+        if (requestHost == null || requestHost.isBlank()) {
+            return OAuthFlowMode.LOCAL;
+        }
+        String host = requestHost.toLowerCase();
+        int colon = host.lastIndexOf(':');
+        if (colon > 0 && host.charAt(0) != '[') {  // not IPv6
+            host = host.substring(0, colon);
+        }
+        if ("localhost".equals(host)
+                || "127.0.0.1".equals(host)
+                || "::1".equals(host)
+                || "[::1]".equals(host)) {
+            return OAuthFlowMode.LOCAL;
+        }
+        return OAuthFlowMode.DEVICE_CODE;
+    }
+
+    /**
+     * Manual-paste fallback: user copies the (failed-to-load) callback URL from
+     * their browser's address bar back into MateClaw. We parse code + state and
+     * complete the token exchange.
+     *
+     * @param pastedUrl e.g. {@code http://localhost:1455/auth/callback?code=XXX&state=YYY}
+     *                  — anything from {@code ?} onward is parsed; the host part
+     *                  is ignored. Trailing fragments / encoding tolerated.
+     */
+    public void completeFromPastedUrl(String pastedUrl) {
+        if (pastedUrl == null || pastedUrl.isBlank()) {
+            throw new MateClawException("err.llm.oauth_paste_empty",
+                    "粘贴的 URL 为空，请回到浏览器地址栏复制完整 URL");
+        }
+        String trimmed = pastedUrl.trim();
+        int q = trimmed.indexOf('?');
+        if (q < 0) {
+            throw new MateClawException("err.llm.oauth_paste_invalid",
+                    "粘贴的 URL 没有查询参数，请确认包含 ?code=... 部分");
+        }
+        // Strip fragment if any (the # part)
+        String query = trimmed.substring(q + 1);
+        int hash = query.indexOf('#');
+        if (hash >= 0) query = query.substring(0, hash);
+
+        String code = extractParam(query, "code");
+        String state = extractParam(query, "state");
+        if (code == null || code.isBlank()) {
+            throw new MateClawException("err.llm.oauth_paste_no_code",
+                    "粘贴的 URL 中缺少 code 参数，登录可能未完成");
+        }
+        if (state == null || state.isBlank()) {
+            throw new MateClawException("err.llm.oauth_paste_no_state",
+                    "粘贴的 URL 中缺少 state 参数");
+        }
+        log.info("OAuth manual-paste completion: state prefix={}", state.substring(0, Math.min(8, state.length())));
+        exchangeToken(code, state);
+    }
+
+    /**
+     * Start the temporary HTTP callback server on localhost:1455.
+     *
+     * @return {@code true} if bound successfully (caller proceeds with LOCAL mode);
+     *         {@code false} if bind failed (port in use OR not on a host that can
+     *         bind 127.0.0.1 — caller should fall back to MANUAL_PASTE).
+     */
+    private boolean startCallbackServer(String expectedState) {
         // 关闭上一次可能残留的回调服务器
         stopActiveCallbackServer();
 
+        // Try to bind synchronously up front so callers can detect failure.
+        HttpServer server;
+        String bindHost = resolveCallbackBindHost();
+        try {
+            server = HttpServer.create(new InetSocketAddress(bindHost, CALLBACK_PORT), 0);
+        } catch (java.net.BindException e) {
+            log.warn("OAuth callback bind failed on {}:{} (in-use or restricted): {}",
+                    bindHost, CALLBACK_PORT, e.getMessage());
+            pendingStates.remove(expectedState);
+            return false;
+        } catch (java.io.IOException e) {
+            log.warn("OAuth callback HttpServer.create IO error on {}:{}: {}",
+                    bindHost, CALLBACK_PORT, e.getMessage());
+            pendingStates.remove(expectedState);
+            return false;
+        }
+
+        final HttpServer boundServer = server;
         CompletableFuture.runAsync(() -> {
-            HttpServer server = null;
             try {
-                server = HttpServer.create(new InetSocketAddress("127.0.0.1", CALLBACK_PORT), 0);
-                final HttpServer srv = server;
+                final HttpServer srv = boundServer;
 
                 server.createContext("/auth/callback", exchange -> {
                     try {
@@ -157,16 +314,16 @@ public class OpenAIOAuthService {
                     }
                 });
 
-                server.start();
-                activeCallbackServer = server;
-                log.info("OAuth 回调服务器已启动在 http://127.0.0.1:{}", CALLBACK_PORT);
+                boundServer.start();
+                activeCallbackServer = boundServer;
+                log.info("OAuth 回调服务器已启动，监听 {}:{}，浏览器回调地址 {}",
+                        bindHost, CALLBACK_PORT, REDIRECT_URI);
 
                 // 3 分钟超时自动关闭
-                final HttpServer finalServer = server;
                 CompletableFuture.delayedExecutor(3, TimeUnit.MINUTES).execute(() -> {
                     try {
-                        finalServer.stop(0);
-                        if (activeCallbackServer == finalServer) {
+                        boundServer.stop(0);
+                        if (activeCallbackServer == boundServer) {
                             activeCallbackServer = null;
                         }
                         pendingStates.remove(expectedState);
@@ -174,34 +331,49 @@ public class OpenAIOAuthService {
                     } catch (Exception ignored) {}
                 });
 
-            } catch (java.net.BindException e) {
-                log.warn("端口 {} 已被占用，OAuth 回调服务器启动失败: {}", CALLBACK_PORT, e.getMessage());
-                pendingStates.remove(expectedState);
             } catch (Exception e) {
-                log.error("OAuth 回调服务器启动失败", e);
+                // bind 已经成功（同步阶段处理过 BindException），这里捕获 createContext /
+                // start 等运行时错误。
+                log.error("OAuth 回调服务器运行时错误", e);
                 pendingStates.remove(expectedState);
-                if (server != null) server.stop(0);
+                try { boundServer.stop(0); } catch (Exception ignored) {}
             }
         });
+        return true;
     }
 
     /**
-     * 用 authorization code 换取 token（内部调用，由回调服务器触发）
+     * Exchange an authorization code (from either PKCE callback or device flow) for
+     * tokens at {@code /oauth/token}. Shared by both flows so persistence and JWT
+     * parsing stay in one place.
+     *
+     * @param code         authorization code
+     * @param codeVerifier PKCE verifier — for LOCAL/MANUAL_PASTE this is the value
+     *                     stashed in {@link #pendingStates} during authorize-URL
+     *                     generation; for DEVICE_CODE this comes back as part of
+     *                     the device-auth poll response
+     * @param redirectUri  redirect_uri presented during authorize — must match the
+     *                     value the original authorize call used. {@link #REDIRECT_URI}
+     *                     for PKCE; {@code https://auth.openai.com/deviceauth/callback}
+     *                     for device flow.
      */
+    void exchangeTokenWithVerifier(String code, String codeVerifier, String redirectUri) {
+        String body = "grant_type=authorization_code"
+                + "&client_id=" + enc(CLIENT_ID)
+                + "&code=" + enc(code)
+                + "&code_verifier=" + enc(codeVerifier)
+                + "&redirect_uri=" + enc(redirectUri);
+        JsonNode tokenResponse = postTokenRequest(body);
+        saveTokens(tokenResponse);
+    }
+
+    /** PKCE callback path — looks up the verifier by state and delegates. */
     private void exchangeToken(String code, String state) {
         String codeVerifier = pendingStates.remove(state);
         if (codeVerifier == null) {
             throw new MateClawException("err.llm.oauth_state_invalid", "无效的 OAuth state，可能已过期或重复使用");
         }
-
-        String body = "grant_type=authorization_code"
-                + "&client_id=" + enc(CLIENT_ID)
-                + "&code=" + enc(code)
-                + "&code_verifier=" + enc(codeVerifier)
-                + "&redirect_uri=" + enc(REDIRECT_URI);
-
-        JsonNode tokenResponse = postTokenRequest(body);
-        saveTokens(tokenResponse);
+        exchangeTokenWithVerifier(code, codeVerifier, REDIRECT_URI);
     }
 
     /**
@@ -324,6 +496,7 @@ public class OpenAIOAuthService {
             provider.setOauthAccountId(accountId);
         }
         modelProviderMapper.updateById(provider);
+        modelProviderService.activateFirstModelIfDefaultUnavailable(PROVIDER_ID);
         log.info("OpenAI OAuth token 已保存，expires_in={}s, accountId={}", expiresIn, accountId);
     }
 
@@ -368,6 +541,15 @@ public class OpenAIOAuthService {
             } catch (Exception ignored) {}
             activeCallbackServer = null;
         }
+    }
+
+    String resolveCallbackBindHost() {
+        String configured = System.getProperty("mateclaw.oauth.openai.callback-bind-host",
+                System.getenv("MATECLAW_OAUTH_OPENAI_CALLBACK_BIND_HOST"));
+        if (!StringUtils.hasText(configured)) {
+            return DEFAULT_CALLBACK_BIND_HOST;
+        }
+        return configured.trim();
     }
 
     // ==================== PKCE 工具 ====================
@@ -427,7 +609,17 @@ public class OpenAIOAuthService {
 
     // ==================== 结果类 ====================
 
-    public record OAuthAuthorizeResult(String authorizeUrl, String state) {}
+    /**
+     * @param authorizeUrl OpenAI 授权 URL
+     * @param state PKCE state（前端可不关心）
+     * @param mode 通知前端用哪种 UX：LOCAL 自动 callback / MANUAL_PASTE 引导粘贴
+     */
+    public record OAuthAuthorizeResult(String authorizeUrl, String state, OAuthFlowMode mode) {
+        /** Backwards-compatible 2-arg constructor (defaults to LOCAL). */
+        public OAuthAuthorizeResult(String authorizeUrl, String state) {
+            this(authorizeUrl, state, OAuthFlowMode.LOCAL);
+        }
+    }
 
     public record OAuthStatusResult(boolean connected, boolean expired, Long expiresAt) {}
 }

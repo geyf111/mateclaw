@@ -11,9 +11,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
 /**
  * 内置工具：本地命令执行（跨平台）
@@ -43,6 +45,7 @@ public class ShellExecuteTool {
     private static final boolean IS_WINDOWS = System.getProperty("os.name", "")
             .toLowerCase(Locale.ROOT).contains("win");
 
+    @vip.mate.tool.ConcurrencyUnsafe("shell command execution can mutate global state in ways the executor can't reason about")
     @Tool(description = "Execute a shell command on the local server. For running system commands, viewing files, running scripts. "
             + "Uses cmd.exe on Windows, /bin/sh on Linux/macOS. "
             + "Dangerous operations trigger security approval. Returns structured result with exitCode, stdout, stderr, timedOut.")
@@ -129,7 +132,10 @@ public class ShellExecuteTool {
      * Windows: cmd.exe /D /S /C "command"
      *   /D 禁用 AutoRun 注册表项，避免副作用
      *   /S 保留引号原样传递给命令
-     * Unix: /bin/sh -c command
+     * Unix: $SHELL -c command (honors the user's interactive shell)
+     *   honors the user's interactive shell so alias resolution / PATH
+     *   from the calling environment still apply; falls back to /bin/sh
+     *   when $SHELL is unset or points at a non-executable path.
      */
     private static ProcessBuilder buildShellProcess(String command) {
         ProcessBuilder pb;
@@ -137,7 +143,8 @@ public class ShellExecuteTool {
             String winCommand = sanitizeWindowsCommand(command);
             pb = new ProcessBuilder("cmd.exe", "/D", "/S", "/C", winCommand);
         } else {
-            pb = new ProcessBuilder("/bin/sh", "-c", command);
+            String shell = selectPosixShell(System.getenv("SHELL"));
+            pb = new ProcessBuilder(shell, "-c", command);
         }
 
         // 设置工作区活动目录
@@ -151,15 +158,75 @@ public class ShellExecuteTool {
     }
 
     /**
-     * 将命令中的嵌入换行符替换为空格。
-     * LLM 在 JSON tool_call 中产生的 \n 解码后变成真实换行，
-     * 在 Windows cmd.exe 中会导致命令被截断，在 Unix sh 中可能被误解为命令分隔符。
+     * Collapse embedded newlines for Windows cmd.exe (where they break parsing),
+     * but **leave them alone on Unix**.
+     * <p>
+     * The original implementation collapsed on every platform under the worry
+     * that a stray newline could be misread as a command separator on POSIX
+     * shells. In practice that worry is wrong for two common idioms the LLM
+     * actually uses to write files: heredocs (`cat &lt;&lt;EOF\nbody\nEOF`) and
+     * `python &lt;&lt;EOF` invocations. Both depend on real line breaks to
+     * delimit the body from the closing tag — collapsing newlines turns
+     * `cat &lt;&lt;EOF\nbody\nEOF` into `cat &lt;&lt;EOF body EOF`, which the
+     * shell reads as "open heredoc, immediately close, write 0 bytes." The
+     * symptom: every chapter file produced by the agent ends up 0-byte.
+     * <p>
+     * Unix shell already separates commands with `;` or `&amp;&amp;`, not
+     * unquoted newlines, so leaving newlines in is actually safer — and
+     * heredocs / multi-line commands now behave as the LLM expects. Windows
+     * cmd.exe still gets the collapse because there it really does break.
      */
     private static String collapseEmbeddedNewlines(String command) {
         if (command == null || !command.contains("\n")) {
             return command;
         }
+        if (!IS_WINDOWS) {
+            // POSIX shell handles newlines correctly within heredocs / scripts
+            return command;
+        }
         return command.replace("\r\n", " ").replace("\n", " ");
+    }
+
+    /**
+     * Pick the POSIX shell binary to invoke for a non-Windows tool call.
+     *
+     * <p>Returns {@code userShellEnv} verbatim when:
+     * <ul>
+     *   <li>the value is non-blank,</li>
+     *   <li>parses as a valid path,</li>
+     *   <li>and the resolved binary is executable.</li>
+     * </ul>
+     *
+     * <p>Otherwise falls back to {@code /bin/sh} — the legacy hardcoded
+     * default. Important: {@code /bin/sh} on Debian/Ubuntu is dash, which
+     * does NOT honor users' bash-isms; the whole point of this method is
+     * to prefer the user's actual interactive shell when one is configured.
+     */
+    static String selectPosixShell(String userShellEnv) {
+        return selectPosixShell(userShellEnv, Files::isExecutable);
+    }
+
+    /**
+     * Test seam — same logic as {@link #selectPosixShell(String)} but with
+     * an injectable executable check so unit tests can drive every branch
+     * without depending on which shells actually exist on the test runner
+     * (Windows CI has no {@code /bin/sh}, POSIX dev hosts have varying
+     * shells installed). Production callers go through the single-arg
+     * overload above.
+     */
+    static String selectPosixShell(String userShellEnv, Predicate<Path> executableCheck) {
+        if (userShellEnv == null || userShellEnv.isBlank()) {
+            return "/bin/sh";
+        }
+        try {
+            Path candidate = Path.of(userShellEnv);
+            if (executableCheck.test(candidate)) {
+                return userShellEnv;
+            }
+        } catch (InvalidPathException ignored) {
+            // Some exotic $SHELL value that isn't a path — fall through to default.
+        }
+        return "/bin/sh";
     }
 
     /**

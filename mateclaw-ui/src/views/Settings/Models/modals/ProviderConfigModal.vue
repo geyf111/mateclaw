@@ -9,7 +9,12 @@
         <div class="form-grid">
           <div class="form-group" v-if="!editingProvider">
             <label class="form-label">{{ t('settings.model.fields.providerId') }}</label>
-            <input v-model="form.id" class="form-input" />
+            <input
+              v-model="form.id"
+              class="form-input mono"
+              :placeholder="t('settings.model.providerIdPlaceholder')"
+            />
+            <div class="field-hint">{{ t('settings.model.providerIdHint') }}</div>
           </div>
           <div class="form-group" v-if="!editingProvider">
             <label class="form-label">{{ t('settings.model.fields.providerName') }}</label>
@@ -23,6 +28,16 @@
               :placeholder="baseUrlPlaceholder"
             />
             <div class="field-hint">{{ baseUrlHint }}</div>
+          </div>
+          <div v-if="editingProvider?.authType !== 'oauth' && form.protocol === 'openai-compatible'" class="form-group">
+            <div class="search-toggle-row">
+              <label class="form-label" style="margin-bottom: 0">{{ t('settings.model.fields.requireApiKey') }}</label>
+              <label class="toggle-switch">
+                <input type="checkbox" v-model="form.requireApiKey" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="field-hint">{{ t('settings.model.requireApiKeyHint') }}</div>
           </div>
           <!-- OAuth 登录区域（auth_type === 'oauth' 时显示） -->
           <div v-if="editingProvider?.authType === 'oauth'" class="form-group full-width oauth-group">
@@ -38,23 +53,29 @@
                 v-if="!editingProvider?.oauthConnected"
                 class="btn-oauth"
                 type="button"
-                @click="$emit('oauthLogin')"
+                @click="$emit('oauthLogin', editingProvider?.id)"
               >
-                {{ t('settings.model.oauthLogin') }}
+                {{ editingProvider?.id === 'anthropic-claude-code'
+                  ? t('settings.model.claudeCodeOauthDetect')
+                  : t('settings.model.oauthLogin') }}
               </button>
               <button
                 v-else
                 class="btn-oauth btn-oauth-revoke"
                 type="button"
-                @click="$emit('oauthRevoke')"
+                @click="$emit('oauthRevoke', editingProvider?.id)"
               >
                 {{ t('settings.model.oauthDisconnect') }}
               </button>
             </div>
-            <div class="field-hint">{{ t('settings.model.oauthHint') }}</div>
+            <div class="field-hint">
+              {{ editingProvider?.id === 'anthropic-claude-code'
+                ? t('settings.model.claudeCodeOauthHint')
+                : t('settings.model.oauthHint') }}
+            </div>
           </div>
           <!-- API Key 输入区域（非 OAuth 时显示） -->
-          <div v-else class="form-group">
+          <div v-else-if="form.protocol !== 'openai-compatible' || form.requireApiKey" class="form-group">
             <label class="form-label">{{ t('settings.model.apiKey') }}</label>
             <input
               v-model="form.apiKey"
@@ -65,7 +86,7 @@
             />
             <div class="field-hint">{{ t('settings.model.leaveBlankKeep') }}</div>
           </div>
-          <div class="form-group">
+          <div v-if="editingProvider?.authType !== 'oauth' && (form.protocol !== 'openai-compatible' || form.requireApiKey)" class="form-group">
             <label class="form-label">{{ t('settings.model.fields.apiKeyPrefix') }}</label>
             <input v-model="form.apiKeyPrefix" class="form-input" />
           </div>
@@ -118,7 +139,21 @@
               <span>{{ advancedOpen ? '−' : '+' }}</span>
             </button>
             <div v-if="advancedOpen" class="advanced-panel">
-              <label class="form-label">{{ t('settings.model.fields.generateKwargs') }}</label>
+              <!-- RFC-009 P3.5: failover chain priority editor.
+                   0 = excluded; 1..N defines try-order after primary fails. -->
+              <label class="form-label">{{ t('settings.model.fields.fallbackPriority') }}</label>
+              <input
+                v-model.number="form.fallbackPriority"
+                type="number"
+                min="0"
+                max="99"
+                step="1"
+                class="form-input"
+                style="max-width: 160px"
+              />
+              <div class="field-hint">{{ t('settings.model.fallbackPriorityHint') }}</div>
+
+              <label class="form-label" style="margin-top: 14px">{{ t('settings.model.fields.generateKwargs') }}</label>
               <textarea v-model="form.generateKwargsText" rows="6" class="form-textarea mono"></textarea>
               <div class="field-hint">{{ t('settings.model.advancedHint') }}</div>
             </div>
@@ -152,9 +187,11 @@ defineProps<{
     apiKeyPrefix: string
     protocol: string
     chatModel: string
+    requireApiKey: boolean
     generateKwargsText: string
     enableSearch: boolean
     searchStrategy: string
+    fallbackPriority: number
   }
   advancedOpen: boolean
   protocolOptions: Array<{ value: string; label: string }>
@@ -167,8 +204,10 @@ defineEmits<{
   close: []
   save: []
   toggleAdvanced: []
-  oauthLogin: []
-  oauthRevoke: []
+  // RFC-062: providerId tells the handler which OAuth flow to dispatch
+  // (anthropic-claude-code reuses local creds, openai-chatgpt opens auth URL).
+  oauthLogin: [providerId?: string]
+  oauthRevoke: [providerId?: string]
 }>()
 </script>
 

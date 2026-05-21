@@ -9,6 +9,7 @@ import org.springframework.ai.chat.messages.ToolResponseMessage;
 import vip.mate.agent.graph.executor.ToolExecutionExecutor;
 import vip.mate.agent.graph.state.MateClawStateAccessor;
 import vip.mate.agent.graph.state.MateClawStateKeys;
+import vip.mate.agent.graph.state.SourceEvidenceLedger;
 
 import java.util.*;
 import java.util.concurrent.CancellationException;
@@ -65,23 +66,66 @@ public class ActionNode implements NodeAction {
         // 获取工作区活动目录
         String workspaceBasePath = state.value(MateClawStateKeys.WORKSPACE_BASE_PATH, "");
 
+        // RFC-063r §2.5: read the originating ChatOrigin from graph state and
+        // forward it into the executor — tools see it via Spring AI ToolContext.
+        vip.mate.agent.context.ChatOrigin origin = accessor.chatOrigin();
+
         // 委托 ToolExecutionExecutor 执行（两阶段：顺序 Guard + 分段并发执行）
         ToolExecutionExecutor.ToolExecutionResult result = executor.execute(
-                toolCalls, conversationId, agentId, isReplay, requesterId, workspaceBasePath);
+                toolCalls, conversationId, agentId, isReplay, requesterId, workspaceBasePath, origin);
 
         ToolResponseMessage toolResponseMessage = ToolResponseMessage.builder()
                 .responses(result.responses())
                 .build();
 
+        // Use the executor's raw-stage ledger instead of re-parsing the
+        // spill-compacted responses. ToolExecutionExecutor builds this
+        // ledger from the full pre-truncate text, so a 30 KB grep result
+        // whose head/tail-cut version no longer mentions a path will still
+        // contribute that path to the evidence pool. Falls back to empty
+        // for legacy executor stubs (tests, mocks) that didn't populate
+        // the new field — fine, the merge with `accessor.sourceEvidenceLedger`
+        // is no-op in that case.
+        SourceEvidenceLedger rawLedger = result.rawEvidenceLedger() != null
+                ? result.rawEvidenceLedger()
+                : SourceEvidenceLedger.empty();
         MateClawStateAccessor.OutputBuilder output = MateClawStateAccessor.output()
                 .toolResults(result.responses())
                 .messages(List.of((Message) toolResponseMessage))
                 .currentPhase("action")
-                .events(result.events());
+                .events(result.events())
+                .sourceEvidenceLedger(accessor.sourceEvidenceLedger().merge(rawLedger));
 
         if (result.awaitingApproval()) {
             output.awaitingApproval(true);
             log.info("[ActionNode] Approval pending detected, setting AWAITING_APPROVAL=true to terminate graph");
+        }
+
+        // RFC-052: any returnDirect tool in this batch ⇒ short-circuit the graph.
+        // ObservationDispatcher will route to FinalAnswerNode (skipping the next
+        // LLM call). Direct outputs and the trigger flag both live in state so
+        // FinalAnswerNode can assemble the final answer verbatim.
+        //
+        // Priority guard: when an approval barrier ALSO fires in the same batch
+        // (a direct tool ran successfully BEFORE a sibling tool that needed
+        // approval), let the approval flow win. Otherwise the user would see a
+        // "RETURN_DIRECT" final answer while an approval modal is still open
+        // for the unresolved sibling — a confusing dual-track state. After the
+        // user resolves the approval, the replay path will re-execute and the
+        // direct tool's content reaches the user via the streamedContent path
+        // instead. Same-batch direct+approval is rare; we explicitly defer to
+        // approval for safety.
+        if (result.hasDirectOutputs() && !result.awaitingApproval()) {
+            output.returnDirectTriggered(true);
+            output.directToolOutputs(result.directOutputs());
+            log.info("[ActionNode] RETURN_DIRECT_TRIGGERED — {} direct tool output(s), " +
+                    "graph will route to FinalAnswerNode without re-entering LLM",
+                    result.directOutputs().size());
+        } else if (result.hasDirectOutputs() && result.awaitingApproval()) {
+            log.warn("[ActionNode] Mixed batch: {} direct output(s) co-occurring with approval " +
+                    "barrier on '{}'; deferring to approval flow (RFC-052 §6.5)",
+                    result.directOutputs().size(),
+                    result.barrierToolName() != null ? result.barrierToolName() : "unknown");
         }
 
         // replay 完成后清空 forced_tool_call，防止下一轮再触发

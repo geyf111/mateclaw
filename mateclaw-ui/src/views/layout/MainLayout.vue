@@ -47,12 +47,17 @@
               :key="item.path"
               :to="item.path"
               class="nav-item"
-              :class="{ active: isNavItemActive(item) }"
-              :title="effectiveCollapsed ? item.label : ''"
+              :class="{ active: isNavItemActive(item), 'has-attention': item.path === '/backstage' && backstageAlertActive }"
+              :title="effectiveCollapsed ? (item.tooltip || item.label) : (item.tooltip || '')"
               @click="onNavClick"
             >
               <span class="nav-icon" v-html="item.icon"></span>
               <span v-if="!effectiveCollapsed" class="nav-label">{{ item.label }}</span>
+              <span
+                v-if="item.path === '/backstage' && backstageAlertActive"
+                class="nav-attention-dot"
+                :title="t('backstage.attention')"
+              ></span>
             </router-link>
           </div>
         </template>
@@ -141,7 +146,18 @@
         </button>
         <span class="mobile-topbar-title">Mate<span class="logo-name-highlight">Claw</span></span>
       </div>
-      <router-view :key="workspaceRouteKey" />
+      <!-- RFC-074 PR-1 fix: include route.path in the key so two different
+           keepAlive routes (e.g. /channels and /settings/models) don't collide
+           on the same vnode slot. Without this, switching between two keep-alive
+           routes leaves both component trees mounted because Vue sees identical
+           keys and patches in place. The comment must live OUTSIDE <keep-alive>
+           — KeepAlive treats comments as children and rejects "more than one". -->
+      <router-view v-slot="{ Component, route }">
+        <keep-alive>
+          <component :is="Component" :key="`${workspaceRouteKey}:${route.path}`" v-if="route.meta?.keepAlive" />
+        </keep-alive>
+        <component :is="Component" :key="`${workspaceRouteKey}:${route.path}`" v-if="!route.meta?.keepAlive" />
+      </router-view>
     </main>
 
     <OnboardingWizard v-if="showOnboarding" @close="showOnboarding = false" />
@@ -158,7 +174,7 @@ import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/useThemeStore'
 import { version as appVersion } from '../../../package.json'
 import type { ThemeMode } from '@/stores/useThemeStore'
-import { http, settingsApi, setupApi, authApi } from '@/api/index'
+import { http, settingsApi, setupApi, authApi, backstageApi } from '@/api/index'
 import OnboardingWizard from '@/views/Onboarding/OnboardingWizard.vue'
 import DoctorDrawer from '@/views/Doctor/DoctorDrawer.vue'
 import WorkspaceSwitcher from '@/components/workspace/WorkspaceSwitcher.vue'
@@ -192,6 +208,25 @@ async function fetchHealthStatus() {
     healthStatus.value = data?.overall || 'healthy'
   } catch {
     healthStatus.value = 'unknown'
+  }
+}
+
+// Live attention signal for the Backstage sidebar entry. Admins only —
+// non-admin users never poll the runtime endpoint and never see the dot.
+const backstageStuckCount = ref(0)
+let backstagePollTimer: ReturnType<typeof setInterval> | null = null
+
+const isAdminRole = computed(() => (localStorage.getItem('role') || 'user') === 'admin')
+const backstageAlertActive = computed(() => isAdminRole.value && backstageStuckCount.value > 0)
+
+async function refreshBackstageBadge() {
+  if (!isAdminRole.value) return
+  try {
+    const res: any = await backstageApi.snapshot()
+    const data = res?.data ?? res
+    backstageStuckCount.value = data?.summary?.stuck ?? 0
+  } catch {
+    // Silent: stale value is preferable to a flapping indicator.
   }
 }
 
@@ -240,11 +275,18 @@ onMounted(async () => {
 
   // Fetch initial health status for sidebar indicator
   fetchHealthStatus()
+
+  // Backstage attention dot — poll every 15s for admins.
+  if (isAdminRole.value) {
+    refreshBackstageBadge()
+    backstagePollTimer = setInterval(refreshBackstageBadge, 15_000)
+  }
 })
 
 onBeforeUnmount(() => {
   mobileQuery?.removeEventListener('change', handleMobileChange)
   mediumQuery?.removeEventListener('change', handleMediumChange)
+  if (backstagePollTimer) clearInterval(backstagePollTimer)
 })
 
 function onNavClick() {
@@ -302,10 +344,26 @@ const navGroups = computed(() => [
         label: t('nav.agents'),
         icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>`,
       },
+      ...(isAdminRole.value ? [{
+        path: '/backstage',
+        label: t('nav.backstage'),
+        tooltip: t('nav.backstageTooltip'),
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
+      }] : []),
       {
         path: '/wiki',
         label: t('nav.wiki'),
         icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`,
+      },
+      {
+        path: '/memory',
+        label: t('nav.memory'),
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><line x1="12" y1="11" x2="12" y2="14"/></svg>`,
+      },
+      {
+        path: '/enterprise',
+        label: t('nav.enterprise'),
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h.01"/><path d="M9 12h.01"/><path d="M9 15h.01"/><path d="M9 18h.01"/><path d="M15 9h.01"/><path d="M15 12h.01"/><path d="M15 15h.01"/><path d="M15 18h.01"/></svg>`,
       },
     ],
   },
@@ -342,6 +400,12 @@ const navGroups = computed(() => [
         path: '/cron-jobs',
         label: t('nav.cronJobs'),
         icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+      },
+      // RFC-090 Phase 4: Activity 提升到顶层
+      {
+        path: '/activity',
+        label: t('nav.activity'),
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
       },
     ],
   },
@@ -400,7 +464,7 @@ async function logout() {
 }
 
 async function changeLocale(locale: AppLocale) {
-  applyLocale(locale)
+  await applyLocale(locale)
   footerPanelOpen.value = false
   try {
     await settingsApi.update({ language: locale })
@@ -632,6 +696,44 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
 
 .nav-icon { display: flex; align-items: center; flex-shrink: 0; }
 .nav-label { overflow: hidden; text-overflow: ellipsis; }
+
+/* Backstage attention dot — appears only when stuck > 0 for an admin. */
+.nav-attention-dot {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: hsl(20, 80%, 55%);
+  transform: translateY(-50%);
+  box-shadow: 0 0 0 0 hsla(20, 80%, 55%, 0.6);
+  animation: nav-attention-pulse 2.4s ease-in-out infinite;
+}
+
+.nav-item.has-attention {
+  color: hsl(20, 75%, 50%);
+}
+
+@keyframes nav-attention-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 hsla(20, 80%, 55%, 0.55); transform: translateY(-50%) scale(1); }
+  50%      { box-shadow: 0 0 0 6px hsla(20, 80%, 55%, 0);    transform: translateY(-50%) scale(1.15); }
+}
+
+.sidebar.collapsed .nav-attention-dot {
+  right: 8px;
+  top: 8px;
+  transform: none;
+}
+
+.sidebar.collapsed .nav-attention-dot {
+  animation-name: nav-attention-pulse-collapsed;
+}
+
+@keyframes nav-attention-pulse-collapsed {
+  0%, 100% { box-shadow: 0 0 0 0 hsla(20, 80%, 55%, 0.55); transform: scale(1); }
+  50%      { box-shadow: 0 0 0 5px hsla(20, 80%, 55%, 0);    transform: scale(1.2); }
+}
 
 /* 底部 */
 .sidebar-footer {

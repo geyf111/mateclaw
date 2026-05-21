@@ -165,8 +165,13 @@ public class TelegramChannelAdapter extends AbstractChannelAdapter {
      * - connection_mode=polling → Polling
      * - connection_mode 缺失 + webhook_url 非空 → Webhook（兼容旧配置）
      * - 其余 → Polling
+     *
+     * <p>Package-private so {@link #requiresSingleLeader()} can mirror the
+     * same predicate — the two answers must stay in lockstep, otherwise a
+     * single change to mode detection here would silently mis-classify the
+     * channel for multi-node coordination.
      */
-    private boolean resolveWebhookMode() {
+    boolean resolveWebhookMode() {
         String connectionMode = getConfigString("connection_mode");
         String webhookUrl = getConfigString("webhook_url");
         boolean hasWebhookUrl = webhookUrl != null && !webhookUrl.isBlank();
@@ -715,9 +720,98 @@ public class TelegramChannelAdapter extends AbstractChannelAdapter {
         sendMessage(targetId, content);
     }
 
+    /**
+     * RFC-063r §2.10: forum-thread-aware proactive send. When
+     * {@link vip.mate.channel.DeliveryOptions#threadId()} is set (Telegram
+     * forum {@code message_thread_id}), include it in the {@code sendMessage}
+     * call so the cron result lands in the correct thread of a forum group.
+     * Falls back to the legacy chat-level send when null.
+     */
+    @Override
+    public void proactiveSend(String targetId, String content,
+                              vip.mate.channel.DeliveryOptions options) {
+        if (options == null || options.threadId() == null || options.threadId().isBlank()) {
+            sendMessage(targetId, content);
+            return;
+        }
+        if (httpClient == null || botToken == null) {
+            log.warn("[telegram] Channel not started, cannot send proactive message");
+            return;
+        }
+        Integer threadId;
+        try {
+            threadId = Integer.valueOf(options.threadId());
+        } catch (NumberFormatException nfe) {
+            log.warn("[telegram] Invalid message_thread_id '{}'; sending to main chat", options.threadId());
+            sendMessage(targetId, content);
+            return;
+        }
+        try {
+            // Try Markdown first, fall back to plain on parse error — same
+            // contract as sendMessage but with message_thread_id added.
+            if (!sendThreadedText(targetId, threadId, content, "Markdown")) {
+                sendThreadedText(targetId, threadId, content, null);
+            }
+        } catch (Exception e) {
+            log.error("[telegram] proactiveSend(threadId={}) failed: {}", threadId, e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean sendThreadedText(String targetId, Integer threadId, String content, String parseMode) {
+        try {
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("chat_id", targetId);
+            body.put("message_thread_id", threadId);
+            body.put("text", content);
+            if (parseMode != null) {
+                body.put("parse_mode", parseMode);
+            }
+            String jsonBody = objectMapper.writeValueAsString(body);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(apiBaseUrl + "/sendMessage"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return true;
+            }
+            if (response.statusCode() == 400 && parseMode != null) {
+                try {
+                    Map<String, Object> errResult = objectMapper.readValue(response.body(), Map.class);
+                    String desc = String.valueOf(errResult.getOrDefault("description", ""));
+                    if (desc.contains("can't parse")) {
+                        return false;
+                    }
+                } catch (Exception ignored) {}
+            }
+            log.warn("[telegram] Threaded send failed: status={}, body={}", response.statusCode(), response.body());
+            return true;
+        } catch (Exception e) {
+            log.error("[telegram] Threaded send error: {}", e.getMessage(), e);
+            return true;
+        }
+    }
+
     @Override
     public String getChannelType() {
         return CHANNEL_TYPE;
+    }
+
+    /**
+     * Long-polling mode runs a {@code getUpdates(offset=…)} loop that
+     * acknowledges each delivered update; multiple nodes polling the same
+     * bot token would steal updates from each other (whichever node calls
+     * {@code getUpdates} next consumes the queue, and the others get
+     * nothing). The leader gate ensures only one node polls at a time.
+     *
+     * <p>Webhook mode is exempt: Telegram POSTs to a public URL fanned
+     * by the load balancer, so every node may safely receive callbacks.
+     */
+    @Override
+    public boolean requiresSingleLeader() {
+        return !resolveWebhookMode();
     }
 
     /** RFC-025 Change 4 入站文本净化上限（防止 caption 含超长二进制撑爆 prompt）。 */

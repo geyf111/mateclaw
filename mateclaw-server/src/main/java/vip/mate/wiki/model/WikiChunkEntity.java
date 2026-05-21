@@ -51,12 +51,32 @@ public class WikiChunkEntity {
     /** RFC-011：生成该 embedding 的模型名称（切模型时需全量重嵌） */
     private String embeddingModel;
 
+    /**
+     * Identifies the input format used to produce the stored embedding.
+     * <p>
+     * Set to the embedding input builder's current version on every write.
+     * NULL signals a legacy content-only embedding from before the builder
+     * existed and is treated as stale on the next re-embed pass.
+     */
+    private String embeddingTextVersion;
+
+    /** RFC-051: source page number (PDF/PPTX) when known; null otherwise. */
+    private Integer pageNumber;
+
+    /** RFC-051: estimated token count; null until populated by chunker or backfill job. */
+    private Integer tokenCount;
+
+    /** RFC-051: header path leading to this chunk, e.g. "Intro / Setup / Linux". */
+    private String headerBreadcrumb;
+
+    /** RFC-051: short identifier of the source section (slide id, sheet name, heading). */
+    private String sourceSection;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 
-    @TableLogic
     private Integer deleted;
 }
