@@ -414,7 +414,7 @@ defineExpose({
 <style scoped>
 .chat-input-wrapper {
   padding: 10px 14px 12px;
-  background: var(--mc-bg-elevated, #f8fafc);
+  /* background: var(--mc-bg-elevated, #f8fafc); */
   flex-shrink: 0;
 }
 

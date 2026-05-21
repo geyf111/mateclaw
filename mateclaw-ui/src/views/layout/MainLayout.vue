@@ -10,11 +10,12 @@
       <!-- Logo -->
       <div class="sidebar-logo">
         <div class="logo-icon">
-          <img src="/logo/mateclaw_logo_s.png" alt="MateClaw" class="logo-img" />
+          <img src="/logo/mateclaw_logo_s.png" alt="GLClaw" class="logo-img" />
         </div>
         <transition name="fade">
           <div v-if="!effectiveCollapsed" class="logo-text">
-            <span class="logo-name">Mate<span class="logo-name-highlight">Claw</span></span>
+            <!-- <span class="logo-name">Mate<span class="logo-name-highlight">Claw</span></span> -->
+             <span class="logo-name">GLClaw</span>
             <span class="logo-version">v{{ appVersion }}</span>
           </div>
         </transition>
@@ -34,7 +35,7 @@
       </div>
 
       <!-- 工作区切换 -->
-      <WorkspaceSwitcher :collapsed="effectiveCollapsed" />
+      <!-- <WorkspaceSwitcher :collapsed="effectiveCollapsed" /> -->
 
       <!-- 导航菜单 -->
       <nav class="sidebar-nav">
@@ -61,12 +62,12 @@
       <div class="sidebar-footer">
         <template v-if="!sidebarCollapsed || isMobile">
           <!-- Doctor 健康指示器 -->
-          <button class="health-indicator" :class="healthStatus" @click="showDoctor = true" :title="t('doctor.title')">
+          <!-- <button class="health-indicator" :class="healthStatus" @click="showDoctor = true" :title="t('doctor.title')">
             <span class="health-dot"></span>
             <span class="health-label">{{ t('doctor.title') }}</span>
-          </button>
+          </button> -->
 
-          <div class="sidebar-utility-card">
+          <!-- <div class="sidebar-utility-card">
             <div class="compact-utility-row">
               <span class="compact-utility-title">{{ t('nav.themeLabel') }}</span>
               <div class="theme-toggle-row theme-toggle-row--compact">
@@ -97,7 +98,7 @@
                 </button>
               </div>
             </div>
-          </div>
+          </div> -->
 
           <div class="user-info">
             <div class="user-avatar">{{ userInitial }}</div>
@@ -105,9 +106,9 @@
               <div class="user-name">{{ username }}</div>
               <div class="user-role">{{ roleLabel }}</div>
             </div>
-            <button class="change-password-btn" @click="showChangePassword = true" :title="t('auth.changePassword')">
+            <!-- <button class="change-password-btn" @click="showChangePassword = true" :title="t('auth.changePassword')">
               <el-icon :size="16"><Lock /></el-icon>
-            </button>
+            </button> -->
             <button class="logout-btn" @click="logout" :title="t('nav.logout')">
               <el-icon :size="16"><SwitchButton /></el-icon>
             </button>
@@ -157,7 +158,7 @@ import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/useThemeStore'
 import { version as appVersion } from '../../../package.json'
 import type { ThemeMode } from '@/stores/useThemeStore'
-import { http, settingsApi, setupApi } from '@/api/index'
+import { http, settingsApi, setupApi, authApi } from '@/api/index'
 import OnboardingWizard from '@/views/Onboarding/OnboardingWizard.vue'
 import DoctorDrawer from '@/views/Doctor/DoctorDrawer.vue'
 import WorkspaceSwitcher from '@/components/workspace/WorkspaceSwitcher.vue'
@@ -286,11 +287,11 @@ const navGroups = computed(() => [
     key: 'core',
     label: t('nav.core'),
     items: [
-      {
-        path: '/dashboard',
-        label: t('nav.dashboard', 'Dashboard'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
-      },
+      // {
+      //   path: '/dashboard',
+      //   label: t('nav.dashboard', 'Dashboard'),
+      //   icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
+      // },
       {
         path: '/chat',
         label: t('nav.chat'),
@@ -322,15 +323,25 @@ const navGroups = computed(() => [
         label: t('nav.skills'),
         icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
       },
+      // {
+      //   path: '/tools',
+      //   label: t('nav.tools'),
+      //   icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+      // },
+      // {
+      //   path: '/plugins',
+      //   label: t('nav.plugins'),
+      //   icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 3h-8v4h8V3z"/></svg>`,
+      // },
       {
-        path: '/tools',
-        label: t('nav.tools'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+        path: '/models',
+        label: t('settings.sections.model'),
+        icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>',
       },
       {
-        path: '/plugins',
-        label: t('nav.plugins'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 3h-8v4h8V3z"/></svg>`,
+        path: '/cron-jobs',
+        label: t('nav.cronJobs'),
+        icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
       },
     ],
   },
@@ -339,8 +350,8 @@ const navGroups = computed(() => [
     label: t('nav.system'),
     items: [
       {
-        path: '/settings/models',
-        label: t('nav.settings'),
+        path: '/settings/system',
+        label: '搜索服务',
         icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>`,
       },
       {
@@ -362,8 +373,11 @@ function toggleSidebar() {
 }
 
 function isNavItemActive(item: { path: string; label: string }) {
-  if (item.path.startsWith('/settings')) {
+  if (item.path === '/settings/system') {
     return route.path.startsWith('/settings')
+  }
+  if (item.path.startsWith('/settings')) {
+    return route.path === item.path || route.path.startsWith(`${item.path}/`)
   }
   if (item.path === '/security') {
     return route.path.startsWith('/security')
@@ -373,7 +387,12 @@ function isNavItemActive(item: { path: string; label: string }) {
 
 const showChangePassword = ref(false)
 
-function logout() {
+async function logout() {
+  try {
+    await authApi.logout()
+  } catch (e) {
+    // 即使服务端调用失败，也继续清理本地状态
+  }
   localStorage.removeItem('token')
   localStorage.removeItem('username')
   localStorage.removeItem('role')
@@ -418,26 +437,26 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at top left, rgba(217, 109, 70, 0.12), transparent 22%),
-    radial-gradient(circle at bottom right, rgba(24, 74, 69, 0.08), transparent 18%);
+    radial-gradient(circle at top left, rgba(240, 247, 255, 0.12), transparent 22%),
+    radial-gradient(circle at bottom right, rgba(240, 247, 255, 0.08), transparent 18%);
   pointer-events: none;
 }
 
 :global(html.dark) .app-layout::before {
   background:
-    radial-gradient(circle at top left, rgba(235, 143, 101, 0.14), transparent 24%),
-    radial-gradient(circle at bottom right, rgba(92, 166, 157, 0.08), transparent 20%);
+    radial-gradient(circle at top left, rgba(240, 247, 255, 0.14), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(240, 247, 255, 0.08), transparent 20%);
 }
 
 /* ===== 侧边栏 ===== */
 .sidebar {
   width: 236px;
   min-width: 236px;
-  margin: 14px 0 14px 14px;
+  /* margin: 14px 0 14px 14px; */
   background:
     linear-gradient(180deg, var(--mc-panel-top), var(--mc-panel-bottom));
-  border: 1px solid var(--mc-sidebar-border);
-  border-radius: 28px;
+  border-right: 1px solid var(--mc-sidebar-border);
+  /* border-radius: 28px; */
   box-shadow: var(--mc-shadow-soft);
   display: flex;
   flex-direction: column;
@@ -456,7 +475,7 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--mc-glow);
+  /* background: var(--mc-glow); */
   pointer-events: none;
 }
 
@@ -486,8 +505,8 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
-  background: linear-gradient(135deg, rgba(217, 109, 70, 0.18), rgba(24, 74, 69, 0.08));
-  border: 1px solid rgba(217, 109, 70, 0.14);
+  /* background: linear-gradient(135deg, rgba(217, 109, 70, 0.18), rgba(24, 74, 69, 0.08)); */
+  /* border: 1px solid rgba(217, 109, 70, 0.14); */
 }
 
 .logo-img {
@@ -525,7 +544,7 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
 .collapse-btn {
   width: 28px;
   height: 28px;
-  border: 1px solid var(--mc-border-light);
+  /* border: 1px solid var(--mc-border-light); */
   background: var(--mc-bg-muted);
   cursor: pointer;
   color: var(--mc-text-tertiary);
@@ -547,14 +566,14 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   width: 32px;
   height: 32px;
   margin-left: 0;
-  background: var(--mc-bg-sunken);
-  border: 1px solid var(--mc-border-light);
-  color: var(--mc-sidebar-text-active);
+  /* background: var(--mc-bg-sunken); */
+  /* border: 1px solid var(--mc-border-light); */
+  color: #333;
 }
 
 .sidebar.collapsed .collapse-btn:hover {
   background: var(--mc-sidebar-hover);
-  border-color: var(--mc-border);
+  /* border-color: var(--mc-border); */
 }
 
 /* 导航 */
@@ -575,7 +594,7 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   padding: 8px 18px 4px;
   font-size: 10px;
   font-weight: 600;
-  color: var(--mc-sidebar-group-title);
+  /* color: var(--mc-sidebar-group-title); */
   text-transform: uppercase;
   letter-spacing: 0.1em;
   white-space: nowrap;
@@ -606,7 +625,7 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   background: var(--mc-sidebar-active);
   color: var(--mc-sidebar-text-active);
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px rgba(217, 109, 70, 0.08);
+  /* box-shadow: inset 0 0 0 1px rgba(217, 109, 70, 0.08); */
 }
 
 /* Active indicator bar removed — active state uses bg color + font weight only */
@@ -616,14 +635,14 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
 
 /* 底部 */
 .sidebar-footer {
-  border-top: 1px solid var(--mc-border-light);
+  /* border-top: 1px solid var(--mc-border-light); */
   padding: 10px 12px 12px;
   background: var(--mc-sidebar-footer-bg);
   backdrop-filter: blur(14px);
   position: relative;
 }
 .health-indicator { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 1px solid var(--mc-border-light); background: var(--mc-bg-muted); border-radius: 12px; cursor: pointer; color: var(--mc-text-secondary); font-size: 12px; margin-bottom: 8px; }
-.health-indicator:hover { background: var(--mc-bg-sunken); }
+.health-indicator:hover { background: var(--mc-sidebar-hover); }
 .health-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .health-indicator.healthy .health-dot { background: var(--mc-success); }
 .health-indicator.warning .health-dot { background: var(--mc-primary); }
@@ -844,13 +863,13 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
 }
 
 .change-password-btn:hover {
-  background: var(--mc-primary-bg);
-  color: var(--mc-primary);
+  background: var(--mc-sidebar-hover);
+  /* color: var(--mc-primary); */
 }
 
 .logout-btn:hover {
-  background: var(--mc-danger-bg);
-  color: var(--mc-danger);
+  background: var(--mc-sidebar-hover);
+  /* color: var(--mc-danger); */
 }
 
 .collapsed-footer-actions {
@@ -981,7 +1000,7 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   min-width: 0;
   position: relative;
   z-index: 1;
-  padding: 14px 14px 14px 18px;
+  /* padding: 14px 14px 14px 18px; */
 }
 
 /* ===== 移动端元素（桌面端隐藏） ===== */
@@ -1123,7 +1142,7 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   }
 
   .main-content {
-    padding: 8px;
+    /* padding: 8px; */
   }
 }
 </style>

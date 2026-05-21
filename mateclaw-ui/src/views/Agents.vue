@@ -61,11 +61,11 @@
             <div class="agent-card__footer">
               <span class="time-label">{{ formatTime(agent.updateTime) }}</span>
               <div class="agent-card__actions">
-                <button class="action-btn" :title="t('agents.tabs.context')" @click="goToAgentContextFor(agent)">
+                <!-- <button class="action-btn" :title="t('agents.tabs.context')" @click="goToAgentContextFor(agent)">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
                   </svg>
-                </button>
+                </button> -->
                 <button class="action-btn" :title="t('agents.actions.edit')" @click="openEditModal(agent)">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -517,7 +517,7 @@ async function toggleAgent(agent: Agent) {
 .btn-secondary { padding: 8px 16px; background: var(--mc-bg-elevated); color: var(--mc-text-primary); border: 1px solid var(--mc-border); border-radius: 12px; font-size: 14px; cursor: pointer; }
 .btn-secondary:hover { background: var(--mc-bg-sunken); }
 
-.agents-toolbar { padding: 18px; }
+.agents-toolbar { padding: 18px; margin-bottom: 18px; }
 .filter-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .search-box { display: flex; align-items: center; gap: 8px; background: var(--mc-bg-muted); border: 1px solid var(--mc-border); border-radius: 14px; padding: 10px 12px; flex: 1; max-width: 360px; }
 .search-box svg { color: var(--mc-text-tertiary); flex-shrink: 0; }

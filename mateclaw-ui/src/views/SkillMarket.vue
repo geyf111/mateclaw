@@ -16,7 +16,7 @@
               </svg>
               {{ refreshing ? t('skills.refreshing') : t('skills.refreshRuntime') }}
             </button>
-            <button class="btn-secondary" @click="showImportDialog = true">
+            <!-- <button class="btn-secondary" @click="showImportDialog = true">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
@@ -27,7 +27,7 @@
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
               {{ t('skills.newSkill') }}
-            </button>
+            </button> -->
           </div>
         </div>
 
@@ -107,7 +107,7 @@
         </div>
         <div class="skill-footer">
           <span v-if="skill.author" class="skill-author">by {{ skill.author }}</span>
-          <div class="skill-actions">
+          <!-- <div class="skill-actions">
             <button class="skill-btn" @click="openEditModal(skill)">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -122,7 +122,7 @@
               </svg>
               {{ t('skills.actions.delete') }}
             </button>
-          </div>
+          </div> -->
         </div>
           </div>
         </div>
@@ -386,7 +386,7 @@ async function handleRefreshRuntime() {
   refreshing.value = true
   try {
     await skillApi.refreshRuntime()
-    await loadRuntimeStatus()
+    await loadAll()
     ElMessage.success(t('skills.refreshSuccess'))
   } catch (e: any) {
     ElMessage.error(typeof e === 'string' ? e : e?.message || t('skills.refreshFailed'))
@@ -530,7 +530,7 @@ function getSkillTypeLabel(type: string) {
 .btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* 分类 Tab */
-.category-tabs { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px; }
+.category-tabs { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px; margin-bottom: 18px; }
 .cat-tab { display: flex; align-items: center; gap: 6px; padding: 9px 16px; border: 1px solid var(--mc-border); background: var(--mc-bg-muted); border-radius: 999px; font-size: 13px; color: var(--mc-text-secondary); cursor: pointer; transition: all 0.15s; font-weight: 600; }
 .cat-tab:hover { background: var(--mc-bg-sunken); }
 .cat-tab.active { background: var(--mc-primary-bg); border-color: var(--mc-primary); color: var(--mc-primary); font-weight: 500; }

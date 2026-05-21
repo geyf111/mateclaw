@@ -1,6 +1,6 @@
 export default {
   app: {
-    title: 'MateClaw - AI 助手',
+    title: 'GLClaw - AI 助手',
   },
   common: {
     save: '保存',
@@ -1301,10 +1301,12 @@ export default {
     fields: {
       username: '用户名',
       password: '密码',
+      code: '验证码',
     },
     placeholders: {
       username: '请输入用户名',
       password: '请输入密码',
+      code: '请输入验证码',
     },
     signIn: '登录',
     hint: '默认账号: <code>admin</code> / <code>admin123</code>',
@@ -1408,8 +1410,8 @@ export default {
       allowFromPlaceholder: '逗号分隔用户 ID（留空 = 全部允许）',
       denyMessage: '拒绝提示',
       denyMessagePlaceholder: '抱歉，您没有使用权限',
-      requireMention: '需要 @提及',
-      requireMentionTooltip: '群聊中是否需要 @机器人才响应',
+      requireMention: "需要 {'@'}提及",
+      requireMentionTooltip: "群聊中是否需要 {'@'}机器人才响应",
     },
     messageFilter: {
       title: '消息过滤',
@@ -1459,7 +1461,7 @@ export default {
         step5: '如需昵称显示，请在「权限管理」中申请 <code>contact:user.base:readonly</code> 权限',
       },
       telegram: {
-        step1: '在 Telegram 中搜索 <a href="https://t.me/BotFather" target="_blank" rel="noopener">{at}BotFather</a>，发送 <code>/newbot</code> 创建 Bot',
+        step1: '在 Telegram 中搜索 <a href="https://t.me/BotFather" target="_blank" rel="noopener">{\'@\'}BotFather</a>，发送 <code>/newbot</code> 创建 Bot',
         step2: '将 BotFather 返回的 <b>Bot Token</b> 填入下方配置',
         step3: '<b>Long-Polling 模式</b>（推荐）：启动后自动通过 <code>getUpdates</code> 轮询接收消息，<b>无需公网 IP</b>',
         step4: '<b>Webhook 模式</b>：需要公网可访问的回调地址，切换接入模式后填入 Webhook URL',
@@ -1486,7 +1488,7 @@ export default {
       qq: {
         step1: '前往 <a href="https://q.qq.com/" target="_blank" rel="noopener">QQ 开放平台</a> 创建机器人应用',
         step2: '在应用管理页面获取 <b>AppID</b> 和 <b>AppSecret</b>，填入下方配置',
-        step3: '在「功能配置 → 消息订阅」中开启需要的消息类型（C2C 消息、群聊 @消息、频道消息等）',
+        step3: "在「功能配置 → 消息订阅」中开启需要的消息类型（C2C 消息、群聊 {'@'}消息、频道消息等）",
         step4: '启动渠道后通过 <b>WebSocket 长连接</b>自动接收消息，<b>无需公网 IP 和回调 URL</b>',
       },
     },

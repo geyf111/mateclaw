@@ -1,13 +1,18 @@
 <template>
   <div class="login-page">
     <div class="login-center">
-      <div class="login-logo">
+      <!-- <div class="login-logo">
         <img src="/logo/mateclaw_logo_s.png" alt="MateClaw" class="logo-image" />
         <h1 class="logo-title">Mate<span class="logo-title-highlight">Claw</span></h1>
+      </div> -->
+      <div class="login-header">
+        <h1 class="header-main-title">欢迎登录</h1>
+        <p class="header-sub-title">国利信安</p>
       </div>
 
       <form class="login-form" @submit.prevent="handleLogin">
         <div class="input-wrap">
+          <label class="input-wrap-label">用户名</label>
           <input
             v-model="form.username"
             type="text"
@@ -15,43 +20,62 @@
             :placeholder="t('login.placeholders.username')"
             :aria-label="t('login.fields.username')"
             autocomplete="username"
-            required
           />
         </div>
 
         <div class="input-wrap">
-          <input
-            v-model="form.password"
-            :type="showPassword ? 'text' : 'password'"
-            class="form-input form-input--has-eye"
-            :placeholder="t('login.placeholders.password')"
-            :aria-label="t('login.fields.password')"
-            autocomplete="current-password"
-            required
-          />
-          <button type="button" class="eye-btn" @click="showPassword = !showPassword">
-            <svg v-if="!showPassword" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-              <circle cx="12" cy="12" r="3"/>
-            </svg>
-            <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-              <line x1="1" y1="1" x2="23" y2="23"/>
-            </svg>
-          </button>
+          <label class="input-wrap-label">密码</label>
+          <div class="input-wrap-passwd">
+            <input
+              v-model="form.password"
+              :type="showPassword ? 'text' : 'password'"
+              class="form-input form-input--has-eye"
+              :placeholder="t('login.placeholders.password')"
+              :aria-label="t('login.fields.password')"
+              autocomplete="current-password"
+            />
+            <button type="button" class="eye-btn" @click="showPassword = !showPassword">
+              <svg v-if="!showPassword" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
+        <div class="input-wrap">
+          <label class="input-wrap-label">验证码</label>
+          <div class="input-wrap-code">
+            <input
+              v-model="form.captchaCode"
+              type="text"
+              class="form-input"
+              :placeholder="t('login.placeholders.code')"
+              :aria-label="t('login.fields.code')"
+              autocomplete="captchaCode"
+            />
+            <img :src="captchaImage" alt="验证码" @click="loadCaptcha">
+          </div>
+        </div>
+
+        <!-- <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div> -->
 
         <button type="submit" class="login-btn" :disabled="loading">
-          <span v-if="!loading">{{ t('login.signIn') }}</span>
+          <span v-if="!loading">登 录</span>
           <span v-else class="loading-dots">
             <span></span><span></span><span></span>
           </span>
         </button>
       </form>
 
-      <p class="login-hint" v-html="t('login.hint')"></p>
+      <!-- <p class="login-hint" v-html="t('login.hint')"></p> -->
+      <p class="login-hint">
+        {{ errorMsg ? '登录失败' : '请输入用户名和密码登录' }}
+      </p>
     </div>
   </div>
 </template>
@@ -61,16 +85,53 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { authApi } from '@/api/index'
+import { ElNotification } from 'element-plus'
 
 const router = useRouter()
 const { t } = useI18n()
 const loading = ref(false)
 const showPassword = ref(false)
 const errorMsg = ref('')
-const form = reactive({ username: '', password: '' })
+const form = reactive({ username: '', password: '', captchaCode: '', captchaKey: '' })
+const captchaImage = ref('')
+
+const loadCaptcha = async () => {
+  const res: any = await authApi.getCaptcha()
+  form.captchaKey = res.data.captchaKey
+  captchaImage.value = res.data.image
+}
+
+loadCaptcha()
 
 async function handleLogin() {
-  if (!form.username || !form.password) return
+  // if (!form.username || !form.password) return
+  if (!form.username) {
+    ElNotification({
+      title: 'Error',
+      message: '请输入用户名',
+      type: 'error',
+      position: 'bottom-right'
+    })
+    return
+  }
+  if (!form.password) {
+    ElNotification({
+      title: 'Error',
+      message: '请输入密码',
+      type: 'error',
+      position: 'bottom-right'
+    })
+    return
+  }
+  if (!form.captchaCode) {
+    ElNotification({
+      title: 'Error',
+      message: '请输入验证码',
+      type: 'error',
+      position: 'bottom-right'
+    })
+    return
+  }
   loading.value = true
   errorMsg.value = ''
   try {
@@ -80,9 +141,17 @@ async function handleLogin() {
     localStorage.setItem('userId', String(data.id || '1'))
     localStorage.setItem('username', data.username || form.username)
     localStorage.setItem('role', data.role || 'user')
+    if (data.clawAccessToken) {localStorage.setItem('clawAccessToken', data.clawAccessToken)}
     router.push('/')
   } catch (e: any) {
-    errorMsg.value = typeof e === 'string' ? e : t('login.failed')
+    errorMsg.value = typeof e.message === 'string' ? e.message : t('login.failed')
+    ElNotification({
+      title: 'Error',
+      message: errorMsg.value,
+      type: 'error',
+      position: 'bottom-right'
+    })
+    loadCaptcha()
   } finally {
     loading.value = false
   }
@@ -95,28 +164,50 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(160deg, #FAF5F0 0%, #F5EDE5 100%);
+  /* background: linear-gradient(160deg, #FAF5F0 0%, #F5EDE5 100%); */
   padding: 24px;
 }
 
 :root.dark .login-page,
 html.dark .login-page {
-  background: linear-gradient(160deg, var(--mc-bg) 0%, #1A1210 100%);
+  /* background: linear-gradient(160deg, var(--mc-bg) 0%, #1A1210 100%); */
 }
 
 .login-center {
   width: 100%;
-  max-width: 380px;
+  max-width: 420px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 40px;
   animation: fadeUp 0.6s ease-out both;
+  background-color: #fff;
+  padding: 48px;
+  border-radius: 20px;
 }
 
 /* Logo */
 .login-logo {
   text-align: center;
+}
+
+.login-header {
+  text-align: center;
+}
+
+.login-header .header-main-title {
+  font-size: 28px;
+  font-weight: 600;
+  color: rgb(51, 51, 51);
+  margin-bottom: 8px;
+  letter-spacing: 2px;
+}
+
+.login-header .header-sub-title {
+  color: rgb(26, 59, 102);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 4px;
 }
 
 .logo-image {
@@ -150,19 +241,42 @@ html.dark .login-page {
 }
 
 .input-wrap {
-  position: relative;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+}
+
+.input-wrap .input-wrap-label {
+  margin-bottom: 10px;
+  color: rgb(51, 51, 51);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+
+.input-wrap .input-wrap-passwd {
+  position: relative;
+}
+
+.input-wrap .input-wrap-code {
+  display: flex;
+  gap: 12px;
+}
+
+.input-wrap .input-wrap-code img {
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid rgb(220, 220, 220);
+  opacity: 1;
 }
 
 .form-input {
   width: 100%;
   padding: 14px 16px;
-  border: 1.5px solid var(--mc-border);
+  border: 1px solid rgb(220, 220, 220);
   border-radius: 12px;
   font-size: 15px;
-  color: var(--mc-text-primary);
-  background: var(--mc-bg-sunken);
+  color: rgb(51, 51, 51);
+  background: #fff;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
@@ -172,20 +286,21 @@ html.dark .login-page {
 }
 
 .form-input:focus {
-  border-color: var(--mc-primary);
-  background: var(--mc-bg-elevated);
-  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.08);
+  border-color: rgb(29, 97, 184);
+  background: #fff;
+  box-shadow: rgba(29, 97, 184, 0.1) 0px 0px 0px 3px;
 }
 
 .eye-btn {
   position: absolute;
+  top: 12px;
   right: 12px;
   width: 28px;
   height: 28px;
   border: none;
   background: none;
   cursor: pointer;
-  color: var(--mc-text-tertiary);
+  color: rgb(136, 136, 136);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -193,7 +308,7 @@ html.dark .login-page {
 }
 
 .eye-btn:hover {
-  color: var(--mc-primary);
+  color: rgb(29, 97, 184);
 }
 
 /* Error */
@@ -210,7 +325,7 @@ html.dark .login-page {
 .login-btn {
   width: 100%;
   padding: 12px;
-  background: linear-gradient(135deg, var(--mc-primary), var(--mc-primary-hover));
+  background: rgb(29, 97, 184);
   color: white;
   border: none;
   border-radius: 12px;
@@ -227,7 +342,7 @@ html.dark .login-page {
 
 .login-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgba(217, 119, 87, 0.3);
+  box-shadow: 0 8px 20px rgba(29, 97, 184, 0.3) 0px 4px 12px;
 }
 
 .login-btn:disabled {
@@ -261,10 +376,10 @@ html.dark .login-page {
 /* Hint */
 .login-hint {
   text-align: center;
-  font-size: 12px;
-  color: var(--mc-text-tertiary);
-  margin: 0;
-  opacity: 0.7;
+  font-size: 13px;
+  color: rgb(136, 136, 136);
+  /* margin: 0; */
+  /* opacity: 0.7; */
 }
 
 .login-hint :deep(code) {

@@ -1,261 +1,261 @@
 <template>
   <div class="mc-page-shell chat-console-shell">
     <div class="mc-page-frame chat-console-frame">
-      <div class="chat-layout mc-surface-card">
+      <div class="chat-layout">
         <!-- 移动端会话面板遮罩 -->
         <Transition name="fade">
           <div v-if="isMobile && convPanelOpen" class="conv-backdrop" @click="convPanelOpen = false"></div>
         </Transition>
 
-    <!-- 会话侧边栏 -->
-    <div class="conversation-panel" :class="{ 'mobile-open': convPanelOpen, 'conv-collapsed': convPanelCollapsed && !isMobile }">
-      <div class="panel-header">
-        <div v-if="!convPanelCollapsed || isMobile" class="panel-header-copy">
-          <div class="panel-kicker">{{ $t('nav.chat') }}</div>
-          <h2 class="panel-title">{{ $t('chat.conversations') }}</h2>
-        </div>
-        <button class="new-chat-btn" @click="newConversation" :title="`${$t('chat.newChat')} (⌘N)`">
-          <el-icon><Plus /></el-icon>
-        </button>
-      </div>
-      <!-- 折叠切换按钮 -->
-      <button v-if="!isMobile" class="conv-collapse-btn" @click="toggleConvPanel" :title="convPanelCollapsed ? $t('common.expandSidebar') : $t('common.collapseSidebar')">
-        <svg v-if="!convPanelCollapsed" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-      </button>
-
-      <div class="agent-selector">
-        <button class="agent-select-trigger" @click="agentDropdownOpen = !agentDropdownOpen" :title="`${$t('chat.selectAgent')} (⌘K)`">
-          <span class="agent-select-trigger__icon">{{ currentAgent?.icon || '🤖' }}</span>
-          <span v-if="!convPanelCollapsed || isMobile" class="agent-select-trigger__name">{{ currentAgent?.name || $t('chat.selectAgent') }}</span>
-          <svg v-if="!convPanelCollapsed || isMobile" class="agent-select-trigger__arrow" :class="{ open: agentDropdownOpen }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <Transition name="fade">
-          <div v-if="agentDropdownOpen" class="agent-dropdown-backdrop" @click="agentDropdownOpen = false"></div>
-        </Transition>
-        <Transition name="agent-dropdown">
-          <div v-if="agentDropdownOpen" class="agent-dropdown">
-            <div
-              v-for="agent in agents"
-              :key="agent.id"
-              class="agent-dropdown-item"
-              :class="{ active: String(agent.id) === String(selectedAgentId) }"
-              @click="selectAgent(agent)"
-            >
-              <span class="agent-dropdown-item__icon">{{ agent.icon || '🤖' }}</span>
-              <div class="agent-dropdown-item__info">
-                <span class="agent-dropdown-item__name">{{ agent.name }}</span>
-                <span class="agent-dropdown-item__desc">{{ agent.description || agent.agentType }}</span>
-              </div>
-              <span v-if="String(agent.id) === String(selectedAgentId)" class="agent-dropdown-item__check">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              </span>
+        <!-- 会话侧边栏 -->
+        <div class="conversation-panel" :class="{ 'mobile-open': convPanelOpen, 'conv-collapsed': convPanelCollapsed && !isMobile }">
+          <div class="panel-header">
+            <div v-if="!convPanelCollapsed || isMobile" class="panel-header-copy">
+              <div class="panel-kicker">{{ $t('nav.chat') }}</div>
+              <h2 class="panel-title">{{ $t('chat.conversations') }}</h2>
             </div>
-            <div v-if="agents.length === 0" class="agent-dropdown-empty">{{ $t('chat.loadingAgents') }}</div>
-          </div>
-        </Transition>
-      </div>
-
-      <div class="conversation-list">
-        <template v-for="group in groupedConversations" :key="group.label">
-          <div v-if="!convPanelCollapsed || isMobile" class="conv-group-title">{{ group.label }}</div>
-          <div
-            v-for="conv in group.items"
-            :key="conv.conversationId"
-            class="conv-item"
-            :class="{
-              active: currentConversationId === conv.conversationId,
-              'is-running': conv.streamStatus === 'running',
-            }"
-            @click="selectConversation(conv)"
-          >
-            <div class="conv-icon">
-              <img :src="channelIconUrl(conv.source)" width="14" height="14" alt="" />
-              <span
-                v-if="conv.streamStatus === 'running'"
-                class="conv-running-dot"
-                :title="$t('chat.streamGenerating')"
-              ></span>
-            </div>
-            <div v-if="!convPanelCollapsed || isMobile" class="conv-info">
-              <input
-                v-if="renamingConvId === conv.conversationId"
-                v-model="renameText"
-                class="conv-title-input"
-                @keydown.enter="confirmRename(conv)"
-                @keydown.escape="cancelRename"
-                @blur="confirmRename(conv)"
-                @click.stop
-                ref="renameInputRef"
-              />
-              <div v-else class="conv-title" @dblclick.stop="startRename(conv)">
-                <span>{{ conv.title }}</span>
-                <span
-                  v-if="conv.streamStatus === 'running'"
-                  class="conv-running-badge"
-                  :title="$t('chat.streamGenerating')"
-                >
-                  <span class="conv-running-badge-pulse"></span>
-                  {{ $t('chat.streamGenerating') }}
-                </span>
-              </div>
-              <div class="conv-meta">
-                <span>{{ $t('chat.messages', { count: conv.messageCount }) }}</span>
-                <span class="conv-dot">·</span>
-                <span>{{ formatConversationTime(conv.lastActiveTime) }}</span>
-              </div>
-            </div>
-            <button v-if="!convPanelCollapsed || isMobile" class="conv-delete" @click.stop="confirmDeleteConversation(conv.conversationId)" :title="$t('common.delete')">
-              <el-icon><Delete /></el-icon>
+            <button class="new-chat-btn" @click="newConversation" :title="`${$t('chat.newChat')} (⌘N)`">
+              <el-icon><Plus /></el-icon>
             </button>
           </div>
-        </template>
-
-        <div v-if="conversations.length === 0" class="empty-convs">
-          <p>{{ $t('chat.noConversations') }}</p>
-          <p>{{ $t('chat.startNewChat') }}</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- 主聊天区域 -->
-    <div
-      class="chat-area"
-      @dragenter.prevent="onDragEnter"
-      @dragover.prevent
-      @dragleave="onDragLeave"
-      @drop.prevent="onDrop"
-    >
-      <!-- 拖拽上传遮罩 -->
-      <Transition name="fade">
-        <div v-if="isDragging" class="drop-overlay">
-          <div class="drop-overlay__content">
-            <el-icon><UploadFilled /></el-icon>
-            <span>{{ $t('chat.dropToUpload') }}</span>
-          </div>
-        </div>
-      </Transition>
-      <!-- 头部 -->
-      <div class="chat-header">
-        <div class="chat-header-left">
-          <button v-if="isMobile" class="conv-toggle-btn" @click="convPanelOpen = !convPanelOpen" :title="$t('chat.conversations')">
-            <el-icon><ChatDotRound /></el-icon>
+          <!-- 折叠切换按钮 -->
+          <button v-if="!isMobile" class="conv-collapse-btn" @click="toggleConvPanel" :title="convPanelCollapsed ? $t('common.expandSidebar') : $t('common.collapseSidebar')">
+            <svg v-if="!convPanelCollapsed" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
-          <div class="chat-stage-copy" v-if="currentAgent">
-            <div class="chat-stage-kicker">{{ $t('nav.chat') }}</div>
-            <div class="agent-badge" :title="currentAgent.name">
-              <span class="agent-badge-icon">{{ currentAgent.icon || '🤖' }}</span>
-              <span class="agent-badge-name">{{ currentAgent.name }}</span>
-              <span class="agent-badge-type">{{ currentAgent.agentType === 'react' ? 'ReAct' : 'Plan-Execute' }}</span>
-              <span class="status-dot" :class="connectionStatusClass" :title="connectionStatusLabel"></span>
-            </div>
-          </div>
-          <div v-else class="no-agent-hint">{{ $t('chat.selectAgent') }}</div>
-        </div>
-        <div class="chat-header-right">
-          <!-- Model selector -->
-          <ModelSelector
-            v-if="eligibleModels.length > 0"
-            :providers="availableProviders"
-            :active-value="activeModelValue"
-            :active-label="activeModelLabel"
-            :saving="modelSaving"
-            @select="selectModel"
-          />
-          <button v-else class="header-btn" @click="goToModelSettings" :title="$t('chat.configModel')">
-            <el-icon><Setting /></el-icon>
-          </button>
-          <!-- Overflow menu -->
-          <div class="header-overflow-wrap">
-            <button class="header-btn" @click="headerMenuOpen = !headerMenuOpen" :title="$t('common.more') || 'More'">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+
+          <div class="agent-selector">
+            <button class="agent-select-trigger" @click="agentDropdownOpen = !agentDropdownOpen" :title="`${$t('chat.selectAgent')} (⌘K)`">
+              <span class="agent-select-trigger__icon">{{ currentAgent?.icon || '🤖' }}</span>
+              <span v-if="!convPanelCollapsed || isMobile" class="agent-select-trigger__name">{{ currentAgent?.name || $t('chat.selectAgent') }}</span>
+              <svg v-if="!convPanelCollapsed || isMobile" class="agent-select-trigger__arrow" :class="{ open: agentDropdownOpen }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
             <Transition name="fade">
-              <div v-if="headerMenuOpen" class="header-menu-backdrop" @click="headerMenuOpen = false"></div>
+              <div v-if="agentDropdownOpen" class="agent-dropdown-backdrop" @click="agentDropdownOpen = false"></div>
             </Transition>
             <Transition name="agent-dropdown">
-              <div v-if="headerMenuOpen" class="header-menu">
-                <button class="header-menu-item" @click="headerMenuOpen = false; goToModelSettings()">
-                  <el-icon><Setting /></el-icon>
-                  <span>{{ $t('chat.configModel') }}</span>
-                </button>
-                <div class="header-menu-divider"></div>
-                <button class="header-menu-item header-menu-item--danger" @click="handleClearMessages">
-                  <el-icon><Delete /></el-icon>
-                  <span>{{ $t('chat.clearMessages') }}</span>
-                </button>
+              <div v-if="agentDropdownOpen" class="agent-dropdown">
+                <div
+                  v-for="agent in agents"
+                  :key="agent.id"
+                  class="agent-dropdown-item"
+                  :class="{ active: String(agent.id) === String(selectedAgentId) }"
+                  @click="selectAgent(agent)"
+                >
+                  <span class="agent-dropdown-item__icon">{{ agent.icon || '🤖' }}</span>
+                  <div class="agent-dropdown-item__info">
+                    <span class="agent-dropdown-item__name">{{ agent.name }}</span>
+                    <span class="agent-dropdown-item__desc">{{ agent.description || agent.agentType }}</span>
+                  </div>
+                  <span v-if="String(agent.id) === String(selectedAgentId)" class="agent-dropdown-item__check">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  </span>
+                </div>
+                <div v-if="agents.length === 0" class="agent-dropdown-empty">{{ $t('chat.loadingAgents') }}</div>
               </div>
             </Transition>
           </div>
-        </div>
-      </div>
 
-      <!-- 使用组件化的 MessageList -->
-      <MessageList
-        ref="messageListRef"
-        :messages="messages"
-        :loading="isGenerating"
-        :assistant-icon="currentAgent?.icon || '🤖'"
-        :user-icon="userInitial"
-        :title="showModelPrompt ? modelPromptTitle : $t('app.title')"
-        :subtitle="showModelPrompt ? modelPromptDesc : $t('chat.subtitle')"
-        :suggestions="showModelPrompt ? [] : suggestions"
-        @regenerate="handleRegenerate"
-        @suggestion-click="sendSuggestion"
-        @toggle-thinking="handleToggleThinking"
-        @approve="handleApprove"
-        @deny="handleDeny"
-      >
-        <!-- 自定义模型提示空状态 -->
-        <template v-if="showModelPrompt" #empty>
-          <div class="model-prompt">
-            <div class="model-prompt-title">{{ modelPromptTitle }}</div>
-            <div class="model-prompt-desc">{{ modelPromptDesc }}</div>
-            <button class="btn-primary" @click="goToModelSettings">{{ $t('chat.goToModelSettings') }}</button>
+          <div class="conversation-list">
+            <template v-for="group in groupedConversations" :key="group.label">
+              <div v-if="!convPanelCollapsed || isMobile" class="conv-group-title">{{ group.label }}</div>
+              <div
+                v-for="conv in group.items"
+                :key="conv.conversationId"
+                class="conv-item"
+                :class="{
+                  active: currentConversationId === conv.conversationId,
+                  'is-running': conv.streamStatus === 'running',
+                }"
+                @click="selectConversation(conv)"
+              >
+                <div class="conv-icon">
+                  <img :src="channelIconUrl(conv.source)" width="14" height="14" alt="" />
+                  <span
+                    v-if="conv.streamStatus === 'running'"
+                    class="conv-running-dot"
+                    :title="$t('chat.streamGenerating')"
+                  ></span>
+                </div>
+                <div v-if="!convPanelCollapsed || isMobile" class="conv-info">
+                  <input
+                    v-if="renamingConvId === conv.conversationId"
+                    v-model="renameText"
+                    class="conv-title-input"
+                    @keydown.enter="confirmRename(conv)"
+                    @keydown.escape="cancelRename"
+                    @blur="confirmRename(conv)"
+                    @click.stop
+                    ref="renameInputRef"
+                  />
+                  <div v-else class="conv-title" @dblclick.stop="startRename(conv)">
+                    <span>{{ conv.title }}</span>
+                    <span
+                      v-if="conv.streamStatus === 'running'"
+                      class="conv-running-badge"
+                      :title="$t('chat.streamGenerating')"
+                    >
+                      <span class="conv-running-badge-pulse"></span>
+                      {{ $t('chat.streamGenerating') }}
+                    </span>
+                  </div>
+                  <div class="conv-meta">
+                    <span>{{ $t('chat.messages', { count: conv.messageCount }) }}</span>
+                    <span class="conv-dot">·</span>
+                    <span>{{ formatConversationTime(conv.lastActiveTime) }}</span>
+                  </div>
+                </div>
+                <button v-if="!convPanelCollapsed || isMobile" class="conv-delete" @click.stop="confirmDeleteConversation(conv.conversationId)" :title="$t('common.delete')">
+                  <el-icon><Delete /></el-icon>
+                </button>
+              </div>
+            </template>
+
+            <div v-if="conversations.length === 0" class="empty-convs">
+              <p>{{ $t('chat.noConversations') }}</p>
+              <p>{{ $t('chat.startNewChat') }}</p>
+            </div>
           </div>
-        </template>
-      </MessageList>
+        </div>
 
-      <!-- 流式处理 Loading 栏（消息和输入框之间） -->
-      <StreamLoadingBar
-        :is-loading="isGenerating && !showModelPrompt"
-        :tool-count="toolCallCount"
-        :completion-tokens="currentGeneratingTokens"
-        :prompt-tokens="currentPromptTokens"
-        :phase="streamPhase"
-        :phase-info="phaseInfo"
-        :running-tool-name="currentRunningToolName"
-        :has-queued="hasQueued"
-      />
+        <!-- 主聊天区域 -->
+        <div
+          class="chat-area"
+          @dragenter.prevent="onDragEnter"
+          @dragover.prevent
+          @dragleave="onDragLeave"
+          @drop.prevent="onDrop"
+        >
+          <!-- 拖拽上传遮罩 -->
+          <Transition name="fade">
+            <div v-if="isDragging" class="drop-overlay">
+              <div class="drop-overlay__content">
+                <el-icon><UploadFilled /></el-icon>
+                <span>{{ $t('chat.dropToUpload') }}</span>
+              </div>
+            </div>
+          </Transition>
+          <!-- 头部 -->
+          <div class="chat-header">
+            <div class="chat-header-left">
+              <button v-if="isMobile" class="conv-toggle-btn" @click="convPanelOpen = !convPanelOpen" :title="$t('chat.conversations')">
+                <el-icon><ChatDotRound /></el-icon>
+              </button>
+              <div class="chat-stage-copy" v-if="currentAgent">
+                <div class="chat-stage-kicker">{{ $t('nav.chat') }}</div>
+                <div class="agent-badge" :title="currentAgent.name">
+                  <span class="agent-badge-icon">{{ currentAgent.icon || '🤖' }}</span>
+                  <span class="agent-badge-name">{{ currentAgent.name }}</span>
+                  <span class="agent-badge-type">{{ currentAgent.agentType === 'react' ? 'ReAct' : 'Plan-Execute' }}</span>
+                  <span class="status-dot" :class="connectionStatusClass" :title="connectionStatusLabel"></span>
+                </div>
+              </div>
+              <div v-else class="no-agent-hint">{{ $t('chat.selectAgent') }}</div>
+            </div>
+            <div class="chat-header-right">
+              <!-- Model selector -->
+              <ModelSelector
+                v-if="eligibleModels.length > 0"
+                :providers="availableProviders"
+                :active-value="activeModelValue"
+                :active-label="activeModelLabel"
+                :saving="modelSaving"
+                @select="selectModel"
+              />
+              <button v-else class="header-btn" @click="goToModelSettings" :title="$t('chat.configModel')">
+                <el-icon><Setting /></el-icon>
+              </button>
+              <!-- Overflow menu -->
+              <div class="header-overflow-wrap">
+                <button class="header-btn" @click="headerMenuOpen = !headerMenuOpen" :title="$t('common.more') || 'More'">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                </button>
+                <Transition name="fade">
+                  <div v-if="headerMenuOpen" class="header-menu-backdrop" @click="headerMenuOpen = false"></div>
+                </Transition>
+                <Transition name="agent-dropdown">
+                  <div v-if="headerMenuOpen" class="header-menu">
+                    <button class="header-menu-item" @click="headerMenuOpen = false; goToModelSettings()">
+                      <el-icon><Setting /></el-icon>
+                      <span>{{ $t('chat.configModel') }}</span>
+                    </button>
+                    <div class="header-menu-divider"></div>
+                    <button class="header-menu-item header-menu-item--danger" @click="handleClearMessages">
+                      <el-icon><Delete /></el-icon>
+                      <span>{{ $t('chat.clearMessages') }}</span>
+                    </button>
+                  </div>
+                </Transition>
+              </div>
+            </div>
+          </div>
 
-      <!-- 使用组件化的 ChatInput -->
-      <ChatInput
-        ref="chatInputRef"
-        v-model="inputText"
-        :loading="isGenerating && !hasPendingApproval"
-        :disabled="showModelPrompt || !currentAgent"
-        :placeholder="$t('chat.messagePlaceholder')"
-        :hint="currentRuntimeModel"
-        :attachments="pendingAttachments"
-        :uploading="uploadingAttachment"
-        :max-length="10240"
-        :pending-approval="activePendingApproval"
-        :stream-phase="streamPhase"
-        :queued-message="queuedMessage"
-        :queue-size="queueSize"
-        @submit="handleSendMessage"
-        @stop="handleStopStream"
-        @cancel-queued="handleCancelQueued"
-        @file-select="handleFileSelect"
-        @attachment-remove="removeAttachment"
-        @approve="handleApprove"
-        @deny="handleDeny"
-        :enable-talk-mode="!!selectedAgentId"
-        :thinking-enabled="thinkingEnabled"
-        @toggle-thinking="thinkingEnabled = !thinkingEnabled"
-        @talk="showTalkMode = true"
-      />
-    </div>
+          <!-- 使用组件化的 MessageList -->
+          <MessageList
+            ref="messageListRef"
+            :messages="messages"
+            :loading="isGenerating"
+            :assistant-icon="currentAgent?.icon || '🤖'"
+            :user-icon="userInitial"
+            :title="showModelPrompt ? modelPromptTitle : $t('app.title')"
+            :subtitle="showModelPrompt ? modelPromptDesc : $t('chat.subtitle')"
+            :suggestions="showModelPrompt ? [] : suggestions"
+            @regenerate="handleRegenerate"
+            @suggestion-click="sendSuggestion"
+            @toggle-thinking="handleToggleThinking"
+            @approve="handleApprove"
+            @deny="handleDeny"
+          >
+            <!-- 自定义模型提示空状态 -->
+            <template v-if="showModelPrompt" #empty>
+              <div class="model-prompt">
+                <div class="model-prompt-title">{{ modelPromptTitle }}</div>
+                <div class="model-prompt-desc">{{ modelPromptDesc }}</div>
+                <button class="btn-primary" @click="goToModelSettings">{{ $t('chat.goToModelSettings') }}</button>
+              </div>
+            </template>
+          </MessageList>
+
+          <!-- 流式处理 Loading 栏（消息和输入框之间） -->
+          <StreamLoadingBar
+            :is-loading="isGenerating && !showModelPrompt"
+            :tool-count="toolCallCount"
+            :completion-tokens="currentGeneratingTokens"
+            :prompt-tokens="currentPromptTokens"
+            :phase="streamPhase"
+            :phase-info="phaseInfo"
+            :running-tool-name="currentRunningToolName"
+            :has-queued="hasQueued"
+          />
+
+          <!-- 使用组件化的 ChatInput -->
+          <ChatInput
+            ref="chatInputRef"
+            v-model="inputText"
+            :loading="isGenerating && !hasPendingApproval"
+            :disabled="showModelPrompt || !currentAgent"
+            :placeholder="$t('chat.messagePlaceholder')"
+            :hint="currentRuntimeModel"
+            :attachments="pendingAttachments"
+            :uploading="uploadingAttachment"
+            :max-length="10240"
+            :pending-approval="activePendingApproval"
+            :stream-phase="streamPhase"
+            :queued-message="queuedMessage"
+            :queue-size="queueSize"
+            @submit="handleSendMessage"
+            @stop="handleStopStream"
+            @cancel-queued="handleCancelQueued"
+            @file-select="handleFileSelect"
+            @attachment-remove="removeAttachment"
+            @approve="handleApprove"
+            @deny="handleDeny"
+            :enable-talk-mode="!!selectedAgentId"
+            :thinking-enabled="thinkingEnabled"
+            @toggle-thinking="thinkingEnabled = !thinkingEnabled"
+            @talk="showTalkMode = true"
+          />
+        </div>
 
         <!-- Talk Mode 覆盖层 -->
         <TalkMode
@@ -1004,7 +1004,7 @@ async function clearMessages() {
 // onModelChange removed — replaced by selectModel()
 
 function goToModelSettings() {
-  router.push('/settings/models')
+  router.push('/models')
 }
 
 // ============ 计算属性：是否有待审批 ============
@@ -1446,7 +1446,7 @@ function handleCodeCopy(e: MouseEvent) {
 
 .chat-console-frame {
   height: min(calc(100vh - 28px), 100%);
-  min-height: 0;
+  /* min-height: 0; */
   overflow: hidden;
 }
 
@@ -1585,19 +1585,19 @@ function handleCodeCopy(e: MouseEvent) {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border: 1px solid var(--mc-border);
+  /* border: 1px solid var(--mc-border); */
   border-radius: 12px;
   font-size: 13px;
   color: var(--mc-text-primary);
-  background: var(--mc-bg-sunken);
+  background: rgb(0 0 0 / 0.05);
   cursor: pointer;
   outline: none;
   transition: all 0.15s;
 }
 
 .agent-select-trigger:hover {
-  border-color: var(--mc-primary);
-  background: var(--mc-bg-elevated);
+  /* border-color: var(--mc-primary);
+  background: var(--mc-bg-elevated); */
 }
 
 .agent-select-trigger__icon {
@@ -1747,12 +1747,12 @@ function handleCodeCopy(e: MouseEvent) {
 }
 
 .conv-item:hover {
-  background: var(--mc-bg-sunken);
+  background: rgb(0 0 0 / 0.05);
   transform: translateY(-1px);
 }
 
 .conv-item.active {
-  background: var(--mc-primary-bg);
+  background: rgb(0 0 0 / 0.05);
 }
 
 .conv-item:hover .conv-delete {
@@ -1909,7 +1909,7 @@ function handleCodeCopy(e: MouseEvent) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: linear-gradient(180deg, var(--mc-chat-header-bg), var(--mc-chat-bg));
+  /* background: linear-gradient(180deg, var(--mc-chat-header-bg), var(--mc-chat-bg)); */
   position: relative;
   min-height: 0;
 }
@@ -1955,8 +1955,8 @@ function handleCodeCopy(e: MouseEvent) {
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  background: linear-gradient(180deg, var(--mc-panel-raised), var(--mc-surface-overlay));
-  border-bottom: 1px solid var(--mc-border);
+  /* background: linear-gradient(180deg, var(--mc-panel-raised), var(--mc-surface-overlay)); */
+  border-bottom: 1px solid var(--mc-border-light);
   min-height: 52px;
   backdrop-filter: blur(12px);
   gap: 10px;
@@ -1996,7 +1996,7 @@ function handleCodeCopy(e: MouseEvent) {
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  background: var(--mc-primary-bg);
+  background: var(--mc-sidebar-active);
   border-radius: 999px;
   max-width: 100%;
 }
@@ -2008,7 +2008,7 @@ function handleCodeCopy(e: MouseEvent) {
 .agent-badge-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--mc-primary);
+  color: var(--mc-sidebar-text-active);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2016,7 +2016,7 @@ function handleCodeCopy(e: MouseEvent) {
 
 .agent-badge-type {
   font-size: 11px;
-  color: var(--mc-primary-light);
+  color: var(--mc-sidebar-text-active);
   background: var(--mc-bg-elevated);
   padding: 1px 6px;
   border-radius: 10px;

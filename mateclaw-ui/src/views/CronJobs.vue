@@ -1,102 +1,104 @@
 <template>
-  <div class="page-container">
-    <div class="page-shell">
-      <div class="page-header">
-        <div class="page-lead">
-          <div class="page-kicker">{{ t('cronJobs.kicker') }}</div>
-          <h1 class="page-title">{{ t('cronJobs.title') }}</h1>
-          <p class="page-desc">{{ t('cronJobs.desc') }}</p>
+  <div class="mc-page-shell">
+    <div class="mc-page-frame">
+      <div class="mc-page-inner cron-jobs-page">
+        <div class="mc-page-header">
+          <div>
+            <div class="mc-page-kicker">{{ t('cronJobs.kicker') }}</div>
+            <h1 class="mc-page-title">{{ t('cronJobs.title') }}</h1>
+            <p class="mc-page-desc">{{ t('cronJobs.desc') }}</p>
+          </div>
+          <button class="btn-primary" @click="openCreateModal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            {{ t('cronJobs.createJob') }}
+          </button>
         </div>
-        <button class="btn-primary" @click="openCreateModal">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          {{ t('cronJobs.createJob') }}
-        </button>
-      </div>
 
-      <div class="page-stage">
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>{{ t('cronJobs.columns.name') }}</th>
-                <th>{{ t('cronJobs.columns.cron') }}</th>
-                <th>{{ t('tokenUsage.date') }}</th>
-                <th>{{ t('cronJobs.columns.enabled') }}</th>
-                <th>{{ t('cronJobs.columns.actions') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="job in store.jobs" :key="job.id" class="data-row">
-                <td>
-                  <div class="job-main">
-                    <div class="job-name" :title="job.name">{{ job.name }}</div>
-                    <div class="job-meta-row">
-                      <span class="agent-badge" :title="job.agentName || 'Unknown'">{{ job.agentName || 'Unknown' }}</span>
-                      <span class="type-badge" :class="'type-' + job.taskType">
-                        {{ t('cronJobs.taskTypes.' + job.taskType) }}
-                      </span>
+        <div class="cron-stage">
+          <div class="table-wrap mc-surface-card">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>{{ t('cronJobs.columns.name') }}</th>
+                  <th>{{ t('cronJobs.columns.cron') }}</th>
+                  <th>{{ t('tokenUsage.date') }}</th>
+                  <th>{{ t('cronJobs.columns.enabled') }}</th>
+                  <th>{{ t('cronJobs.columns.actions') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="job in store.jobs" :key="job.id" class="data-row">
+                  <td>
+                    <div class="job-main">
+                      <div class="job-name" :title="job.name">{{ job.name }}</div>
+                      <div class="job-meta-row">
+                        <span class="agent-badge" :title="job.agentName || 'Unknown'">{{ job.agentName || 'Unknown' }}</span>
+                        <span class="type-badge" :class="'type-' + job.taskType">
+                          {{ t('cronJobs.taskTypes.' + job.taskType) }}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </td>
-                <td>
-                  <code class="cron-code" :title="cronToHumanReadable(job.cronExpression, job.timezone)">
-                    {{ job.cronExpression }}
-                  </code>
-                  <div class="cron-readable">{{ cronToHumanReadable(job.cronExpression, job.timezone) }}</div>
-                </td>
-                <td>
-                  <div class="runtime-stack">
-                    <span v-if="job.nextRunTime" class="time-text" :title="`${t('cronJobs.columns.nextRun')}: ${formatTime(job.nextRunTime)}`">{{ formatTime(job.nextRunTime) }}</span>
-                    <span v-else class="time-empty">-</span>
-                    <span v-if="job.lastRunTime" class="time-subtext" :title="`${t('cronJobs.columns.lastRun')}: ${formatTime(job.lastRunTime)}`">{{ t('cronJobs.columns.lastRun') }}: {{ formatTime(job.lastRunTime) }}</span>
-                  </div>
-                </td>
-                <td>
-                  <label class="toggle-switch">
-                    <input type="checkbox" :checked="job.enabled" @change="handleToggle(job)" />
-                    <span class="toggle-slider"></span>
-                  </label>
-                </td>
-                <td>
-                  <div class="row-actions">
-                    <button class="row-btn" :title="t('common.view')" @click="openDetailModal(job)">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="3"/><path d="M2.05 12a9.94 9.94 0 0 1 19.9 0 9.94 9.94 0 0 1-19.9 0z"/>
-                      </svg>
-                    </button>
-                    <button class="row-btn" :title="t('cronJobs.actions.runNow')" @click="handleRunNow(job)">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polygon points="5 3 19 12 5 21 5 3"/>
-                      </svg>
-                    </button>
-                    <button class="row-btn" :title="t('cronJobs.actions.edit')" @click="openEditModal(job)">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                      </svg>
-                    </button>
-                    <button class="row-btn danger" :title="t('cronJobs.actions.delete')" @click="handleDelete(job)">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"/>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-                      </svg>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="store.jobs.length === 0">
-                <td colspan="5" class="empty-row">
-                  <div class="empty-state">
-                    <span class="empty-icon">&#9201;</span>
-                    <p>{{ t('cronJobs.noJobs') }}</p>
-                    <button class="btn-primary btn-sm" @click="openCreateModal">{{ t('cronJobs.createFirst') }}</button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                  </td>
+                  <td>
+                    <code class="cron-code" :title="cronToHumanReadable(job.cronExpression, job.timezone)">
+                      {{ job.cronExpression }}
+                    </code>
+                    <div class="cron-readable">{{ cronToHumanReadable(job.cronExpression, job.timezone) }}</div>
+                  </td>
+                  <td>
+                    <div class="runtime-stack">
+                      <span v-if="job.nextRunTime" class="time-text" :title="`${t('cronJobs.columns.nextRun')}: ${formatTime(job.nextRunTime)}`">{{ formatTime(job.nextRunTime) }}</span>
+                      <span v-else class="time-empty">-</span>
+                      <span v-if="job.lastRunTime" class="time-subtext" :title="`${t('cronJobs.columns.lastRun')}: ${formatTime(job.lastRunTime)}`">{{ t('cronJobs.columns.lastRun') }}: {{ formatTime(job.lastRunTime) }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <label class="toggle-switch">
+                      <input type="checkbox" :checked="job.enabled" @change="handleToggle(job)" />
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </td>
+                  <td>
+                    <div class="row-actions">
+                      <button class="row-btn" :title="t('common.view')" @click="openDetailModal(job)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <circle cx="12" cy="12" r="3"/><path d="M2.05 12a9.94 9.94 0 0 1 19.9 0 9.94 9.94 0 0 1-19.9 0z"/>
+                        </svg>
+                      </button>
+                      <button class="row-btn" :title="t('cronJobs.actions.runNow')" @click="handleRunNow(job)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                      </button>
+                      <button class="row-btn" :title="t('cronJobs.actions.edit')" @click="openEditModal(job)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                      </button>
+                      <button class="row-btn danger" :title="t('cronJobs.actions.delete')" @click="handleDelete(job)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="3 6 5 6 21 6"/>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="store.jobs.length === 0">
+                  <td colspan="5" class="empty-row">
+                    <div class="empty-state">
+                      <span class="empty-icon">&#9201;</span>
+                      <p>{{ t('cronJobs.noJobs') }}</p>
+                      <button class="btn-primary btn-sm" @click="openCreateModal">{{ t('cronJobs.createFirst') }}</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -501,87 +503,19 @@ function formatTime(datetime: string | undefined): string {
 </script>
 
 <style scoped>
-.page-container {
-  height: 100%;
-  overflow-y: auto;
-  padding: 0;
-  background: transparent;
-}
+.cron-jobs-page { gap: 18px; }
 
-.page-shell {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  padding: 0;
-  background: transparent;
-}
-
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 24px 24px 0;
-}
-
-.page-lead {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.page-kicker {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 6px 12px;
-  border: 1px solid color-mix(in srgb, var(--mc-primary) 18%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--mc-primary-bg) 72%, var(--mc-bg-elevated) 28%);
-  color: var(--mc-primary-hover);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.page-title {
-  font-size: clamp(28px, 4vw, 40px);
-  line-height: 0.95;
-  font-weight: 800;
-  color: var(--mc-text-primary);
-  margin: 0;
-}
-
-.page-desc {
-  max-width: 620px;
-  font-size: 15px;
-  line-height: 1.55;
-  color: var(--mc-text-secondary);
-  margin: 0;
-}
-
-.btn-primary { display: flex; align-items: center; gap: 6px; padding: 10px 16px; background: var(--mc-primary); color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.btn-primary { display: flex; align-items: center; gap: 6px; padding: 10px 16px; background: linear-gradient(135deg, var(--mc-primary), var(--mc-primary-hover)); color: white; border: none; border-radius: 14px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; box-shadow: var(--mc-shadow-soft); }
 .btn-primary:hover { background: var(--mc-primary-hover); }
 .btn-primary:disabled { background: var(--mc-border); cursor: not-allowed; }
 .btn-primary.btn-sm { padding: 6px 14px; font-size: 13px; }
 .btn-secondary { padding: 8px 16px; background: var(--mc-bg-elevated); color: var(--mc-text-primary); border: 1px solid var(--mc-border); border-radius: 8px; font-size: 14px; cursor: pointer; }
 .btn-secondary:hover { background: var(--mc-bg-sunken); }
 
-.page-stage {
-  padding: 0 24px 24px;
-}
-
 .table-wrap {
   width: 100%;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--mc-bg-elevated) 96%, white 4%) 0%, var(--mc-bg-elevated) 100%);
-  border: 1px solid var(--mc-border);
-  border-radius: 24px;
   overflow-x: auto;
   overflow-y: hidden;
-  box-shadow: 0 20px 48px rgba(128, 84, 60, 0.08);
 }
 
 .data-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
@@ -742,19 +676,9 @@ function formatTime(datetime: string | undefined): string {
 .toggle-label { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--mc-text-primary); }
 
 @media (max-width: 900px) {
-  .page-header {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 16px 16px 0;
-  }
-
   .btn-primary {
     width: 100%;
     justify-content: center;
-  }
-
-  .page-stage {
-    padding: 0 16px 16px;
   }
 
   .detail-grid {

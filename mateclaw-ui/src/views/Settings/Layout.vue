@@ -2,7 +2,7 @@
   <div class="mc-page-shell settings-shell">
     <div class="mc-page-frame settings-frame">
       <div class="mc-page-inner settings-layout">
-        <div class="settings-nav mc-surface-card" :class="{ 'nav-collapsed': navCollapsed }">
+        <!-- <div class="settings-nav mc-surface-card" :class="{ 'nav-collapsed': navCollapsed }">
           <div v-if="!navCollapsed" class="settings-nav__intro">
             <div class="mc-page-kicker">{{ t('settings.kicker') }}</div>
             <h2 class="nav-title">{{ t('settings.title') }}</h2>
@@ -24,13 +24,13 @@
                 <span v-if="!navCollapsed" class="nav-label">{{ section.label }}</span>
               </router-link>
             </el-tooltip>
-          </template>
+          </template> -->
           <!-- 折叠切换按钮 -->
-          <button class="nav-collapse-btn" @click="toggleNav" :title="navCollapsed ? t('common.expandSidebar') : t('common.collapseSidebar')">
+          <!-- <button class="nav-collapse-btn" @click="toggleNav" :title="navCollapsed ? t('common.expandSidebar') : t('common.collapseSidebar')">
             <svg v-if="!navCollapsed" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
             <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
-        </div>
+        </div> -->
 
         <div class="settings-content mc-surface-card">
           <div class="settings-content__inner">
@@ -80,12 +80,6 @@ onBeforeUnmount(() => {
 })
 
 const sections = computed(() => [
-  {
-    id: 'model',
-    path: '/settings/models',
-    label: t('settings.sections.model'),
-    icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>',
-  },
   {
     id: 'system',
     path: '/settings/system',
@@ -150,12 +144,6 @@ const sections = computed(() => [
   },
   // Divider: Advanced
   { id: 'divider-advanced', path: '', label: t('settings.sections.advanced'), icon: '', isDivider: true },
-  {
-    id: 'cron-jobs',
-    path: '/settings/cron-jobs',
-    label: t('nav.cronJobs'),
-    icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
-  },
   {
     id: 'datasources',
     path: '/settings/datasources',

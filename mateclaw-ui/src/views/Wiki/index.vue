@@ -270,7 +270,7 @@ onMounted(() => {
 
 .wiki-frame {
   height: min(calc(100vh - 28px), 100%);
-  min-height: 0;
+  /* min-height: 0; */
   overflow: hidden;
 }
 

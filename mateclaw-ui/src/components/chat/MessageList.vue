@@ -10,12 +10,12 @@
         <slot name="empty" :title="title" :subtitle="subtitle" :suggestions="suggestions">
           <div class="welcome-screen">
             <div class="welcome-logo">
-              <div class="welcome-logo__glow"></div>
-              <img src="/logo/mateclaw_logo_s.png" alt="MateClaw" class="welcome-logo__icon" />
+              <img src="/logo/mateclaw_logo_s.png" alt="MateClaw" class="welcome-logo__icon welcome-logo__glow" />
             </div>
-            <h2 class="welcome-title">Mate<span class="welcome-title-highlight">Claw</span></h2>
-            <p class="welcome-subtitle">{{ subtitle }}</p>
-            <div v-if="suggestions.length" class="welcome-suggestions">
+            <!-- <h2 class="welcome-title">Mate<span class="welcome-title-highlight">Claw</span></h2> -->
+            <h2 class="welcome-title">GLClaw</h2>
+            <!-- <p class="welcome-subtitle">{{ subtitle }}</p> -->
+            <!-- <div v-if="suggestions.length" class="welcome-suggestions">
               <button
                 v-for="(s, i) in suggestions"
                 :key="s"
@@ -31,7 +31,7 @@
                 <span class="suggestion-card__text">{{ s }}</span>
                 <el-icon class="suggestion-card__arrow"><Right /></el-icon>
               </button>
-            </div>
+            </div> -->
           </div>
         </slot>
       </div>
@@ -239,10 +239,10 @@ watch(
 }
 
 .welcome-logo__glow {
-  position: absolute;
-  inset: -20px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(217, 119, 87, 0.12) 0%, transparent 70%);
+  /* position: absolute; */
+  /* inset: -20px; */
+  /* border-radius: 50%; */
+  /* background: radial-gradient(circle, rgba(217, 119, 87, 0.12) 0%, transparent 70%); */
   animation: logo-glow 3s ease-in-out infinite;
 }
 

@@ -64,12 +64,12 @@ export async function fetchAuthenticatedBlob(fileUrl: string): Promise<Blob> {
 
 // ==================== Auth ====================
 export const authApi = {
-  login: (data: { username: string; password: string }) =>
-    http.post('/auth/login', data),
+  login: (data: { username: string; password: string, captchaCode: string, captchaKey: string }) => http.post('/auth/login', data),
+  logout: () => http.post('/auth/logout'),
   listUsers: () => http.get('/auth/users'),
   createUser: (data: any) => http.post('/auth/users', data),
-  changePassword: (id: number, oldPassword: string, newPassword: string) =>
-    http.put(`/auth/users/${id}/password`, null, { params: { oldPassword, newPassword } }),
+  changePassword: (id: number, oldPassword: string, newPassword: string) => http.put(`/auth/users/${id}/password`, null, { params: { oldPassword, newPassword } }),
+  getCaptcha: () => http.get('/auth/captcha'),
 }
 
 // ==================== Agent ====================
@@ -154,7 +154,8 @@ export const skillApi = {
     http.put(`/skills/${id}/toggle?enabled=${enabled}`),
   getActiveSkills: () => http.get('/skills/runtime/active'),
   getRuntimeStatus: () => http.get('/skills/runtime/status'),
-  refreshRuntime: () => http.post('/skills/runtime/refresh'),
+  // refreshRuntime: () => http.post('/skills/runtime/refresh'),
+  refreshRuntime: () => http.post('/skills/sync'),
   exportWorkspace: (id: string | number) => http.post(`/skills/${id}/export-workspace`),
   getWorkspaceInfo: (id: string | number) => http.get(`/skills/${id}/workspace`),
 }
@@ -210,7 +211,7 @@ export const channelApi = {
   list: () => http.get('/channels'),
   get: (id: string | number) => http.get(`/channels/${id}`),
   create: (data: any) => http.post('/channels', data),
-  update: (id: string | number, data: any) => http.put(`/channels/${id}`, data),
+  update: (id: string | number, data: any) => http.put(`/channels/${id}/config`, data),
   delete: (id: string | number) => http.delete(`/channels/${id}`),
   toggle: (id: string | number, enabled: boolean) =>
     http.put(`/channels/${id}/toggle?enabled=${enabled}`),
@@ -280,6 +281,7 @@ export const modelApi = {
   getDefaultEmbedding: () => http.get('/models/embedding/default'),
   setDefaultEmbedding: (modelId: string | number | '') =>
     http.post('/models/embedding/default', { modelId }),
+  syncModels: () => http.post('/models/sync'),
 }
 
 // ==================== OAuth ====================

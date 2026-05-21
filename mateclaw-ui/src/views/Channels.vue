@@ -8,71 +8,71 @@
             <h1 class="mc-page-title">{{ t('channels.title') }}</h1>
             <p class="mc-page-desc">{{ t('channels.desc') }}</p>
           </div>
-          <button class="btn-primary" @click="openCreateModal">
+          <!-- <button class="btn-primary" @click="openCreateModal">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
             {{ t('channels.newChannel') }}
-          </button>
+          </button> -->
         </div>
 
         <!-- 渠道卡片 -->
         <div class="channel-grid">
           <div v-for="channel in channels" :key="channel.id" class="channel-card mc-surface-card">
-        <div class="channel-header">
-          <div class="channel-icon-wrap">
-            <img class="channel-icon-img" :src="getChannelIconPath(channel.channelType)" :alt="channel.channelType" />
-          </div>
-          <div class="channel-meta">
-            <h3 class="channel-name">{{ channel.name }}</h3>
-            <span class="channel-type">{{ channel.channelType }}</span>
-          </div>
-          <div class="channel-status-group">
-            <div class="channel-status" :class="channel.enabled ? 'status-on' : 'status-off'">
-              {{ channel.enabled ? t('channels.status.active') : t('channels.status.inactive') }}
+            <div class="channel-header">
+              <div class="channel-icon-wrap">
+                <img class="channel-icon-img" :src="getChannelIconPath(channel.channelType)" :alt="channel.channelType" />
+              </div>
+              <div class="channel-meta">
+                <h3 class="channel-name">{{ channel.name }}</h3>
+                <span class="channel-type">{{ channel.channelType }}</span>
+              </div>
+              <div class="channel-status-group">
+                <div class="channel-status" :class="channel.enabled ? 'status-on' : 'status-off'">
+                  {{ channel.enabled ? t('channels.status.active') : t('channels.status.inactive') }}
+                </div>
+                <div
+                  v-if="channel.enabled"
+                  class="connection-indicator"
+                  :class="getConnectionClass(channel)"
+                  :title="getConnectionTooltip(channel)"
+                >
+                  {{ getConnectionIcon(channel) }} {{ getConnectionLabel(channel) }}
+                </div>
+              </div>
             </div>
-            <div
-              v-if="channel.enabled"
-              class="connection-indicator"
-              :class="getConnectionClass(channel)"
-              :title="getConnectionTooltip(channel)"
-            >
-              {{ getConnectionIcon(channel) }} {{ getConnectionLabel(channel) }}
+            <p class="channel-desc">{{ channel.description }}</p>
+            <div class="channel-footer">
+              <button class="card-btn" @click="openEditModal(channel)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                {{ t('channels.configure') }}
+              </button>
+              <button class="card-btn" @click="toggleChannel(channel)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line v-if="channel.enabled" x1="8" y1="12" x2="16" y2="12"/>
+                  <polyline v-else points="10 8 16 12 10 16"/>
+                </svg>
+                {{ channel.enabled ? t('channels.disable') : t('channels.enable') }}
+              </button>
+              <!-- <button class="card-btn danger" @click="deleteChannel(channel.id)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                </svg>
+                {{ t('common.delete') }}
+              </button> -->
             </div>
-          </div>
-        </div>
-        <p class="channel-desc">{{ channel.description }}</p>
-        <div class="channel-footer">
-          <button class="card-btn" @click="openEditModal(channel)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-            </svg>
-            {{ t('channels.configure') }}
-          </button>
-          <button class="card-btn" @click="toggleChannel(channel)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <line v-if="channel.enabled" x1="8" y1="12" x2="16" y2="12"/>
-              <polyline v-else points="10 8 16 12 10 16"/>
-            </svg>
-            {{ channel.enabled ? t('channels.disable') : t('channels.enable') }}
-          </button>
-          <button class="card-btn danger" @click="deleteChannel(channel.id)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-            </svg>
-            {{ t('common.delete') }}
-          </button>
-        </div>
           </div>
 
           <!-- 添加渠道卡片 -->
-          <div class="channel-card add-card mc-surface-card" @click="openCreateModal">
+          <!-- <div class="channel-card add-card mc-surface-card" @click="openCreateModal">
             <div class="add-icon">+</div>
             <p class="add-label">{{ t('channels.addChannel') }}</p>
-          </div>
+          </div> -->
         </div>
       </div>
     </div>
@@ -97,7 +97,7 @@
             </div>
             <div class="form-group">
               <label class="form-label">{{ t('channels.fields.type') }}</label>
-              <select v-model="form.channelType" class="form-input" @change="onChannelTypeChange">
+              <select v-model="form.channelType" class="form-input" @change="onChannelTypeChange" disabled>
                 <option value="web">{{ t('channels.types.web') }}</option>
                 <option value="dingtalk">{{ t('channels.types.dingtalk') }}</option>
                 <option value="feishu">{{ t('channels.types.feishu') }}</option>
@@ -556,69 +556,59 @@ interface WebhookGuideInfo {
   steps: string[]
 }
 
-const WEBHOOK_GUIDES = computed<Record<string, WebhookGuideInfo>>(() => ({
-  dingtalk: {
-    steps: [
-      t('channels.guide.dingtalk.step1'),
-      t('channels.guide.dingtalk.step2'),
-      t('channels.guide.dingtalk.step3'),
-    ],
-  },
-  feishu: {
-    steps: [
-      t('channels.guide.feishu.step1'),
-      t('channels.guide.feishu.step2'),
-      t('channels.guide.feishu.step3'),
-      t('channels.guide.feishu.step4'),
-      t('channels.guide.feishu.step5'),
-    ],
-  },
-  telegram: {
-    steps: [
-      t('channels.guide.telegram.step1'),
-      t('channels.guide.telegram.step2'),
-      t('channels.guide.telegram.step3'),
-      t('channels.guide.telegram.step4'),
-    ],
-  },
-  discord: {
-    steps: [
-      t('channels.guide.discord.step1'),
-      t('channels.guide.discord.step2'),
-      t('channels.guide.discord.step3'),
-      t('channels.guide.discord.step4'),
-      t('channels.guide.discord.step5'),
-    ],
-  },
-  wecom: {
-    steps: [
-      t('channels.guide.wecom.step1'),
-      t('channels.guide.wecom.step2'),
-      t('channels.guide.wecom.step3'),
-      t('channels.guide.wecom.step4'),
-    ],
-  },
-  weixin: {
-    steps: [
-      t('channels.guide.weixin.step1'),
-      t('channels.guide.weixin.step2'),
-      t('channels.guide.weixin.step3'),
-      t('channels.guide.weixin.step4'),
-    ],
-  },
-  qq: {
-    steps: [
-      t('channels.guide.qq.step1'),
-      t('channels.guide.qq.step2'),
-      t('channels.guide.qq.step3'),
-      t('channels.guide.qq.step4'),
-    ],
-  },
-}))
+const WEBHOOK_GUIDE_KEYS: Record<string, string[]> = {
+  dingtalk: [
+    'channels.guide.dingtalk.step1',
+    'channels.guide.dingtalk.step2',
+    'channels.guide.dingtalk.step3',
+  ],
+  feishu: [
+    'channels.guide.feishu.step1',
+    'channels.guide.feishu.step2',
+    'channels.guide.feishu.step3',
+    'channels.guide.feishu.step4',
+    'channels.guide.feishu.step5',
+  ],
+  telegram: [
+    'channels.guide.telegram.step1',
+    'channels.guide.telegram.step2',
+    'channels.guide.telegram.step3',
+    'channels.guide.telegram.step4',
+  ],
+  discord: [
+    'channels.guide.discord.step1',
+    'channels.guide.discord.step2',
+    'channels.guide.discord.step3',
+    'channels.guide.discord.step4',
+    'channels.guide.discord.step5',
+  ],
+  wecom: [
+    'channels.guide.wecom.step1',
+    'channels.guide.wecom.step2',
+    'channels.guide.wecom.step3',
+    'channels.guide.wecom.step4',
+  ],
+  weixin: [
+    'channels.guide.weixin.step1',
+    'channels.guide.weixin.step2',
+    'channels.guide.weixin.step3',
+    'channels.guide.weixin.step4',
+  ],
+  qq: [
+    'channels.guide.qq.step1',
+    'channels.guide.qq.step2',
+    'channels.guide.qq.step3',
+    'channels.guide.qq.step4',
+  ],
+}
 
 /** 当前渠道是否有接入引导 */
 const webhookGuide = computed<WebhookGuideInfo | null>(() => {
-  return WEBHOOK_GUIDES.value[form.value.channelType] || null
+  const stepKeys = WEBHOOK_GUIDE_KEYS[form.value.channelType]
+  if (!stepKeys) return null
+  return {
+    steps: stepKeys.map(stepKey => t(stepKey)),
+  }
 })
 
 /** 当前渠道是否需要 Webhook URL（WebSocket / Stream / Long-Polling 模式不需要） */

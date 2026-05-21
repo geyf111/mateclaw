@@ -1,6 +1,6 @@
 <template>
   <div class="settings-section system-section">
-    <div class="section-header">
+    <!-- <div class="section-header">
       <h2 class="section-title">{{ t('settings.systemTitle') }}</h2>
       <p class="section-desc">{{ t('settings.systemDesc') }}</p>
     </div>
@@ -44,16 +44,16 @@
           </label>
         </div>
       </div>
-    </div>
+    </div> -->
 
     <!-- 搜索服务配置 -->
-    <div class="section-header" style="margin-top: 32px;">
+    <div class="section-header">
       <h2 class="section-title">{{ t('settings.searchTitle') }}</h2>
       <p class="section-desc">{{ t('settings.searchDesc') }}</p>
     </div>
 
     <div class="settings-card">
-      <div class="setting-item">
+      <!-- <div class="setting-item">
         <div class="setting-info">
           <div class="setting-label">{{ t('settings.fields.searchEnabled') }}</div>
           <div class="setting-hint">{{ t('settings.hints.searchEnabled') }}</div>
@@ -90,10 +90,10 @@
             <span class="toggle-slider"></span>
           </label>
         </div>
-      </div>
+      </div> -->
 
       <!-- Serper 配置 -->
-      <div class="setting-item setting-item-vertical">
+      <!-- <div class="setting-item setting-item-vertical">
         <div class="setting-info">
           <div class="setting-label">{{ t('settings.fields.serperApiKey') }}</div>
           <div class="setting-hint">{{ t('settings.hints.serperApiKey') }}</div>
@@ -124,7 +124,7 @@
             :disabled="!settings.searchEnabled"
           />
         </div>
-      </div>
+      </div> -->
 
       <!-- Tavily 配置 -->
       <div class="setting-item setting-item-vertical">
@@ -161,7 +161,7 @@
       </div>
 
       <!-- Keyless Provider 配置 -->
-      <div class="setting-item">
+      <!-- <div class="setting-item">
         <div class="setting-info">
           <div class="setting-label">{{ t('settings.fields.duckduckgoEnabled') }}</div>
           <div class="setting-hint">{{ t('settings.hints.duckduckgoEnabled') }}</div>
@@ -188,7 +188,7 @@
             :disabled="!settings.searchEnabled"
           />
         </div>
-      </div>
+      </div> -->
     </div>
 
     <div class="save-bar">

@@ -29,6 +29,7 @@ export interface LoginResponse {
   username: string
   nickname: string
   role: string
+  clawAccessToken?: string
 }
 
 // ==================== Agent ====================

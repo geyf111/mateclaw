@@ -58,18 +58,24 @@ const router = createRouter({
           component: () => import('@/views/Plugins.vue'),
           meta: { title: 'Plugins' },
         },
+        {
+          path: 'models',
+          name: 'Models',
+          component: () => import('@/views/Models/index.vue'),
+          meta: { title: 'Models' },
+        },
+        {
+          path: 'cron-jobs',
+          name: 'CronJobs',
+          component: () => import('@/views/CronJobs.vue'),
+          meta: { title: 'Cron Jobs' },
+        },
         // ==================== Settings (absorbs advanced pages) ====================
         {
           path: 'settings',
           component: () => import('@/views/Settings/Layout.vue'),
-          redirect: '/settings/models',
+          redirect: '/settings/system',
           children: [
-            {
-              path: 'models',
-              name: 'SettingsModels',
-              component: () => import('@/views/Settings/Models/index.vue'),
-              meta: { title: 'Settings - Models' },
-            },
             {
               path: 'system',
               name: 'SettingsSystem',
@@ -133,12 +139,6 @@ const router = createRouter({
               meta: { title: 'Settings - Agent Context' },
             },
             {
-              path: 'cron-jobs',
-              name: 'SettingsCronJobs',
-              component: () => import('@/views/CronJobs.vue'),
-              meta: { title: 'Settings - Cron Jobs' },
-            },
-            {
               path: 'datasources',
               name: 'SettingsDatasources',
               component: () => import('@/views/Datasources.vue'),
@@ -196,7 +196,6 @@ const router = createRouter({
         { path: 'security/workspaces', redirect: '/settings/workspaces' },
         { path: 'security/members', redirect: '/settings/members' },
         { path: 'security/activity', redirect: '/settings/activity' },
-        { path: 'cron-jobs', redirect: '/settings/cron-jobs' },
         { path: 'datasources', redirect: '/settings/datasources' },
         { path: 'mcp-servers', redirect: '/settings/mcp-servers' },
         { path: 'token-usage', redirect: '/settings/token-usage' },
