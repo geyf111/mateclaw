@@ -106,12 +106,12 @@ const router = createRouter({
           component: () => import('@/views/Models/index.vue'),
           meta: { title: 'Models', requiredCapability: 'manage:models' },
         },
-        // {
-        //   path: 'cron-jobs',
-        //   name: 'CronJobs',
-        //   component: () => import('@/views/CronJobs.vue'),
-        //   meta: { title: 'Cron Jobs' },
-        // },
+        {
+          path: 'cron-jobs',
+          name: 'CronJobs',
+          component: () => import('@/views/Scheduler/index.vue'),
+          meta: { title: 'Cron Jobs' },
+        },
         // ==================== Settings (absorbs advanced pages) ====================
         {
           path: 'settings',

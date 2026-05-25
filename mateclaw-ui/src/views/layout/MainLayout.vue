@@ -132,13 +132,13 @@
             </button>
           </div>
 
-          <div class="shortcuts-hint" :title="shortcutsHintText">
+          <!-- <div class="shortcuts-hint" :title="shortcutsHintText">
             <kbd>Ctrl+K</kbd>
             <span>{{ t('nav.shortcutAgents') }}</span>
             <span class="shortcuts-hint__sep">|</span>
             <kbd>Ctrl+N</kbd>
             <span>{{ t('nav.shortcutNew') }}</span>
-          </div>
+          </div> -->
         </template>
 
         <template v-else>
@@ -424,18 +424,18 @@ const navGroups = computed(() => [
         icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`,
         requiredCapability: 'view:wiki',
       },
-      {
-        path: '/memory',
-        label: t('nav.memory'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><line x1="12" y1="11" x2="12" y2="14"/></svg>`,
-        requiredCapability: 'view:memory',
-      },
-      {
-        path: '/enterprise',
-        label: t('nav.enterprise'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h.01"/><path d="M9 12h.01"/><path d="M9 15h.01"/><path d="M9 18h.01"/><path d="M15 9h.01"/><path d="M15 12h.01"/><path d="M15 15h.01"/><path d="M15 18h.01"/></svg>`,
-        requiredCapability: 'manage:agents',
-      },
+      // {
+      //   path: '/memory',
+      //   label: t('nav.memory'),
+      //   icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><line x1="12" y1="11" x2="12" y2="14"/></svg>`,
+      //   requiredCapability: 'view:memory',
+      // },
+      // {
+      //   path: '/enterprise',
+      //   label: t('nav.enterprise'),
+      //   icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h.01"/><path d="M9 12h.01"/><path d="M9 15h.01"/><path d="M9 18h.01"/><path d="M15 9h.01"/><path d="M15 12h.01"/><path d="M15 15h.01"/><path d="M15 18h.01"/></svg>`,
+      //   requiredCapability: 'manage:agents',
+      // },
     ] as NavItem[]),
   },
   {
@@ -460,24 +460,24 @@ const navGroups = computed(() => [
         icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>',
         requiredCapability: 'manage:models',
       },
-      {
-        path: '/plugins',
-        label: t('nav.plugins'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 3h-8v4h8V3z"/></svg>`,
-        requiredCapability: 'manage:settings',
-      },
+      // {
+      //   path: '/plugins',
+      //   label: t('nav.plugins'),
+      //   icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 3h-8v4h8V3z"/></svg>`,
+      //   requiredCapability: 'manage:settings',
+      // },
       {
         path: '/cron-jobs',
         label: t('nav.cronJobs'),
         icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
         requiredCapability: 'manage:settings',
       },
-      {
-        path: '/activity',
-        label: t('nav.activity'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
-        requiredCapability: 'manage:security',
-      },
+      // {
+      //   path: '/activity',
+      //   label: t('nav.activity'),
+      //   icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+      //   requiredCapability: 'manage:security',
+      // },
     ] as NavItem[]),
   },
   {
