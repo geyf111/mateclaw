@@ -11,6 +11,8 @@ import org.springframework.ai.content.Media;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.util.MimeType;
 import reactor.core.publisher.Flux;
+import vip.mate.agent.context.ChatOrigin;
+import vip.mate.agent.context.ChatOriginHolder;
 import vip.mate.approval.ApprovalPlaceholderUtil;
 import vip.mate.llm.model.ModelConfigEntity;
 import vip.mate.llm.routing.MediaCaptionService;
@@ -57,11 +59,17 @@ public abstract class BaseAgent {
 
     /**
      * Max ReAct iterations (one reasoning + action + observation step counts as one).
-     * Default 100, hard ceiling 100 (enforced in AgentGraphBuilder so per-agent DB
+     * Default 150, hard ceiling 150 (enforced in AgentGraphBuilder so per-agent DB
      * overrides cannot exceed it).
+     *
+     * <p>Raised from 100 → 150 after the round-4 LLM-review smoke test, where a
+     * 10-model research task with browser_use + per-step verification hit the
+     * 100-iter cap with only 4/10 models completed. 150 gives roughly 50 %
+     * headroom for similar multi-step research workflows while still bounding
+     * a runaway agent.
      */
-    public static final int MAX_ITERATIONS_HARD_CEILING = 100;
-    protected int maxIterations = 100;
+    public static final int MAX_ITERATIONS_HARD_CEILING = 150;
+    protected int maxIterations = 150;
 
     /** 工作区活动目录（限制文件工具访问范围，为空不限制） */
     protected String workspaceBasePath;
@@ -116,9 +124,24 @@ public abstract class BaseAgent {
     protected MultimodalRouter multimodalRouter;
     protected MediaCaptionService mediaCaptionService;
 
+    /**
+     * RFC 48 — wired by {@link AgentGraphBuilder#build} so the agent's
+     * {@code buildInitialState} can inject {@code ACTIVE_GOAL} from the
+     * conversation's active goal row. Nullable when the goal subsystem
+     * is off / not wired (legacy tests with minimal builders).
+     */
+    protected vip.mate.goal.service.GoalService goalService;
+
     /** Locale used when prompting the vision sidecar. Defaults to zh-CN when unset. */
     protected java.util.Locale userLocale = java.util.Locale.SIMPLIFIED_CHINESE;
 
+    /**
+     * Prefix of the system-role divider row a scheduled-job run writes into
+     * its conversation immediately before the run's user message. Used to
+     * (a) drop the divider when replaying history to the LLM and (b) locate
+     * the current run's start when isolating scheduled-job history.
+     */
+    private static final String CRON_HEADER_PREFIX = "📋 ";
 
     protected BaseAgent(ChatClient chatClient, ConversationService conversationService) {
         this.chatClient = chatClient;
@@ -221,6 +244,24 @@ public abstract class BaseAgent {
     }
 
     protected List<Message> buildConversationHistory(String conversationId, String currentUserMessage) {
+        // ===== Scheduled-job run isolation (issue #142) =====
+        // A scheduled-job run is a one-shot task whose full instruction is
+        // passed explicitly via currentUserMessage. Its conversation — the
+        // shared per-workspace tasks_<wsId> log, or a per-job cron_<id>
+        // conversation — concatenates many independent runs; under concurrent
+        // runs their rows are not even adjacent (each startRun writes a header
+        // then a user row in its own transaction, and the inserts interleave).
+        // No positional reconstruction from that conversation is therefore
+        // safe. The LLM history is simply empty: the prompt is [system, task].
+        // The gate is an explicit ChatOrigin signal, so a normal Web or
+        // channel turn can never take this path.
+        ChatOrigin chatOrigin = ChatOriginHolder.get();
+        if (chatOrigin != null && chatOrigin.cronOrigin()) {
+            log.info("[{}] Scheduled-job run: LLM context isolated (no conversation history replayed)",
+                    agentName);
+            return List.of();
+        }
+
         // ===== 两阶段加载：短对话全量，长对话分页（递进式） =====
         long totalCount = conversationService.countMessages(conversationId);
         if (totalCount <= 0) {
@@ -490,7 +531,7 @@ public abstract class BaseAgent {
         // and bloat the prompt with scheduler metadata.
         if ("system".equals(entity.getRole())
                 && entity.getContent() != null
-                && entity.getContent().startsWith("📋 ")) {
+                && entity.getContent().startsWith(CRON_HEADER_PREFIX)) {
             return null;
         }
 
@@ -616,7 +657,7 @@ public abstract class BaseAgent {
         String role = entity.getRole();
         if ("system".equals(role)
                 && entity.getContent() != null
-                && entity.getContent().startsWith("📋 ")) return true;
+                && entity.getContent().startsWith(CRON_HEADER_PREFIX)) return true;
         if ("assistant".equals(role)
                 && isApprovalPlaceholder(entity.getContent())) return true;
         if ("assistant".equals(role)
@@ -1136,6 +1177,15 @@ public abstract class BaseAgent {
      * the primary model can't already handle.
      */
     protected CurrentTurnUserMessage buildCurrentUserMessageWithRouting(String conversationId, String userMessageText) {
+        // Scheduled-job run (issue #142): the task text is the explicit
+        // userMessageText argument. Never reconstruct it from the conversation
+        // — a shared cron conversation under concurrent runs has no reliable
+        // "last user message" (another run's row may be last). Scheduled jobs
+        // carry no attachments, so a plain text UserMessage is exact.
+        ChatOrigin chatOrigin = ChatOriginHolder.get();
+        if (chatOrigin != null && chatOrigin.cronOrigin()) {
+            return new CurrentTurnUserMessage(new UserMessage(userMessageText), null);
+        }
         try {
             List<MessageEntity> history = conversationService.listMessages(conversationId);
             // 倒序取最后一条 user 消息（buildInitialState 在 saveMessage 后调用，所以最后一条就是当前消息）

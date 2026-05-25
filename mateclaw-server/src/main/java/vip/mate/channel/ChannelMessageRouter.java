@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import vip.mate.agent.AgentService;
 import vip.mate.agent.context.ChatOrigin;
+import vip.mate.agent.model.AgentEntity;
 import vip.mate.approval.ApprovalWorkflowService;
 import vip.mate.approval.ResolveOutcome;
 import vip.mate.approval.PendingApproval;
@@ -487,6 +488,47 @@ public class ChannelMessageRouter {
         return null;
     }
 
+    /**
+     * Identity gate shared by /approve and /deny (group-chat safety): only the
+     * original human requester may resolve a pending. Agent/cron ("system") and
+     * unattributed (null) approvals are fail-closed in IM — any group member
+     * could otherwise approve OR deny/cancel a guarded action — and must be
+     * handled from the admin console. Sends the rejection notice + logs and
+     * returns {@code false} when the caller is not authorized.
+     */
+    private boolean approvalResolveAuthorized(PendingApproval pending, ChannelMessage message,
+                                              ChannelAdapter adapter, String replyTarget) {
+        String originalRequester = pending.getUserId();
+        boolean systemOriginated = originalRequester == null || "system".equals(originalRequester);
+        if (systemOriginated || !originalRequester.equals(message.getSenderId())) {
+            adapter.sendMessage(replyTarget, systemOriginated
+                    ? "⚠️ 该审批由系统/定时任务发起，请在管理端处理。"
+                    : "⚠️ 只有原始请求者可以审批此操作。");
+            log.warn("[{}] Approval resolve rejected: sender={} != requester={} (systemOriginated={})",
+                    adapter.getChannelType(), message.getSenderId(), originalRequester, systemOriginated);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * When an /approve or /deny command carries an explicit short pendingId
+     * (e.g. "/deny a1b2c3"), verify it matches the conversation's current
+     * pending before resolving — otherwise a stale or copy-pasted id would
+     * silently act on the wrong pending. Sends the mismatch notice and returns
+     * {@code true} (caller must abort) when the ids don't line up.
+     */
+    private boolean pendingIdMismatch(String userText, PendingApproval pending,
+                                      ChannelAdapter adapter, String replyTarget) {
+        String shortId = extractShortId(userText);
+        if (shortId != null && !pending.getPendingId().startsWith(shortId)) {
+            adapter.sendMessage(replyTarget, "⚠️ 审批ID不匹配。当前待审批: "
+                    + pending.getPendingId().substring(0, Math.min(6, pending.getPendingId().length())));
+            return true;
+        }
+        return false;
+    }
+
     // ==================== 消息处理（原 route 逻辑 + 审批拦截层） ====================
 
     /**
@@ -509,20 +551,12 @@ public class ChannelMessageRouter {
                 String replyTarget = resolveReplyTarget(message);
 
                 if (isApproveCommand(userText)) {
-                    // pendingId 校验：如果命令包含 shortId，验证是否匹配当前 pending
-                    String shortId = extractShortId(userText);
-                    if (shortId != null && !pending.getPendingId().startsWith(shortId)) {
-                        adapter.sendMessage(replyTarget, "⚠️ 审批ID不匹配。当前待审批: "
-                                + pending.getPendingId().substring(0, Math.min(6, pending.getPendingId().length())));
+                    // pendingId 校验：approve / deny 共用——命令带 shortId 时必须匹配当前 pending。
+                    if (pendingIdMismatch(userText, pending, adapter, replyTarget)) {
                         return;
                     }
-                    // 身份校验：只有原始请求者可以审批（群聊安全）
-                    String originalRequester = pending.getUserId();
-                    if (originalRequester != null && !"system".equals(originalRequester)
-                            && !originalRequester.equals(message.getSenderId())) {
-                        adapter.sendMessage(replyTarget, "⚠️ 只有原始请求者可以审批此操作。");
-                        log.warn("[{}] Approval rejected: sender={} != requester={}",
-                                adapter.getChannelType(), message.getSenderId(), originalRequester);
+                    // 身份校验：approve / deny 共用同一道门禁（群聊安全 + system/null fail-closed）。
+                    if (!approvalResolveAuthorized(pending, message, adapter, replyTarget)) {
                         return;
                     }
                     // Approve via IM: workflow.resolveAndConsume runs DB + metadata + memory atomically.
@@ -541,9 +575,24 @@ public class ChannelMessageRouter {
                     return;
 
                 } else if (isDenyCommand(userText)) {
+                    // pendingId 校验：与 approve 一致——命令带 shortId 时必须匹配当前 pending，
+                    // 否则 /deny <其它ID> 会错误地拒绝当前 conversation 的 pending。
+                    if (pendingIdMismatch(userText, pending, adapter, replyTarget)) {
+                        return;
+                    }
+                    // 身份校验：deny 与 approve 共用门禁。否则群里任意成员可拒绝/取消他人的
+                    // pending，system/null 发起的审批也会被任意人 deny（取消审批、清 placeholder、
+                    // 写入 denied 状态）；这类审批改到管理端处理。
+                    if (!approvalResolveAuthorized(pending, message, adapter, replyTarget)) {
+                        return;
+                    }
                     // Deny via IM: workflow.resolve owns the full state-machine transition.
                     ResolveOutcome denyOutcome = approvalService.resolve(
                             pending.getPendingId(), message.getSenderId(), "denied");
+                    if (denyOutcome.isAlreadyResolved()) {
+                        adapter.sendMessage(replyTarget, "⚠️ 审批记录已过期或已被处理。");
+                        return;
+                    }
                     conversationService.removeApprovalPlaceholders(conversationId);
                     String denyHint = "⛔ 已拒绝执行工具: " + pending.getToolName();
                     persistAndBroadcastApprovalHint(conversationId, denyHint,
@@ -554,8 +603,23 @@ public class ChannelMessageRouter {
                             denyOutcome.messagesRewritten());
                     return;
 
+                } else if (adapter.usesInteractiveApprovalCards()) {
+                    // Channel approves via button-clicks on an interactive
+                    // card, NOT via /approve text. A casual follow-up
+                    // message from the user during the wait window MUST
+                    // NOT auto-cancel the pending — the button click is
+                    // the canonical decision path. Treat the new message
+                    // as a fresh turn; the pending stays alive until the
+                    // user clicks Approve / Deny, the GC TTL expires, or
+                    // the workflow explicitly resolves it.
+                    log.info("[{}] Non-approval message while pending exists; channel uses card buttons so NOT auto-cancelling pendingId={}",
+                            adapter.getChannelType(), pending.getPendingId());
+                    // Fall through to process the new message normally.
                 } else {
                     // Non-approval message while a pending exists → treat as implicit deny.
+                    // Text-command channels rely on this: the user is told
+                    // "type /approve <id>" and anything else is an implicit
+                    // change of mind.
                     approvalService.resolve(pending.getPendingId(), message.getSenderId(), "denied");
                     conversationService.removeApprovalPlaceholders(conversationId);
                     String cancelHint = "⛔ 审批已取消。将继续处理您的新消息。";
@@ -569,8 +633,40 @@ public class ChannelMessageRouter {
             }
             // ======= 审批拦截层结束 =======
 
-            // 确保会话存在（workspace 感知）
-            conversationService.getOrCreateSharedConversation(conversationId, agentId, channelEntity.getWorkspaceId());
+            // Ensure the conversation exists, seeded with the agent's
+            // currently-configured default model so per-conversation model
+            // selection works for IM channels too (issue #183).
+            //
+            // Two-part behaviour, both inside getOrCreateSharedConversation:
+            //   1. Brand-new conversation → write defaultModelName so the
+            //      very first turn picks the right model; user can later
+            //      switch via the admin UI (updateConversationModel) and the
+            //      override sticks.
+            //   2. Pre-existing conversation with model still null (legacy
+            //      rows created before #183 fix) → backfill once, then leave
+            //      alone. Already-pinned conversations are never overwritten.
+            //
+            // We pass provider=null because AgentEntity doesn't carry a
+            // provider field — the downstream ProviderChatModelFactory
+            // resolves provider from the model name. The seed logic in
+            // ConversationService treats (null, name) as no-seed (both
+            // fields must be non-blank to take effect), which is the
+            // correct defensive behaviour: we only pin when we have a
+            // complete (provider, model) pair from the admin UI.
+            String agentDefaultModel = null;
+            try {
+                AgentEntity agentEntity = agentService.getAgent(agentId);
+                agentDefaultModel = agentEntity.getModelName();
+            } catch (Exception e) {
+                // Agent deleted / disabled mid-flight — don't block message
+                // intake. Downstream agentService.chatStructuredStream will
+                // surface the real error to the user.
+                log.debug("[{}] Could not load agent {} for model-seed lookup: {}",
+                        adapter.getChannelType(), agentId, e.getMessage());
+            }
+            conversationService.getOrCreateSharedConversation(
+                    conversationId, agentId, channelEntity.getWorkspaceId(),
+                    null, agentDefaultModel);
 
             // 更新渠道会话存储（用于主动推送）
             String replyTarget = resolveReplyTarget(message);
@@ -696,6 +792,15 @@ public class ChannelMessageRouter {
 
                         // 语音回复：异步 TTS 合成并追加发送（先文本后语音，不阻塞）
                         maybeGenerateVoiceReply(message, adapter, replyTarget, conversationId, reply, channelEntity);
+
+                        // Per-channel completion ack (e.g. Feishu ✅ reaction).
+                        // No-op for adapters that haven't overridden the hook.
+                        try {
+                            adapter.onAgentCompleted(message);
+                        } catch (Exception hookErr) {
+                            log.debug("[{}] onAgentCompleted hook failed (non-fatal): {}",
+                                    adapter.getChannelType(), hookErr.getMessage());
+                        }
                     }
                 }
             } finally {
@@ -812,6 +917,12 @@ public class ChannelMessageRouter {
                 if (replyTarget != null) {
                     maybeGenerateVoiceReply(message, streamingAdapter, replyTarget,
                             conversationId, finalContent, channelEntity);
+                }
+                try {
+                    streamingAdapter.onAgentCompleted(message);
+                } catch (Exception hookErr) {
+                    log.debug("[{}] onAgentCompleted hook failed (non-fatal): {}",
+                            channelType, hookErr.getMessage());
                 }
                 return saved != null ? saved.getId() : null;
             }

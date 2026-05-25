@@ -26,7 +26,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 会话历史上下文窗口管理器（Hermes 风格升级版）
+ * 会话历史上下文窗口管理器（四阶段压缩升级版）
  * <p>
  * 四阶段压缩策略：
  * <ol>
@@ -162,6 +162,21 @@ public class ConversationWindowManager {
     /** 每个会话的摘要冷却截止时间 */
     private final ConcurrentHashMap<String, Long> summaryCooldownUntil = new ConcurrentHashMap<>();
 
+    /** Per-conversation last-PTL-forced-compaction timestamp. The structured
+     *  PTL retry path is guarded by {@link #PTL_FORCE_LLM_COOLDOWN_MS} — a
+     *  second PTL hit within the cooldown falls straight back to tail-only
+     *  trimming. Without this, a model that keeps regenerating tool-call
+     *  loops can drive a chain of summary-LLM calls and lock the
+     *  conversation in a compaction storm. */
+    private final ConcurrentHashMap<String, Long> ptlForceCompactAt = new ConcurrentHashMap<>();
+
+    /** Cooldown window after a structured PTL compaction during which a
+     *  follow-up PTL is downgraded to tail-only. Picked so a single ReAct
+     *  loop that retries within seconds can't burn another summary LLM
+     *  call, while still letting the next real conversation turn (minutes
+     *  later) get a fresh structured pass. */
+    private static final long PTL_FORCE_LLM_COOLDOWN_MS = 60_000L;
+
     // ==================== 主入口 ====================
 
     /**
@@ -259,11 +274,11 @@ public class ConversationWindowManager {
         }
         int historyBudget = effectiveMax - reservedTokens;
 
-        // 尾部保护 token 预算：阈值的 20%（与 Hermes 一致）
+        // 尾部保护 token 预算：阈值的 20%
         int tailTokenBudget = (int) (triggerThreshold * 0.20);
 
         return compactMessages(messages, historyBudget, tailTokenBudget, chatModel,
-                conversationId, agentId, totalTokens, spillsAtEntry);
+                conversationId, agentId, totalTokens, spillsAtEntry, "token_threshold");
     }
 
     /**
@@ -298,11 +313,12 @@ public class ConversationWindowManager {
     private List<Message> compactMessages(List<Message> messages, int historyBudget,
                                           int tailTokenBudget, ChatModel chatModel,
                                           String conversationId, Long agentId,
-                                          int preTokens, long spillsAtEntry) {
+                                          int preTokens, long spillsAtEntry,
+                                          String trigger) {
         broadcastCompactStatus(conversationId, "start", Map.of(
                 "preTokens", preTokens,
                 "messagesIn", messages.size(),
-                "trigger", "token_threshold"
+                "trigger", trigger
         ));
 
         // 动态计算尾部保护边界（替代固定 preserveRecentPairs）
@@ -457,7 +473,7 @@ public class ConversationWindowManager {
                     ? Math.max(0L, toolResultStorage.getSpillCount() - spillsAtEntry)
                     : 0L;
             Map<String, Object> boundaryMetadata = new java.util.LinkedHashMap<>();
-            boundaryMetadata.put("trigger", "token_threshold");
+            boundaryMetadata.put("trigger", trigger);
             boundaryMetadata.put("preTokens", preTokens);
             boundaryMetadata.put("postTokens", resultTokens);
             boundaryMetadata.put("messagesSummarized", oldMessages.size());
@@ -889,6 +905,102 @@ public class ConversationWindowManager {
     }
 
     /**
+     * Age-based compaction. Replace bodies of all tool responses older than
+     * the {@code keepRecentN} most recent with a one-line placeholder, while
+     * preserving the toolCallId and tool name so the assistant/tool pairing
+     * remains valid and the model still sees "I called X earlier" in history.
+     *
+     * <p>Complementary to {@link #pruneOldToolResultsForModelInput}: that pass
+     * targets oversized or duplicate bodies regardless of age (and may spill
+     * to disk); this one targets aged bodies regardless of size. Both can run
+     * in any order — the intersection collapses to the same placeholder.
+     *
+     * <p>Spill-marker bodies retain their on-disk {@code path=} pointer
+     * inside the placeholder so a later {@code read_file} can still recover
+     * the original output. {@link #PRUNE_EXEMPT_TOOLS} (sub-agent delegations)
+     * bypass the pass entirely — their transcripts are not replayable.
+     *
+     * @param messages     full conversation in chronological order
+     * @param keepRecentN  number of newest {@link ToolResponseMessage}s kept
+     *                     verbatim; older ones are compacted. Negative or zero
+     *                     disables the pass.
+     */
+    public List<Message> compactAgedToolResponses(List<Message> messages, int keepRecentN) {
+        if (messages == null || messages.isEmpty() || keepRecentN <= 0) {
+            return messages;
+        }
+        List<Message> out = new ArrayList<>(messages);
+        int seen = 0;
+        int compacted = 0;
+        boolean anyChange = false;
+        for (int i = out.size() - 1; i >= 0; i--) {
+            if (!(out.get(i) instanceof ToolResponseMessage trm)) {
+                continue;
+            }
+            if (seen < keepRecentN) {
+                seen++;
+                continue;
+            }
+            seen++;
+
+            List<ToolResponseMessage.ToolResponse> newResponses =
+                    new ArrayList<>(trm.getResponses().size());
+            boolean messageChanged = false;
+            for (ToolResponseMessage.ToolResponse r : trm.getResponses()) {
+                String body = r.responseData();
+                String name = r.name();
+                boolean exempt = name != null && PRUNE_EXEMPT_TOOLS.contains(name);
+                if (exempt || body == null || body.isEmpty()) {
+                    newResponses.add(r);
+                    continue;
+                }
+                String placeholder = buildAgedPlaceholder(name, body);
+                if (placeholder.length() < body.length()) {
+                    newResponses.add(new ToolResponseMessage.ToolResponse(r.id(), name, placeholder));
+                    messageChanged = true;
+                    compacted++;
+                } else {
+                    // Body is already shorter than the placeholder would be —
+                    // collapsing it would only add tokens. Keep verbatim.
+                    newResponses.add(r);
+                }
+            }
+            if (messageChanged) {
+                out.set(i, ToolResponseMessage.builder().responses(newResponses).build());
+                anyChange = true;
+            }
+        }
+        if (compacted > 0) {
+            log.info("[ConversationWindow] Aged-compacted {} tool response entries (keepRecent={}) before model request",
+                    compacted, keepRecentN);
+        }
+        return anyChange ? out : messages;
+    }
+
+    /**
+     * Build the one-line "old tool output cleared" body. When the original
+     * was a spill marker, extract its {@code path=} hint so the model can
+     * still recover the full output via {@code read_file} on demand.
+     */
+    static String buildAgedPlaceholder(String toolName, String body) {
+        String safeName = (toolName == null || toolName.isBlank()) ? "tool" : toolName;
+        if (body != null && body.startsWith(ToolResultStorage.SPILL_MARKER_PREFIX)) {
+            int idx = body.indexOf(" path=");
+            if (idx >= 0) {
+                int end = body.indexOf('\n', idx);
+                String path = (end > 0 ? body.substring(idx + 6, end) : body.substring(idx + 6)).trim();
+                if (!path.isEmpty()) {
+                    return "[Old tool output cleared — '" + safeName
+                            + "' result was spilled to " + path
+                            + "; use read_file on that path if you still need it.]";
+                }
+            }
+        }
+        return "[Old tool output cleared — '" + safeName
+                + "' can be called again if its result is needed.]";
+    }
+
+    /**
      * Phase 1 - Soft trim：对工具结果做 head+tail 裁剪（保留首尾各 200 字符）。
      * <p>Spill-marker responses are left untouched so their on-disk pointer
      * survives intact across compaction.
@@ -907,10 +1019,10 @@ public class ConversationWindowManager {
                     }
                     String data = r.responseData();
                     if (data != null && data.length() > 500) {
-                        String head = data.substring(0, 200);
-                        String tail = data.substring(data.length() - 200);
+                        String marker = "\n...[trimmed " + data.length() + " chars; "
+                                + StructuredTruncator.FIDELITY_NOTE + "]...\n";
                         newResponses.add(new ToolResponseMessage.ToolResponse(
-                                r.id(), r.name(), head + "\n...[trimmed " + data.length() + " chars]...\n" + tail));
+                                r.id(), r.name(), StructuredTruncator.truncate(data, 200, 200, marker)));
                         changed = true;
                     } else {
                         newResponses.add(r);
@@ -1081,9 +1193,9 @@ public class ConversationWindowManager {
 
             String text = msg.getText();
             if (text != null && text.length() > CONTENT_MAX) {
-                text = text.substring(0, CONTENT_HEAD)
-                        + "\n...[截断 " + text.length() + " 字符]...\n"
-                        + text.substring(text.length() - CONTENT_TAIL);
+                String marker = "\n...[truncated " + text.length() + " chars; "
+                        + StructuredTruncator.FIDELITY_NOTE + "]...\n";
+                text = StructuredTruncator.truncate(text, CONTENT_HEAD, CONTENT_TAIL, marker);
             }
 
             sb.append(role).append(": ").append(text != null ? text : "").append("\n\n");
@@ -1113,6 +1225,118 @@ public class ConversationWindowManager {
     }
 
     // ==================== PTL 紧急压缩 ====================
+
+    /**
+     * Structured PTL (Prompt Too Long) recovery — reuses the full
+     * {@link #compactMessages} pipeline (pair-safe boundary, soft/hard
+     * trim, MemoryProvider hook, LLM summary, anchor of the first user
+     * goal) under a forced-tight history budget so the retry actually fits.
+     * <p>
+     * Differences vs the {@link #compactForRetry(List)} fallback:
+     * <ul>
+     *   <li>Preserves the original user goal via anchor instead of dropping
+     *       it with the head — long tasks lose context every PTL otherwise.</li>
+     *   <li>Pair-safe cuts, so the retry doesn't break a
+     *       {@code AssistantMessage.tool_calls} / {@code ToolResponseMessage}
+     *       cluster and 400 the provider a second time.</li>
+     *   <li>Runs through summary generation so semantic continuity (user
+     *       preferences, completed steps) survives the trim.</li>
+     *   <li>Tags the persisted boundary row with
+     *       {@code trigger=prompt_too_long} so the summary is retrievable
+     *       via the same {@code mate_conversation_summary} schema as a
+     *       normal token-threshold compaction.</li>
+     * </ul>
+     * <p>
+     * A 60s cooldown ({@link #PTL_FORCE_LLM_COOLDOWN_MS}) downgrades the
+     * second-and-subsequent PTL hit on one conversation to tail-only, so
+     * a model stuck in a tool-call retry loop can't drag the summary LLM
+     * along with it.
+     *
+     * @param messages       Current history that overflowed the model window.
+     * @param chatModel      Used for the summary generation step.
+     * @param conversationId Cooldown / cache key.
+     * @param agentId        Drives the {@code MemoryProvider.onPreCompress}
+     *                       hook. Nullable — the hook is a no-op when null.
+     * @return Compacted history with summary + anchor + tail, or the
+     *         {@link #compactForRetry(List)} tail-only fallback when the
+     *         cooldown is active or the structured pass produces no
+     *         reduction. {@code null} when the input is too small to
+     *         compact (matches the legacy contract).
+     */
+    public List<Message> compactForRetry(List<Message> messages,
+                                          ChatModel chatModel,
+                                          String conversationId,
+                                          Long agentId) {
+        if (messages == null || messages.size() <= 2) {
+            return null;
+        }
+
+        // Sweep the cooldown map on every PTL entry. The summaryCache sweep
+        // already covers normal-compaction traffic via fitToWindow; without
+        // this call here, a conversation that only ever hits PTL never
+        // releases its ptlForceCompactAt entry.
+        evictExpiredEntries();
+
+        // Race-safe claim: compute is atomic per key, so two concurrent
+        // PTL hits on the same conv can't both pass the cooldown check.
+        // The {@code claimed} flag is set inside the atomic block so we can
+        // distinguish "this call's stamp won" from "previous call's stamp
+        // happened to equal our now" (Windows clock has 15 ms granularity —
+        // identity-on-timestamp would misfire for back-to-back invocations).
+        long now = System.currentTimeMillis();
+        final boolean[] claimed = {false};
+        ptlForceCompactAt.compute(conversationId, (k, prev) -> {
+            if (prev != null && now - prev < PTL_FORCE_LLM_COOLDOWN_MS) {
+                claimed[0] = false;
+                return prev;
+            }
+            claimed[0] = true;
+            return now;
+        });
+        if (!claimed[0]) {
+            long prevStamp = ptlForceCompactAt.getOrDefault(conversationId, now);
+            long remainingMs = Math.max(0L, PTL_FORCE_LLM_COOLDOWN_MS - (now - prevStamp));
+            log.warn("[ConversationWindow] PTL cooldown active for conv={} (remaining {} ms), falling back to tail-only",
+                    conversationId, remainingMs);
+            broadcastCompactStatus(conversationId, "ptl_cooldown_skipped", Map.of(
+                    "trigger", "prompt_too_long",
+                    "cooldownRemainingMs", remainingMs));
+            return compactForRetry(messages);
+        }
+
+        int currentTokens = TokenEstimator.estimateTokens(messages);
+        // Force the history budget into the bottom quartile of current size
+        // — but never under 2k so the post-trim window still has room for
+        // summary + anchor + a couple of recent turns. Tail budget is one
+        // quarter of that so the recent window doesn't dominate.
+        int forcedBudget = Math.max(2000, currentTokens / 4);
+        int forcedTailBudget = forcedBudget / 4;
+
+        log.warn("[ConversationWindow] PTL forced compaction: messages={}, currentTokens={}, forcedBudget={}, forcedTail={}",
+                messages.size(), currentTokens, forcedBudget, forcedTailBudget);
+
+        // Note: no separate "ptl_start" broadcast — the inner compactMessages
+        // call broadcasts "start" with trigger="prompt_too_long" in its
+        // payload, which is sufficient differentiation for the frontend
+        // (one event per compaction, with the trigger field carrying the
+        // semantic distinction).
+
+        // Spill count is the manager's private view of toolResultStorage —
+        // computed inside the manager so callers don't need to touch the
+        // storage SPI.
+        long spillsAtEntry = (toolResultStorage != null) ? toolResultStorage.getSpillCount() : 0L;
+
+        List<Message> compacted = compactMessages(messages, forcedBudget, forcedTailBudget,
+                chatModel, conversationId, agentId, currentTokens, spillsAtEntry,
+                "prompt_too_long");
+
+        if (compacted == messages || TokenEstimator.estimateTokens(compacted) >= currentTokens) {
+            log.warn("[ConversationWindow] PTL structured compaction had no effect for conv={}, falling back to tail-only",
+                    conversationId);
+            return compactForRetry(messages);
+        }
+        return compacted;
+    }
 
     /**
      * PTL (Prompt Too Long) 恢复用的紧急压缩。
@@ -1155,6 +1379,8 @@ public class ConversationWindowManager {
 
     private void evictExpiredEntries() {
         summaryCache.entrySet().removeIf(entry -> entry.getValue().isExpired(CACHE_TTL_MS));
+        long ptlCutoff = System.currentTimeMillis() - PTL_FORCE_LLM_COOLDOWN_MS;
+        ptlForceCompactAt.entrySet().removeIf(entry -> entry.getValue() < ptlCutoff);
     }
 
     record CachedSummary(String summary, long createdAt) {

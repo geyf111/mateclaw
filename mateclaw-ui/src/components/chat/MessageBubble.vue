@@ -10,7 +10,19 @@
     <!-- 头像 -->
     <div class="msg-avatar" :class="`${role}-avatar`">
       <slot name="avatar">
-        <img v-if="role === 'assistant'" src="/logo/mateclaw_logo_s.png" alt="" class="avatar-logo" />
+        <!-- When the assistant has an active goal, wrap the logo in
+             GoalAvatarRing so the progress ring + breathing halo + hover
+             tooltip all sit naturally around the avatar. The component
+             renders only the slot content when no goal exists, so non-
+             goal turns look identical to before. The followup ↻ glyph
+             appears on messages that came from an auto-followup turn. -->
+        <GoalAvatarRing
+          v-if="role === 'assistant'"
+          :conversation-id="message.conversationId"
+          :show-followup-mark="isFollowupTurn"
+        >
+          <img src="/logo/mateclaw_logo_s.png" alt="" class="avatar-logo" />
+        </GoalAvatarRing>
         <span v-else>{{ avatarIcon }}</span>
       </slot>
     </div>
@@ -18,11 +30,14 @@
     <!-- 消息体 -->
     <div class="msg-body" :class="`${role}-body`">
       <div class="msg-bubble" :class="`${role}-bubble`">
+        <!-- Plan-step panel — always rendered at the top of the bubble whenever
+             this turn has a plan, in both the segmented and fallback render
+             paths, so plan-mode progress is never buried in a collapsed panel. -->
+        <PlanStepsPanel v-if="planMeta" :plan="planMeta" :is-generating="isGenerating" />
+
         <!-- ===== 分段式渲染模式（Claude Code 风格）===== -->
         <template v-if="useSegmentedView">
           <div class="segments-view">
-            <!-- 计划步骤面板（始终显示在 segments 之上） -->
-            <PlanStepsPanel v-if="planMeta" :plan="planMeta" :is-generating="isGenerating" />
             <template v-for="iter in groupedIterations" :key="iter.key">
               <!-- Iteration interrupted before any output landed — surface a chip
                    so the user knows the agent moved on instead of silently
@@ -35,12 +50,29 @@
                 <ThinkingSegment v-for="t in iter.thinkings" :key="t.id" :segment="t" />
                 <ToolCallSegment v-for="tool in iter.tools" :key="tool.id" :segment="tool" />
                 <template v-for="c in iter.contents" :key="c.id">
-                  <div v-if="c.repetitionWarning" class="repetition-warning">
+                  <button
+                    v-if="c.superseded"
+                    class="superseded-toggle"
+                    type="button"
+                    @click="toggleSupersededSegment(c.id)"
+                  >
+                    <el-icon><InfoFilled /></el-icon>
+                    <span>{{ $t('chat.supersededPreviewCollapsed') }}</span>
+                    <span class="superseded-toggle__action">
+                      {{ isSupersededExpanded(c.id) ? $t('chat.collapse') : $t('chat.expand') }}
+                    </span>
+                  </button>
+                  <div v-if="c.repetitionWarning && (!c.superseded || isSupersededExpanded(c.id))" class="repetition-warning">
                     <el-icon><WarningFilled /></el-icon>
                     <span class="repetition-warning__text">{{ $t('chat.contentRepetitionWarning') }}</span>
                     <span v-if="c.truncatedChars" class="repetition-warning__meta">({{ c.truncatedChars }} chars)</span>
                   </div>
-                  <ContentSegment :segment="c" :show-cursor="showCursor && c.status === 'running'" />
+                  <ContentSegment
+                    v-if="!c.superseded || isSupersededExpanded(c.id)"
+                    :segment="c"
+                    :show-cursor="showCursor && c.status === 'running'"
+                    :class="{ 'content-segment--superseded': c.superseded }"
+                  />
                 </template>
               </template>
             </template>
@@ -88,9 +120,6 @@
 
           <Transition name="thinking-slide">
             <div v-if="executionExpanded" class="execution-content">
-              <!-- Plan 步骤进度 -->
-              <PlanStepsPanel v-if="planMeta" :plan="planMeta" :is-generating="isGenerating" />
-
               <!-- 工具调用列表 -->
               <div v-if="toolCallsMeta.length" class="tool-calls">
                 <div
@@ -110,7 +139,7 @@
                 </div>
               </div>
 
-              <div v-if="!toolCallsMeta.length && !planMeta" class="execution-empty">
+              <div v-if="!toolCallsMeta.length" class="execution-empty">
                 {{ currentPhaseName }}...
               </div>
             </div>
@@ -390,7 +419,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { mcToast } from '@/composables/useMcToast'
 import {
   ArrowDown,
   CloseBold,
@@ -416,6 +445,8 @@ import BrowserTimeline from './BrowserTimeline.vue'
 import ToolCallSegment from './ToolCallSegment.vue'
 import ThinkingSegment from './ThinkingSegment.vue'
 import ContentSegment from './ContentSegment.vue'
+import GoalAvatarRing from '@/components/goal/GoalAvatarRing.vue'
+import { useGoalStore } from '@/stores/useGoalStore'
 import PlanStepsPanel from './PlanStepsPanel.vue'
 import UserMessageContent from './UserMessageContent.vue'
 import type { BrowserAction } from './BrowserTimeline.vue'
@@ -457,6 +488,19 @@ const hovered = ref(false)
 
 const avatarIcon = computed(() => {
   return role.value === 'user' ? props.userIcon : props.assistantIcon
+})
+
+// Followup attribution: an assistant message that opened right after a
+// `goal_followup` SSE event belongs to an auto-followup turn. The chat
+// composable stamps the message via goalStore on `message_start`; this
+// computed reads it back so the ↻ glyph renders on exactly those turns.
+const goalStore = useGoalStore()
+const isFollowupTurn = computed(() => {
+  if (role.value !== 'assistant') return false
+  const cid = props.message.conversationId
+  const mid = props.message.id
+  if (!cid || mid == null) return false
+  return goalStore.isFollowupMessage(String(cid), String(mid))
 })
 
 // --- 错误卡片 ---
@@ -829,6 +873,18 @@ const formatFileSize = (size: number) => {
 
 // --- 执行过程面板 ---
 const executionExpanded = ref(false)
+const expandedSupersededSegments = ref(new Set<string>())
+
+function isSupersededExpanded(id: string) {
+  return expandedSupersededSegments.value.has(id)
+}
+
+function toggleSupersededSegment(id: string) {
+  const next = new Set(expandedSupersededSegments.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedSupersededSegments.value = next
+}
 
 // --- 分段式渲染（Claude Code 风格） ---
 const parsedMetadata = computed(() => {
@@ -918,8 +974,18 @@ const segments = computed<MessageSegment[]>(() => {
   return segs
 })
 
-/** 是否使用分段模式渲染（有 segments 数据且包含多个分段） */
-const useSegmentedView = computed(() => segments.value.length > 1)
+/**
+ * Use segmented rendering when there are multiple segments, OR when the turn
+ * contains a delegation segment. Delegations live in `segments` but not in
+ * `metadata.toolCalls`, so the fallback path (which only reads toolCalls)
+ * renders nothing for them — a single-step plan that delegates to a subagent
+ * would otherwise show the subagent call as completely invisible. Forcing
+ * segmented view here makes delegation surface as a timeline entry.
+ */
+const useSegmentedView = computed(() =>
+  segments.value.length > 1 ||
+  segments.value.some(s => s.type === 'tool_call' && (s.toolName || '').startsWith('→'))
+)
 
 /**
  * Group segments by iterationIndex so each ReAct iteration renders as its own
@@ -1033,10 +1099,10 @@ function handleFeedbackAction(action: string) {
       `Timestamp: ${new Date(feedbackInfo.value?.timestamp || Date.now()).toISOString()}`,
     ].join('\n')
     copyToClipboard(lines).then(() => {
-      ElMessage.success(t('chat.feedback.reportCopied'))
+      mcToast.success(t('chat.feedback.reportCopied'))
     }).catch(() => {
       console.error('[feedback_event] copy failed:\n' + lines)
-      ElMessage.error(t('chat.feedback.reportFailed'))
+      mcToast.error(t('chat.feedback.reportFailed'))
     })
   }
 }
@@ -1112,8 +1178,9 @@ const executionPhaseLabel = computed(() => {
 
 const showExecutionPanel = computed(() => {
   if (role.value !== 'assistant') return false
-  // 审批卡片有独立的渲染区域，但 execution panel 也应该在审批阶段展示上下文
-  return toolCallsMeta.value.length > 0 || !!planMeta.value
+  // The plan-step panel renders top-level outside this execution panel,
+  // so plan presence alone no longer keeps an (otherwise empty) panel open.
+  return toolCallsMeta.value.length > 0
     || (isGenerating.value && parsedMetadata.value?.currentPhase)
     || !!pendingApproval.value
 })
@@ -1152,6 +1219,7 @@ watch(isGenerating, (generating) => {
   flex-direction: column;
   gap: 2px;
   padding: 4px 0;
+  min-width: 0;
 }
 
 /* Iteration "no output" chip (interrupted iteration). */
@@ -1191,11 +1259,43 @@ watch(isGenerating, (generating) => {
   font-size: 11px;
 }
 
+.superseded-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 5px 10px;
+  margin: 4px 0 2px;
+  font-size: 12px;
+  color: var(--mc-text-secondary, #64748b);
+  background: var(--mc-bg-elevated, #f8fafc);
+  border: 1px dashed var(--mc-border, #e2e8f0);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.superseded-toggle:hover {
+  color: var(--mc-text-primary, #0f172a);
+  border-color: var(--mc-primary, #2563eb);
+}
+
+.superseded-toggle__action {
+  color: var(--mc-primary, #2563eb);
+}
+
+.content-segment--superseded {
+  opacity: 0.72;
+}
+
 .message-wrapper {
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  max-width: 920px;
+  width: 100%;
+  /* Cap at 920px on wide screens but never exceed the actual content column —
+     keeps the bubble container-relative so it narrows with the chat panel. */
+  max-width: min(920px, 100%);
+  min-width: 0;
   margin-bottom: 6px;
 }
 
@@ -1258,6 +1358,7 @@ watch(isGenerating, (generating) => {
   font-size: 15px;
   line-height: 1.7;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .assistant-bubble {

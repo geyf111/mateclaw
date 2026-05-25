@@ -520,6 +520,11 @@ public class ChatController {
             AtomicBoolean finalized = new AtomicBoolean(false);
             try {
                 conversationService.getOrCreateConversation(conversationId, agentId, username, workspaceId);
+                // Pin the model the user picked for this conversation so later
+                // turns (and the runtime model resolver) honour it independently
+                // of every other conversation.
+                conversationService.updateConversationModel(conversationId,
+                        request.getModelProvider(), request.getModelName());
                 List<MessageContentPart> requestParts = normalizeRequestParts(request);
                 String promptText = buildPromptText(message, requestParts);
                 conversationService.saveMessage(conversationId, "user", message, requestParts);
@@ -932,7 +937,7 @@ public class ChatController {
         String username = auth != null ? auth.getName() : "anonymous";
         // 权限校验：已认证用户需验证会话归属，匿名用户（permitAll）直接放行
         if (auth != null && !conversationService.isConversationOwner(conversationId, username)) {
-            return R.fail("无权操作该会话");
+            return R.fail(403, "无权操作该会话");
         }
         boolean stopped = streamTracker.requestStop(conversationId);
 
@@ -975,7 +980,7 @@ public class ChatController {
             Authentication auth) {
         String username = auth != null ? auth.getName() : "anonymous";
         if (auth != null && !conversationService.isConversationOwner(conversationId, username)) {
-            return R.fail("无权操作该会话");
+            return R.fail(403, "无权操作该会话");
         }
 
         if (!streamTracker.isRunning(conversationId)) {
@@ -1024,7 +1029,7 @@ public class ChatController {
 
         String username = auth != null ? auth.getName() : null;
         if (username == null) {
-            return R.fail("未登录，请先登录");
+            return R.fail(401, "未登录，请先登录");
         }
         conversationService.getOrCreateConversation(request.getConversationId(), agentId, username, workspaceId);
         conversationService.saveMessage(request.getConversationId(), "user", request.getMessage(), request.getContentParts());
@@ -1047,7 +1052,7 @@ public class ChatController {
         // 校验会话归属（会话可能尚未创建，此时允许上传——后续 stream/chat 会创建并绑定用户）
         if (conversationService.conversationExists(conversationId)
                 && !conversationService.isConversationOwner(conversationId, username)) {
-            return R.fail("无权操作该会话");
+            return R.fail(403, "无权操作该会话");
         }
         if (file.isEmpty()) {
             return R.fail("上传文件不能为空");
@@ -1151,6 +1156,14 @@ public class ChatController {
         private Long lastEventId;
         /** 思考深度：off / low / medium / high / max，null 表示跟随 Agent 默认 */
         private String thinkingLevel;
+        /**
+         * Provider id of the model the user picked for this conversation.
+         * Paired with {@link #modelName}; null means "no per-conversation
+         * override — use the agent / global default".
+         */
+        private String modelProvider;
+        /** Model id the user picked for this conversation. See {@link #modelProvider}. */
+        private String modelName;
     }
 
     /**
@@ -1423,6 +1436,29 @@ public class ChatController {
             }
             if (savedAssistant.getRuntimeProvider() != null && !savedAssistant.getRuntimeProvider().isBlank()) {
                 payload.put("runtimeProvider", savedAssistant.getRuntimeProvider());
+            }
+            // Surface the server-authoritative segments timeline. The live SSE
+            // path builds metadata.segments from streamed deltas only, so
+            // server-side annotations added at persist time (e.g. the
+            // 'superseded' marker the SegmentSupersedeDetector writes onto
+            // pre-tool model claims that the actual tool result replaced)
+            // never reach the in-memory message until a page reload triggers
+            // a refetch via /messages. Inlining them in the done payload lets
+            // the client merge the markers onto its local segments by id
+            // without an extra HTTP round-trip.
+            String rawMetadata = savedAssistant.getMetadata();
+            if (rawMetadata != null && !rawMetadata.isBlank()) {
+                try {
+                    Map<String, Object> parsed = objectMapper.readValue(rawMetadata,
+                            new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+                    Object segs = parsed.get("segments");
+                    if (segs instanceof java.util.List<?> list && !list.isEmpty()) {
+                        payload.put("segments", segs);
+                    }
+                } catch (Exception ignored) {
+                    // Best-effort: malformed metadata just means the client falls
+                    // back to its existing "wait for reload" reconcile path.
+                }
             }
         }
         if (promptTokens > 0) payload.put("promptTokens", promptTokens);
@@ -1982,6 +2018,7 @@ public class ChatController {
         synchronized String toMetadataJson() {
             finalizeToolCalls();
             finalizeRunningSegments("thinking", "content", "tool_call");
+            SegmentSupersedeDetector.markSuperseded(segments);
             try {
                 Map<String, Object> metadata = new LinkedHashMap<>();
                 if (!toolCalls.isEmpty()) {

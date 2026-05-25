@@ -31,7 +31,7 @@
               >
                 <div class="list-row-name">
                   {{ wf.name || t('workflows.unnamed') }}
-                  <span v-if="wf.latestRevisionId" class="badge published">{{ t('workflows.publishedBadge', { rev: wf.latestRevisionId }) }}</span>
+                  <span v-if="wf.latestRevisionId" class="badge published">{{ t('workflows.publishedBadge', { rev: wf.latestRevisionNumber ?? '?' }) }}</span>
                   <span v-else class="badge draft">{{ t('workflows.draftBadge') }}</span>
                 </div>
                 <div class="list-row-desc">{{ wf.description || '-' }}</div>
@@ -46,6 +46,11 @@
               <input v-model="selected.name" class="editor-name" :placeholder="t('workflows.namePlaceholder')" />
               <input v-model="selected.description" class="editor-desc" :placeholder="t('workflows.descPlaceholder')" />
               <div class="editor-actions">
+                <span class="badge editor-state" :class="selected.latestRevisionId ? 'published' : 'draft'">
+                  {{ selected.latestRevisionId
+                      ? t('workflows.publishedBadge', { rev: selected.latestRevisionNumber ?? '?' })
+                      : t('workflows.draftBadge') }}
+                </span>
                 <button class="btn-ghost" :disabled="busy" @click="saveMeta">{{ t('workflows.actions.saveMeta') }}</button>
                 <button class="btn-ghost" :disabled="busy" @click="saveDraft">{{ t('workflows.actions.saveDraft') }}</button>
                 <button class="btn-ghost" :disabled="busy" @click="compile">{{ t('workflows.actions.compile') }}</button>
@@ -217,7 +222,7 @@
 import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { mcConfirm } from '@/components/common/useConfirm'
-import { ElMessage } from 'element-plus'
+import { mcToast } from '@/composables/useMcToast'
 import {
   agentApi,
   channelApi,
@@ -279,7 +284,7 @@ const resumingId = ref<number | null>(null)
 // Workspace agent list — fed to the StepPropertyPanel's agent picker
 // so authors stop typing free-form agent names that don't actually
 // exist. Loaded once on mount and on workspace switch.
-interface AgentOption { id: number; name: string; title?: string }
+interface AgentOption { id: number; name: string; title?: string; icon?: string; description?: string }
 const availableAgents = ref<AgentOption[]>([])
 interface ChannelOption {
   id: number | string
@@ -370,7 +375,7 @@ async function onGenerateAccept(draft: GeneratedDraft) {
     })
     const created = res.data as unknown as WorkflowSummary
     if (!created?.id) {
-      ElMessage.error(t('workflows.generate.failed', { msg: 'workflow row not returned' }))
+      mcToast.error(t('workflows.generate.failed', { msg: 'workflow row not returned' }))
       return
     }
     await workflowApi.saveDraft(created.id, draft.draftJson)
@@ -418,15 +423,15 @@ async function onGenerateAccept(draft: GeneratedDraft) {
       compileErrors.value = draft.compileErrors
     }
     if (triggersCreated > 0 && triggersSkipped === 0) {
-      ElMessage.success(t('workflows.generate.acceptedWithTriggers', { count: triggersCreated }))
+      mcToast.success(t('workflows.generate.acceptedWithTriggers', { count: triggersCreated }))
     } else if (triggersSkipped > 0) {
-      ElMessage.warning(t('workflows.generate.acceptedSomeTriggersFailed',
+      mcToast.warning(t('workflows.generate.acceptedSomeTriggersFailed',
           { ok: triggersCreated, fail: triggersSkipped }))
     } else {
-      ElMessage.success(t('workflows.generate.compileOk'))
+      mcToast.success(t('workflows.generate.compileOk'))
     }
   } catch (e) {
-    ElMessage.error(t('workflows.generate.failed', { msg: (e as Error).message }))
+    mcToast.error(t('workflows.generate.failed', { msg: (e as Error).message }))
   } finally {
     busy.value = false
   }
@@ -566,7 +571,10 @@ async function select(id: number) {
   try {
     const res = await workflowApi.get(id)
     selected.value = res.data as unknown as WorkflowSummary
-    draftJson.value = selected.value?.draftJson ?? ''
+    // Fall back to the latest published graph when the inline draft is empty —
+    // publishing clears draftJson on the backend, so without this the canvas
+    // and JSON editor would render empty for an already-published workflow.
+    draftJson.value = selected.value?.draftJson || selected.value?.publishedGraphJson || ''
     compileErrors.value = []
     lastStatus.value = ''
     await reloadRuns()
@@ -607,7 +615,7 @@ async function reloadAgents() {
     // via the X-Workspace-Id header, so no client-side filter is needed.
     availableAgents.value = rows
         .filter((a) => a && a.name)
-        .map((a) => ({ id: a.id, name: a.name, title: a.title }))
+        .map((a) => ({ id: a.id, name: a.name, title: a.title, icon: a.icon, description: a.description }))
   } catch (e) {
     console.error('listAgents failed', e)
   }
@@ -640,11 +648,11 @@ async function onResume(entry: PausedRunSummary, outcome: ResumeOutcome) {
   resumingId.value = entry.run.id
   try {
     await workflowApi.resumeRun(entry.run.id, entry.pause.pauseToken, outcome)
-    ElMessage.success(t('workflows.paused.resumeOk', { outcome }))
+    mcToast.success(t('workflows.paused.resumeOk', { outcome }))
     await reloadPausedRuns()
     await reloadRuns()
   } catch (e) {
-    ElMessage.error(t('workflows.paused.resumeFailed', { msg: (e as Error).message }))
+    mcToast.error(t('workflows.paused.resumeFailed', { msg: (e as Error).message }))
   } finally {
     resumingId.value = null
   }
@@ -766,8 +774,13 @@ async function onPublishSubmit(payload: { note: string }) {
     await workflowApi.saveDraft(selected.value.id, draftJson.value)
     await workflowApi.publish(selected.value.id, payload.note || undefined)
     publishDialogOpen.value = false
-    setStatus(t('workflows.status.published'), 'ok')
     await reload()
+    // Re-fetch the just-published workflow so the canvas rebinds to the
+    // published graph — publish cleared draftJson, and select() now falls
+    // back to publishedGraphJson. setStatus runs last because select()
+    // resets lastStatus.
+    await select(selected.value.id)
+    setStatus(t('workflows.status.published'), 'ok')
   } catch (e) {
     handleCompileError(e)
     // Close the publish dialog on failure so the operator sees the
@@ -777,7 +790,7 @@ async function onPublishSubmit(payload: { note: string }) {
     // below the fold on smaller viewports.
     publishDialogOpen.value = false
     if (compileErrors.value.length) {
-      ElMessage.error(t('workflows.status.compileFailed', { count: compileErrors.value.length }))
+      mcToast.error(t('workflows.status.compileFailed', { count: compileErrors.value.length }))
     }
   } finally {
     busy.value = false
@@ -992,6 +1005,11 @@ watch(workspaceId, async () => {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+/* Persistent published/draft state — sits at the row's left, actions to its right. */
+.editor-state {
+  align-self: center;
+  margin-right: auto;
 }
 .editor-toolbar {
   display: flex;
