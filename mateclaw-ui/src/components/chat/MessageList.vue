@@ -10,10 +10,11 @@
         <slot name="empty" :title="title" :subtitle="subtitle" :suggestions="suggestions">
           <div class="welcome-screen">
             <div class="welcome-logo">
-              <div class="welcome-logo__glow"></div>
-              <img src="/logo/mateclaw_logo_s.png" alt="MateClaw" class="welcome-logo__icon" />
+              <div class="welcome-logo__glow">
+                <img src="/logo/mateclaw_logo_s.png" alt="GLClaw" class="welcome-logo__icon" />
+              </div>
             </div>
-            <h2 class="welcome-title">Mate<span class="welcome-title-highlight">Claw</span></h2>
+            <h2 class="welcome-title">GL<span class="welcome-title-highlight">Claw</span></h2>
             <p class="welcome-subtitle">{{ subtitle }}</p>
             <div v-if="suggestions.length" class="welcome-suggestions">
               <button
@@ -260,9 +261,6 @@ watch(
 
 .welcome-logo__glow {
   position: absolute;
-  inset: -20px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(217, 119, 87, 0.12) 0%, transparent 70%);
   animation: logo-glow 3s ease-in-out infinite;
 }
 
