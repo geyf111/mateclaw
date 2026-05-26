@@ -260,7 +260,6 @@ watch(
 }
 
 .welcome-logo__glow {
-  position: absolute;
   animation: logo-glow 3s ease-in-out infinite;
 }
 

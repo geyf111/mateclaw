@@ -40,7 +40,9 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { channelApi } from '@/api'
 
 defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
@@ -54,11 +56,40 @@ const { t } = useI18n()
 // Three categories so the catalog reads as a curated shelf, not a flat
 // dump. Order within each group is from "most common" to "edge" so first
 // glance lands on the right thing.
-const groups = [
-  { key: 'im', types: ['telegram', 'discord', 'slack', 'qq'] },
-  { key: 'enterprise', types: ['wecom', 'weixin', 'feishu', 'dingtalk'] },
-  { key: 'web', types: ['web', 'webchat', 'webhook'] },
-]
+// const groups = [
+//   { key: 'im', types: ['telegram', 'discord', 'slack', 'qq'] },
+//   { key: 'enterprise', types: ['wecom', 'weixin', 'feishu', 'dingtalk'] },
+//   { key: 'web', types: ['web', 'webchat', 'webhook'] },
+// ]
+const supportedTypes = ref([]);
+const getSupportedTypes = async () => {
+  try {
+    const res = await channelApi.status()
+    supportedTypes.value = res.data.supportedTypes || []
+  } catch (e) {
+    supportedTypes.value = []
+  }
+}
+onMounted(() => {
+  getSupportedTypes()
+})
+const groups = computed(() => {
+  const GROUP_CONFIG = [
+    { key: 'im', types: ['telegram', 'discord', 'slack', 'qq'] },
+    { key: 'enterprise', types: ['wecom', 'weixin', 'feishu', 'dingtalk'] },
+    { key: 'web', types: ['web', 'webchat', 'webhook'] },
+  ]
+  const set = new Set<string>(supportedTypes.value)
+  if (set.size === 0) {
+    return GROUP_CONFIG
+  }
+  return GROUP_CONFIG
+    .map(g => ({
+      key: g.key,
+      types: g.types.filter(t => set.has(t))
+    }))
+    .filter(g => g.types.length > 0)
+})
 
 function pick(type: string) {
   emit('pick', type)
