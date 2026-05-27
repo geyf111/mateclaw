@@ -497,6 +497,7 @@ async function handleSave(payload: Partial<Channel>) {
     showModal.value = false
     editingChannel.value = null
     await loadChannels()
+    await loadStatus()
   } catch (e: any) {
     mcToast.error(e?.message || t('channels.messages.saveFailed'))
   }
