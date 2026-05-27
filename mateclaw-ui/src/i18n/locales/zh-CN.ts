@@ -3175,6 +3175,7 @@ export default {
       saveFailed: '渠道保存失败',
       noVerifierHint: '{type} 暂未支持在线验证。保存会直接启动渠道，请关注卡片上的连接状态指示。',
       oauthScanHint: '扫码完成后会自动填充并验证凭证——你不需要手动复制任何东西。',
+      skipOAuth: '跳过，仅保存名称',
       identity: {
         accountId: '账号 ID',
         accountName: '账号',

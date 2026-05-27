@@ -79,6 +79,10 @@
               <img :src="oauthQrImg" alt="QR Code" class="oauth-qr-img" />
               <p class="oauth-qr-status" :class="oauthStatus">{{ oauthStatusText }}</p>
             </div>
+            <!-- Skip OAuth → save with just the name -->
+            <button v-if="channelType === 'feishu' || channelType === 'dingtalk'" type="button" class="oauth-skip" @click="onSkipOAuth">
+              {{ t('channels.wizard.skipOAuth') }}
+            </button>
           </div>
 
           <!-- QQ scan-to-bind (hybrid: shown alongside the manual fields so
@@ -538,6 +542,17 @@ function onOAuthStart() {
   }
 }
 
+function onSkipOAuth() {
+  verifyResult.value = {
+    ok: true,
+    skipped: true,
+    durationMs: 0,
+    headline: t('channels.wizard.verifySkipped'),
+    identity: {},
+  }
+  currentStep.value = 2
+}
+
 function getDomainOrDefault(): string {
   // useFeishuAppRegister.start(domain) takes the region selector. We default
   // to 'feishu' (China) since that's what the field def defaults to; users
@@ -799,6 +814,8 @@ function formatIdentityKey(key: string): string {
 .oauth-qr-status.scanned { color: #E6A23C; }
 .oauth-qr-status.confirmed { color: #10b981; font-weight: 600; }
 .oauth-qr-status.expired, .oauth-qr-status.denied, .oauth-qr-status.error { color: #f56c6c; }
+.oauth-skip { display: block; margin-top: 10px; padding: 0; background: none; border: none; color: var(--mc-text-tertiary); font-size: 12px; cursor: pointer; text-align: center; width: 100%; }
+.oauth-skip:hover { color: var(--mc-text-primary); text-decoration: underline; }
 
 /* ===== How-to-get details ===== */
 .how-to { background: var(--mc-bg-sunken); border-radius: 10px; padding: 10px 14px; }

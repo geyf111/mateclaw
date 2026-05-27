@@ -64,6 +64,7 @@ const { t } = useI18n()
 const supportedTypes = ref([]);
 const getSupportedTypes = async () => {
   try {
+    await channelApi.channelsSync()
     const res = await channelApi.status()
     supportedTypes.value = res.data.supportedTypes || []
   } catch (e) {
@@ -80,9 +81,9 @@ const groups = computed(() => {
     { key: 'web', types: ['web', 'webchat', 'webhook'] },
   ]
   const set = new Set<string>(supportedTypes.value)
-  if (set.size === 0) {
-    return GROUP_CONFIG
-  }
+  // if (set.size === 0) {
+  //   return GROUP_CONFIG
+  // }
   return GROUP_CONFIG
     .map(g => ({
       key: g.key,

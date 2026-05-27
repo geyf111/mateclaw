@@ -480,6 +480,7 @@ export const channelApi = {
     http.post('/channels/qrcode/qq/begin'),
   qqRegisterStatus: (sessionId: string) =>
     http.get(`/channels/qrcode/qq/status?session=${encodeURIComponent(sessionId)}`),
+  channelsSync: () => http.post('/channels/sync'),
 }
 
 // ==================== MCP Server ====================

@@ -3077,6 +3077,7 @@ export default {
       saveFailed: 'Could not save the channel',
       noVerifierHint: 'No live check is available for {type}. Saving will start the channel; check the connection dot afterwards.',
       oauthScanHint: 'After scanning, the credentials will be filled and verified automatically — you do not need to copy anything.',
+      skipOAuth: 'Skip, save with name only',
       // Identity field labels rendered on Step 3. Keys not listed here
       // fall back to a camelCase-to-spaces conversion (formatIdentityKey),
       // so adding a new identity field on a new verifier still renders
