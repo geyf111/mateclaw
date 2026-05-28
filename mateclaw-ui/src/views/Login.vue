@@ -1,14 +1,14 @@
 <template>
   <div class="login-page">
     <div class="login-center">
-      <!-- <div class="login-logo">
+      <div class="login-logo">
         <img src="/logo/mateclaw_logo_s.png" alt="MateClaw" class="logo-image" />
-        <h1 class="logo-title">Mate<span class="logo-title-highlight">Claw</span></h1>
-      </div> -->
-      <div class="login-header">
+        <h1 class="logo-title">GL<span class="logo-title-highlight">Claw</span></h1>
+      </div>
+      <!-- <div class="login-header">
         <h1 class="header-main-title">欢迎登录</h1>
         <p class="header-sub-title">国利信安</p>
-      </div>
+      </div> -->
 
       <form class="login-form" @submit.prevent="handleLogin">
         <div class="input-wrap">
