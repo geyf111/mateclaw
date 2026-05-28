@@ -11,7 +11,7 @@
           <div class="header-right">
             <!-- Roster / Live view switch — one team, two states. Admin only.
                  Sits on the header line, level with the New Employee button. -->
-            <div v-if="isAdminRole" class="view-switch">
+            <!-- <div v-if="isAdminRole" class="view-switch">
               <button
                 class="view-seg"
                 :class="{ 'is-active': view === 'roster' }"
@@ -30,7 +30,7 @@
                   :class="{ warn: liveStuck > 0 }"
                 >{{ liveRunning }}</span>
               </button>
-            </div>
+            </div> -->
             <button class="btn-primary" @click="openCreateModal">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -172,14 +172,14 @@
             </div>
           </div>
         </div>
-        <div class="modal-footer">
+        <!-- <div class="modal-footer">
           <button class="btn-secondary" @click="openBlankCreateModal">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
             {{ t('agents.templates.skip') }}
           </button>
-        </div>
+        </div> -->
       </div>
     </div>
 
