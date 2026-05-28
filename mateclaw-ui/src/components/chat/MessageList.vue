@@ -15,7 +15,7 @@
               </div>
             </div>
             <h2 class="welcome-title">GL<span class="welcome-title-highlight">Claw</span></h2>
-            <p class="welcome-subtitle">{{ subtitle }}</p>
+            <!-- <p class="welcome-subtitle">{{ subtitle }}</p>
             <div v-if="suggestions.length" class="welcome-suggestions">
               <button
                 v-for="(s, i) in suggestions"
@@ -32,7 +32,7 @@
                 <span class="suggestion-card__text">{{ s }}</span>
                 <el-icon class="suggestion-card__arrow"><Right /></el-icon>
               </button>
-            </div>
+            </div> -->
           </div>
         </slot>
       </div>

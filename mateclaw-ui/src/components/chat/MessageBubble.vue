@@ -374,7 +374,7 @@
             <el-icon v-else><Select /></el-icon>
           </button>
           <!-- 朗读 TTS（仅 assistant） -->
-          <button
+          <!-- <button
             v-if="role === 'assistant' && !isGenerating"
             class="action-btn"
             :class="{ 'tts-playing': ttsState === 'playing' }"
@@ -386,7 +386,7 @@
             <el-icon v-if="ttsState === 'loading'" class="tts-loading-icon"><Loading /></el-icon>
             <el-icon v-else-if="ttsState === 'playing'"><VideoPause /></el-icon>
             <el-icon v-else><Microphone /></el-icon>
-          </button>
+          </button> -->
           <!-- 重新生成（仅 assistant） -->
           <button
             v-if="role === 'assistant' && !isGenerating"

@@ -151,7 +151,7 @@
         </button>
 
         <!-- Talk Mode 按钮 -->
-        <button
+        <!-- <button
           v-if="enableTalkMode"
           type="button"
           class="action-btn talk-btn"
@@ -160,7 +160,7 @@
           :title="t('talk.title')"
         >
           <el-icon><Microphone /></el-icon>
-        </button>
+        </button> -->
 
         <!-- 发送/停止/中断按钮 -->
         <button
