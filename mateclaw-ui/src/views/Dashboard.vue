@@ -8,11 +8,11 @@
             <h1 class="mc-page-title">{{ t('dashboard.title') }}</h1>
             <p class="mc-page-desc">{{ t('dashboard.desc') }}</p>
           </div>
-          <div class="hero-note mc-surface-card">
+          <!-- <div class="hero-note mc-surface-card">
             <div class="hero-note__label">{{ t('dashboard.periods.today') }}</div>
             <div class="hero-note__value">{{ todayStats.conversations }}</div>
             <div class="hero-note__meta">{{ t('dashboard.conversations') }} · {{ todayStats.messages }} {{ t('dashboard.messages') }}</div>
-          </div>
+          </div> -->
         </div>
 
         <div class="dashboard-body">
@@ -35,7 +35,7 @@
                 <div class="stat-label">{{ t('dashboard.messages') }}</div>
               </div>
             </div>
-            <div class="stat-card mc-surface-card stat-card--secondary">
+            <!-- <div class="stat-card mc-surface-card stat-card--secondary">
               <div class="stat-icon">
                 <el-icon><Tools /></el-icon>
               </div>
@@ -43,7 +43,7 @@
                 <div class="stat-value">{{ todayStats.toolCalls }}</div>
                 <div class="stat-label">{{ t('dashboard.toolCalls') }}</div>
               </div>
-            </div>
+            </div> -->
             <div class="stat-card mc-surface-card stat-card--secondary">
               <div class="stat-icon">
                 <el-icon><DataLine /></el-icon>
