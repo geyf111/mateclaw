@@ -178,7 +178,7 @@
           <!-- Show advanced (collapses optional fields) — hidden for OAuth-style
                channels until the user reaches Step 3, where they can re-edit
                via the legacy modal if needed. -->
-          <button v-if="!isOAuthStyle && optionalFields.length > 0" class="advanced-toggle" @click="showAdvanced = !showAdvanced">
+          <button v-if="!isOAuthStyle && optionalFields.length > 0 && false" class="advanced-toggle" @click="showAdvanced = !showAdvanced">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
               :style="{ transform: showAdvanced ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }">
               <polyline points="9 18 15 12 9 6"/>

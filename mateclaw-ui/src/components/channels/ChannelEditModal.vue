@@ -341,7 +341,7 @@
             </div>
 
             <!-- 高级配置 -->
-            <div class="advanced-section">
+            <div class="advanced-section" v-if="false">
               <button class="advanced-toggle" @click="showAdvanced = !showAdvanced">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                   :style="{ transform: showAdvanced ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }">
