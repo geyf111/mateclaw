@@ -395,7 +395,7 @@ const headerBtnRef = ref<HTMLElement | null>(null)
 
 const headerMenuItems = computed<DropdownMenuItem[]>(() => [
   { key: 'config', label: t('chat.configModel') },
-  { key: 'sessions', label: t('chat.openSessions') },
+  // { key: 'sessions', label: t('chat.openSessions') },
   { divider: true },
   { key: 'clear', label: t('chat.clearMessages'), danger: true },
 ])
