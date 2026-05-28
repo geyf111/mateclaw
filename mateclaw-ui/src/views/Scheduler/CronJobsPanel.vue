@@ -235,10 +235,10 @@
                 <input type="radio" v-model="form.taskType" value="agent" />
                 {{ t('cronJobs.taskTypes.agent') }}
               </label>
-              <label class="radio-option" :class="{ active: form.taskType === 'wiki_process' }">
+              <!-- <label class="radio-option" :class="{ active: form.taskType === 'wiki_process' }">
                 <input type="radio" v-model="form.taskType" value="wiki_process" />
                 {{ t('cronJobs.taskTypes.wiki_process') }}
-              </label>
+              </label> -->
             </div>
           </div>
 
@@ -285,12 +285,12 @@
             <CronExpressionField v-model="form.cronExpression" />
           </div>
 
-          <div class="form-group">
+          <!-- <div class="form-group">
             <label class="form-label">{{ t('cronJobs.fields.timezone') }}</label>
             <select v-model="form.timezone" class="form-input">
               <option v-for="tz in timezones" :key="tz" :value="tz">{{ tz }}</option>
             </select>
-          </div>
+          </div> -->
 
           <div class="form-group">
             <label class="toggle-label">
@@ -565,7 +565,8 @@ function cronToHumanReadable(expr: string, timezone: string): string {
   if (parts.length !== 5) return expr
 
   const [min, hour, dom, mon, dow] = parts
-  const tzLabel = timezone ? ` (${timezone})` : ''
+  // const tzLabel = timezone ? ` (${timezone})` : ''
+  const tzLabel = ''
 
   if (min === '0' && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
     return t('cronJobs.cronTypes.hourly') + tzLabel

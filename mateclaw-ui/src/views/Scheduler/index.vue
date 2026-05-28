@@ -84,7 +84,7 @@ watch(
 
 const tabs = computed(() => [
   { id: 'jobs' as TabId, label: t('scheduler.tabs.jobs') },
-  { id: 'triggers' as TabId, label: t('scheduler.tabs.triggers') },
+  // { id: 'triggers' as TabId, label: t('scheduler.tabs.triggers') },
   { id: 'history' as TabId, label: t('scheduler.tabs.history') },
 ])
 
