@@ -150,7 +150,8 @@
           </button>
         </div>
         <div class="modal-body">
-          <p class="template-desc">{{ t('agents.templates.desc') }}</p>
+          <!-- <p class="template-desc">{{ t('agents.templates.desc') }}</p> -->
+           <p class="template-desc">从一份岗位说明书快速招聘</p>
           <div class="template-grid">
             <div
               v-for="tpl in templates"
