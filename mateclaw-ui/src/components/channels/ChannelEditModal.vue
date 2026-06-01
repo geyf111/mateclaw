@@ -313,7 +313,7 @@
             </template>
 
             <!-- 飞书所需权限 -->
-            <div v-if="form.channelType === 'feishu'" class="permission-hints">
+            <div v-if="form.channelType === 'feishu' && false" class="permission-hints">
               <div class="permission-header">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
