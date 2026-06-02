@@ -564,7 +564,7 @@ export const CHANNEL_FIELD_DEFS: Record<string, ChannelFieldDef[]> = {
   feishu: [
     { key: 'app_id', label: 'App ID', placeholder: 'cli_xxxxxxxx', required: true, type: 'text', tooltip: '飞书开放平台应用的 App ID' },
     { key: 'app_secret', label: 'App Secret', placeholder: 'xxxxxxxxxxxxxxxx', required: true, sensitive: true, type: 'password', tooltip: '飞书开放平台应用的 App Secret' },
-    // { key: 'connection_mode', label: '接入模式', placeholder: '', type: 'select', defaultValue: 'websocket', tooltip: 'WebSocket 长连接无需公网 IP（推荐，本地开发和内网部署都能直接用）；Webhook 需要公网回调地址', options: [{ label: 'WebSocket（长连接，推荐）', value: 'websocket' }, { label: 'Webhook（HTTP 回调）', value: 'webhook' }] },
+    { key: 'connection_mode', label: '接入模式', placeholder: '', type: 'select', defaultValue: 'websocket', tooltip: 'WebSocket 长连接无需公网 IP（推荐，本地开发和内网部署都能直接用）；Webhook 需要公网回调地址', options: [{ label: 'WebSocket（长连接，推荐）', value: 'websocket' }, { label: 'Webhook（HTTP 回调）', value: 'webhook' }], showIf: { field: 'connection_mode', value: 'webhook' } },
     // { key: 'domain', label: '服务区域', placeholder: '', type: 'select', defaultValue: 'feishu', tooltip: '国内版使用 feishu（open.feishu.cn），国际版使用 lark（open.larksuite.com）', options: [{ label: '飞书（国内版）', value: 'feishu' }, { label: 'Lark（国际版）', value: 'lark' }] },
     // { key: 'verification_token', label: '验证 Token', placeholder: 'xxxxxxxx', type: 'text', tooltip: '事件订阅的 Verification Token', showIf: { field: 'connection_mode', value: 'webhook' } },
     // { key: 'encrypt_key', label: '加密密钥', placeholder: '事件加密密钥（webhook 模式必填）', sensitive: true, type: 'password', tooltip: 'Encrypt Key，用于 webhook 事件回调的消息解密（webhook 模式下必填，否则启动时会拒绝）', showIf: { field: 'connection_mode', value: 'webhook' } },
