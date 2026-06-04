@@ -56,6 +56,8 @@ import vip.mate.channel.web.ChatStreamTracker;
 import vip.mate.wiki.service.WikiContextService;
 
 import java.lang.reflect.Field;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -126,6 +128,18 @@ public class AgentGraphBuilder {
     private final vip.mate.goal.config.GoalProperties goalProperties;
 
     /**
+     * Auto-grant resolver wired into the executor so an active
+     * {@code mate_approval_grant} row can skip {@code createPending()} for matching
+     * tool calls. Together with {@link #workspaceLookupCache}, these two deps form
+     * the auto-grant entry point; the executor's null-guard turns the feature off
+     * cleanly if either is missing.
+     */
+    private final vip.mate.approval.grant.service.ApprovalGrantResolver approvalGrantResolver;
+
+    /** Conversation→workspaceId lookup cache; see {@link #approvalGrantResolver}. */
+    private final vip.mate.approval.grant.WorkspaceLookupCache workspaceLookupCache;
+
+    /**
      * Optional audit pipeline. Setter injection (rather than a constructor
      * parameter) keeps existing constructor-based wiring + tests intact.
      * When present, the executor receives it so child-agent denied-tool
@@ -167,6 +181,34 @@ public class AgentGraphBuilder {
     }
 
     /**
+     * True iff the caller passed a complete (provider, model) pin AND that
+     * pair resolves to an enabled model row. Used by {@link #build} to decide
+     * whether the explicit pick should bypass capability-driven routing.
+     */
+    private boolean pinResolvesToEnabledModel(String modelProvider, String modelName) {
+        if (modelProvider == null || modelProvider.isBlank()
+                || modelName == null || modelName.isBlank()) {
+            return false;
+        }
+        try {
+            return modelConfigService.findEnabledModel(modelProvider, modelName) != null;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * True when the Agent declared its own modelName and that name resolved to
+     * a real enabled row (rather than silently falling back to the system default).
+     */
+    private boolean agentModelOverrideResolved(AgentEntity entity, ModelConfigEntity resolved) {
+        if (entity == null || resolved == null) return false;
+        String agentModelName = entity.getModelName();
+        if (agentModelName == null || agentModelName.isBlank()) return false;
+        return agentModelName.equalsIgnoreCase(resolved.getModelName());
+    }
+
+    /**
      * 根据 AgentEntity 构建完整的 Agent 实例。
      *
      * <p>{@code modelProvider} / {@code modelName} carry an optional
@@ -187,6 +229,17 @@ public class AgentGraphBuilder {
         Set<String> boundTools = agentBindingService.getEffectiveToolNames(entity.getId());
         toolSet = toolSet.withAllowedToolsOnly(boundTools); // null = 全局默认
 
+        // Issue #184 follow-up: an agent that opted out of skills must not be
+        // able to circle back and discover/load them via the meta tools. Strip
+        // the skill-discovery surface (listAvailableSkills / load_skill /
+        // readSkillFile / runSkillScript / listSkillFiles) here. This runs as a
+        // separate deny layer so the allowlist matrix in getEffectiveToolNames
+        // stays untouched — in particular, the (skillsDisabled, !toolsDisabled,
+        // no tool bindings) cell still returns null so non-skill global tools
+        // continue to flow through.
+        toolSet = toolSet.withDeniedToolsFiltered(
+                agentBindingService.getSkillDiscoveryDeniedTools(entity.getId()));
+
         // Escape hatch: drop the load_skill meta tool entirely when disabled, so
         // it isn't advertised regardless of binding (the catalog guidance falls
         // back to readSkillFile — see SkillRuntimeService).
@@ -199,22 +252,37 @@ public class AgentGraphBuilder {
         // looks up enabled-only models and silently degrades an unmatched pin /
         // override to the global default, preserving the legacy behaviour for
         // Agents and conversations without an explicit choice.
-        // providerRouter.selectPrimary below may still swap this for a model
-        // that satisfies a bound skill's requires-model constraint.
         ModelConfigEntity globalDefault;
+        boolean explicitPinHonoured;
+        boolean agentOverrideHonoured;
         try {
+            explicitPinHonoured = pinResolvesToEnabledModel(modelProvider, modelName);
             globalDefault = resolveRuntimeBaseModel(modelProvider, modelName, entity.getModelName());
+            agentOverrideHonoured = !explicitPinHonoured
+                    && agentModelOverrideResolved(entity, globalDefault);
         } catch (Exception e) {
             throw new MateClawException("err.agent.no_default_model", "无法构建 Agent：请先在「设置 → 模型」中配置并启用默认模型");
         }
         ModelConfigEntity runtimeModel;
-        try {
-            runtimeModel = providerRouter.selectPrimary(entity.getId(), globalDefault);
-            if (runtimeModel == null) runtimeModel = globalDefault;
-        } catch (Exception e) {
-            log.debug("[ProviderRouter] primary selection failed, falling back to global default: {}",
-                    e.getMessage());
+        if (explicitPinHonoured || agentOverrideHonoured) {
+            // The caller (admin UI / chat console) handed us a concrete
+            // (provider, model) pin and it points to an enabled row. Honour
+            // it verbatim — running providerRouter.selectPrimary here would
+            // silently swap to a different model whenever a bound skill
+            // advertised a capability gap, which is exactly the "I switched
+            // model but the agent kept using the old one" surface. The
+            // diagnostic below still surfaces capability gaps in the logs
+            // so operators can see if the pinned model misses a need.
             runtimeModel = globalDefault;
+        } else {
+            try {
+                runtimeModel = providerRouter.selectPrimary(entity.getId(), globalDefault);
+                if (runtimeModel == null) runtimeModel = globalDefault;
+            } catch (Exception e) {
+                log.debug("[ProviderRouter] primary selection failed, falling back to global default: {}",
+                        e.getMessage());
+                runtimeModel = globalDefault;
+            }
         }
         // Even after the upgrade, log a WARN when the chosen primary
         // still doesn't satisfy needs (e.g. no preferred provider was
@@ -358,17 +426,40 @@ public class AgentGraphBuilder {
         agent.topP = runtimeModel.getTopP();
         agent.toolCallingEnabled = toolCallingEnabled;
 
-        // 查找工作区活动目录
+        // Agent-level override takes priority; a relative override is resolved
+        // under the workspace basePath so admins can express agent directories
+        // relative to the workspace root (matching the UI hint).
+        String workspaceBase = null;
         if (entity.getWorkspaceId() != null) {
             try {
                 var workspace = workspaceService.getById(entity.getWorkspaceId());
-                if (workspace != null && workspace.getBasePath() != null && !workspace.getBasePath().isBlank()) {
-                    agent.workspaceBasePath = workspace.getBasePath();
-                    log.info("Agent {} bound to workspace basePath: {}", entity.getName(), agent.workspaceBasePath);
+                if (workspace != null) {
+                    workspaceBase = workspace.getBasePath();
                 }
             } catch (Exception e) {
-                log.warn("Failed to lookup workspace basePath for agent {}: {}", entity.getName(), e.getMessage());
+                log.warn("Failed to lookup workspace basePath for agent {}: {}",
+                        entity.getName(), e.getMessage());
             }
+        }
+        String resolvedBase;
+        try {
+            resolvedBase = resolveAgentBasePath(entity.getWorkspaceBasePath(), workspaceBase);
+        } catch (IllegalArgumentException e) {
+            // Override violates the workspace-scoping rule (e.g. admin tried to
+            // set an absolute path outside the workspace root). Fall back to
+            // inheriting the workspace basePath so chat stays available, but
+            // surface the violation in logs so the admin can fix it.
+            log.warn("Agent {} workspaceBasePath override rejected, falling back to workspace: {}",
+                    entity.getName(), e.getMessage());
+            resolvedBase = workspaceBase;
+        }
+        if (resolvedBase != null && !resolvedBase.isBlank()) {
+            agent.workspaceBasePath = resolvedBase;
+            boolean fromOverride = entity.getWorkspaceBasePath() != null
+                    && !entity.getWorkspaceBasePath().isBlank()
+                    && resolvedBase.equals(entity.getWorkspaceBasePath());
+            log.info("Agent {} basePath = {} (source: {})",
+                    entity.getName(), resolvedBase, fromOverride ? "agent-override" : "workspace");
         }
 
         log.info("Built agent instance: {} (type={}, protocol={}, tools={}, toolCallingEnabled={})",
@@ -445,7 +536,10 @@ public class AgentGraphBuilder {
                     streamTracker, fallbackChain, llmCacheMetricsAggregator, providerHealthTracker,
                     primaryModelConfig != null ? primaryModelConfig.getProvider() : null,
                     providerPool);
-            ToolExecutionExecutor executor = new ToolExecutionExecutor(toolSet, toolGuardService, approvalService, streamTracker, toolTimeoutProperties, toolResultStorage, toolConcurrencyRegistry);
+            ToolExecutionExecutor executor = new ToolExecutionExecutor(
+                    toolSet, toolGuardService, approvalService, streamTracker,
+                    toolTimeoutProperties, toolResultStorage, toolConcurrencyRegistry,
+                    workspaceLookupCache, approvalGrantResolver);
             // Issue #46: enable skill-aware "Tool not found" hint so when the
             // LLM mis-calls a skill name as a tool, the response tells it
             // the right invocation pattern instead of a dead-end error.
@@ -687,7 +781,10 @@ public class AgentGraphBuilder {
                     streamTracker, fallbackChain, llmCacheMetricsAggregator, providerHealthTracker,
                     primaryModelConfig != null ? primaryModelConfig.getProvider() : null,
                     providerPool);
-            ToolExecutionExecutor executor = new ToolExecutionExecutor(toolSet, toolGuardService, approvalService, streamTracker, toolTimeoutProperties, toolResultStorage, toolConcurrencyRegistry);
+            ToolExecutionExecutor executor = new ToolExecutionExecutor(
+                    toolSet, toolGuardService, approvalService, streamTracker,
+                    toolTimeoutProperties, toolResultStorage, toolConcurrencyRegistry,
+                    workspaceLookupCache, approvalGrantResolver);
             // Issue #46: enable skill-aware "Tool not found" hint so when the
             // LLM mis-calls a skill name as a tool, the response tells it
             // the right invocation pattern instead of a dead-end error.
@@ -1148,6 +1245,54 @@ public class AgentGraphBuilder {
     }
 
     /**
+     * Resolve the effective working directory for an agent.
+     * <p>Precedence:
+     * <ol>
+     *   <li>When the agent-level override is set, it wins.</li>
+     *   <li>An absolute override is used verbatim, but only when it sits
+     *       inside the workspace basePath (or when the workspace has no
+     *       basePath of its own). An absolute path that points outside a
+     *       configured workspace root is rejected — otherwise a less-trusted
+     *       user with agent-edit access could set
+     *       {@code workspaceBasePath="/"} and bypass workspace scoping.</li>
+     *   <li>A relative override is resolved <em>under</em> the workspace basePath
+     *       when the workspace has one, matching the UI hint that agent paths
+     *       are relative to the workspace root.</li>
+     *   <li>A relative override with no workspace basePath is used as-is
+     *       (resolves against the JVM working directory at file-tool time).</li>
+     *   <li>With no override, the workspace basePath is inherited verbatim;
+     *       returns {@code null} when neither side has a value.</li>
+     * </ol>
+     *
+     * @throws IllegalArgumentException when an absolute override escapes the
+     *         workspace root
+     */
+    static String resolveAgentBasePath(String agentOverride, String workspaceBase) {
+        boolean hasOverride = agentOverride != null && !agentOverride.isBlank();
+        boolean hasWorkspace = workspaceBase != null && !workspaceBase.isBlank();
+        if (!hasOverride) {
+            return hasWorkspace ? workspaceBase : null;
+        }
+        Path overridePath = Paths.get(agentOverride);
+        if (overridePath.isAbsolute()) {
+            if (hasWorkspace) {
+                Path wsRoot = Paths.get(workspaceBase).toAbsolutePath().normalize();
+                Path absOverride = overridePath.toAbsolutePath().normalize();
+                if (!absOverride.startsWith(wsRoot)) {
+                    throw new IllegalArgumentException(
+                            "Agent workspaceBasePath override must be inside the workspace root: "
+                                    + absOverride + " is not under " + wsRoot);
+                }
+            }
+            return agentOverride;
+        }
+        if (hasWorkspace) {
+            return Paths.get(workspaceBase).resolve(agentOverride).toString();
+        }
+        return agentOverride;
+    }
+
+    /**
      * Finds the first enabled chat model whose provider is fully configured.
      * Used as a fallback when the default model's provider is not available.
      */
@@ -1244,6 +1389,18 @@ public class AgentGraphBuilder {
 
                 Use workspace memory tools (MEMORY.md, daily notes) for long-form narrative notes.
                 Use structured memory tools for key-value facts the system can query efficiently.
+
+                ## Memory vs Knowledge Base Precedence
+                When a question is about the user themselves — who they are, their current
+                project, its name/codename, tech stack, goals, metrics, budget, team, or what
+                they are working on — your recalled memory (the <memory-context> block plus
+                structured/workspace memory) is the authoritative source. Knowledge-base / wiki
+                pages are reference material that may describe unrelated, example, or upstream
+                projects; do NOT treat a KB page's subject as the user's own project. Only read
+                the knowledge base for explicit reference lookups, never to decide what the
+                user's project is. If memory and a KB page disagree about the user's project,
+                trust memory. If memory has no answer, say you do not have it rather than
+                adopting a KB article as the user's project.
 
                 ## Session Search
                 - `session_search(agentId, currentConversationId, mode, query, limit)` — search conversation history

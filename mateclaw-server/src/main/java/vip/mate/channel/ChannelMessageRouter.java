@@ -16,6 +16,7 @@ import vip.mate.channel.model.ChannelEntity;
 import vip.mate.channel.notification.ApprovalNotificationService;
 import vip.mate.channel.service.ChannelService;
 import vip.mate.channel.web.ChatStreamTracker;
+import vip.mate.exception.MateClawException;
 import vip.mate.memory.event.ConversationCompletionPublisher;
 import vip.mate.tts.TtsService;
 import vip.mate.workspace.conversation.ConversationService;
@@ -237,6 +238,31 @@ public class ChannelMessageRouter {
      * @param channelEntity 渠道配置（含关联 agentId）
      */
     public void enqueue(ChannelMessage message, ChannelAdapter adapter, ChannelEntity channelEntity) {
+        // The adapter caches the ChannelEntity it was constructed with, so a
+        // long-lived adapter (e.g. Feishu WS) keeps handing us a snapshot
+        // that may be stale by the time the message arrives. Refresh from
+        // the DB so a freshly-rebound agent (or any other routing-metadata
+        // change applied without a restart) is honoured immediately.
+        ChannelEntity fresh = freshChannelEntity(channelEntity);
+        if (fresh == null) {
+            // Channel deleted between adapter start and message arrival.
+            // Skip everything — even the trigger publish, since the channel
+            // no longer exists for downstream consumers to reference.
+            return;
+        }
+        // Only drop on an EXPLICIT enabled=false. A null enabled (which the
+        // production DB never returns but tests / hand-constructed entities
+        // do) means "not declared", and treating it as disabled would
+        // collapse every downstream behaviour into a silent drop — which is
+        // exactly how the previous !Boolean.TRUE.equals(...) form regressed
+        // mock-driven tests that don't bother seeding the flag.
+        if (Boolean.FALSE.equals(fresh.getEnabled())) {
+            log.warn("[{}] Channel {} (id={}) is disabled; dropping message from {}",
+                    adapter.getChannelType(), fresh.getName(), fresh.getId(), message.getSenderId());
+            return;
+        }
+        channelEntity = fresh;
+
         // Fan out to the trigger pipeline FIRST — channel_message and
         // content_match triggers fire on every received message regardless
         // of whether the channel has an agent attached. If we returned
@@ -538,7 +564,31 @@ public class ChannelMessageRouter {
      */
     private void processMessage(ChannelMessage message, ChannelAdapter adapter,
                                 ChannelEntity channelEntity, String conversationId) {
+        // The snapshot captured at enqueue time can be stale: an admin may
+        // have rebound, deleted, or disabled the channel between debounce-
+        // queue and flush. Re-read here so the rest of this method sees the
+        // current state, and fail closed on deletion / disable so we don't
+        // process traffic for a channel the admin has shut down.
+        ChannelEntity fresh = freshChannelEntity(channelEntity);
+        if (fresh == null) {
+            log.warn("[{}] Channel id={} not found at processing time; dropping message from {}",
+                    adapter.getChannelType(),
+                    channelEntity != null ? channelEntity.getId() : null,
+                    message.getSenderId());
+            return;
+        }
+        if (Boolean.FALSE.equals(fresh.getEnabled())) {
+            log.warn("[{}] Channel {} (id={}) is disabled at processing time; dropping message from {}",
+                    adapter.getChannelType(), fresh.getName(), fresh.getId(), message.getSenderId());
+            return;
+        }
+        channelEntity = fresh;
         Long agentId = channelEntity.getAgentId();
+        if (agentId == null) {
+            log.warn("[{}] Channel {} has no associated agent at processing time; dropping message from {}",
+                    adapter.getChannelType(), channelEntity.getName(), message.getSenderId());
+            return;
+        }
         log.info("[{}] Processing message: sender={}, conversationId={}, agentId={}",
                 adapter.getChannelType(), message.getSenderId(), conversationId, agentId);
 
@@ -732,10 +782,22 @@ public class ChannelMessageRouter {
                     // for any Web SSE viewer of the same conversationId.
                     StringBuilder replyAccumulator = new StringBuilder();
                     final String channelType = adapter.getChannelType();
+                    // Token usage + model attribution: capture _usage_final event emitted at stream end
+                    final int[] usage = {0, 0}; // [promptTokens, completionTokens]
+                    final String[] modelInfo = {null, null}; // [runtimeModel, runtimeProvider]
                     agentService.chatStructuredStream(agentId, promptText, conversationId,
                                     message.getSenderId(), chatOrigin)
                             .doOnNext(delta -> {
                                 if (delta.isEvent()) {
+                                    if ("_usage_final".equals(delta.eventType())) {
+                                        Map<String, Object> data = delta.eventData();
+                                        usage[0] = ((Number) data.getOrDefault("promptTokens", 0)).intValue();
+                                        usage[1] = ((Number) data.getOrDefault("completionTokens", 0)).intValue();
+                                        Object model = data.get("runtimeModelName");
+                                        Object provider = data.get("runtimeProviderId");
+                                        if (model != null) modelInfo[0] = model.toString();
+                                        if (provider != null) modelInfo[1] = provider.toString();
+                                    }
                                     mirrorPlanEventToTracker(conversationId, delta, channelType);
                                 } else if (delta.content() != null) {
                                     // Match the legacy agentService.chat() behavior: include
@@ -770,10 +832,11 @@ public class ChannelMessageRouter {
                         boolean isError = errorClassifier.isErrorReply(reply);
                         String status = isError ? "error" : "completed";
                         MessageEntity saved = conversationService.saveMessage(
-                                conversationId, "assistant", reply, null, status);
+                                conversationId, "assistant", reply, null, status,
+                                usage[0], usage[1], modelInfo[0], modelInfo[1]);
                         savedAssistantId = saved != null ? saved.getId() : null;
                         if (!isError) {
-                            publishConversationCompletedEvent(agentId, conversationId, message.getContent(), reply);
+                            publishConversationCompletedEvent(agentId, conversationId, message.getContent(), reply, chatOrigin);
                         }
                         adapter.renderAndSend(replyTarget, reply);
                         log.info("[{}] Reply sent to {}: {}chars",
@@ -884,8 +947,21 @@ public class ChannelMessageRouter {
             // only reads `delta.content()` and would otherwise eat plan_created /
             // plan_step_* events, leaving the Web Console mirror with no
             // PlanStepsPanel for IM-routed conversations.
-            Flux<AgentService.StreamDelta> mirroredStream = stream.doOnNext(delta ->
-                    mirrorPlanEventToTracker(conversationId, delta, channelType));
+            // Token usage + model attribution: capture _usage_final event emitted at stream end
+            final int[] usage = {0, 0}; // [promptTokens, completionTokens]
+            final String[] modelInfo = {null, null}; // [runtimeModel, runtimeProvider]
+            Flux<AgentService.StreamDelta> mirroredStream = stream.doOnNext(delta -> {
+                if (delta.isEvent() && "_usage_final".equals(delta.eventType())) {
+                    Map<String, Object> data = delta.eventData();
+                    usage[0] = ((Number) data.getOrDefault("promptTokens", 0)).intValue();
+                    usage[1] = ((Number) data.getOrDefault("completionTokens", 0)).intValue();
+                    Object model = data.get("runtimeModelName");
+                    Object provider = data.get("runtimeProviderId");
+                    if (model != null) modelInfo[0] = model.toString();
+                    if (provider != null) modelInfo[1] = provider.toString();
+                }
+                mirrorPlanEventToTracker(conversationId, delta, channelType);
+            });
 
             // Step 2: 委托渠道渲染（渠道内部消费 Flux 并处理 UI 更新）
             String finalContent = streamingAdapter.processStream(mirroredStream, message, conversationId);
@@ -905,9 +981,10 @@ public class ChannelMessageRouter {
                 boolean isError = errorClassifier.isErrorReply(finalContent);
                 String status = isError ? "error" : "completed";
                 MessageEntity saved = conversationService.saveMessage(
-                        conversationId, "assistant", finalContent, null, status);
+                        conversationId, "assistant", finalContent, null, status,
+                        usage[0], usage[1], modelInfo[0], modelInfo[1]);
                 if (!isError) {
-                    publishConversationCompletedEvent(agentId, conversationId, promptText, finalContent);
+                    publishConversationCompletedEvent(agentId, conversationId, promptText, finalContent, chatOrigin);
                 }
                 log.info("[{}] Streaming completed: contentLen={}, isError={}",
                         channelType, finalContent.length(), isError);
@@ -990,8 +1067,9 @@ public class ChannelMessageRouter {
                 replayOrigin = chatOriginFactory.from(
                         channelEntity, triggerMessage, conversationId, /* workspaceBasePath */ null);
             }
-            String reply = agentService.chatWithReplay(
+            AgentService.ChatResult replayResult = agentService.chatWithReplayWithUsage(
                     agentId, replayPrompt, conversationId, consumed.getToolCallPayload(), replayOrigin);
+            String reply = replayResult.content();
 
             // Persist the replay result. If the LLM 400'd during replay,
             // the error reply must also get status='error' — otherwise the
@@ -999,7 +1077,9 @@ public class ChannelMessageRouter {
             // into the prompt and re-trigger the same failure.
             boolean isError = errorClassifier.isErrorReply(reply);
             conversationService.saveMessage(conversationId, "assistant", reply, null,
-                    isError ? "error" : "completed");
+                    isError ? "error" : "completed",
+                    replayResult.promptTokens(), replayResult.completionTokens(),
+                    replayResult.runtimeModel(), replayResult.runtimeProvider());
 
             // 发送回复
             adapter.renderAndSend(replyTarget, reply);
@@ -1080,8 +1160,13 @@ public class ChannelMessageRouter {
      * messageCount lookup no longer live here.
      */
     private void publishConversationCompletedEvent(Long agentId, String conversationId,
-                                                    String userMessage, String assistantReply) {
-        completionPublisher.publish(agentId, conversationId, userMessage, assistantReply, "channel");
+                                                    String userMessage, String assistantReply,
+                                                    ChatOrigin origin) {
+        // Attribute the memory write to the same external sender the read path
+        // recalled for, so per-sender IM memory is both written and recalled
+        // under the same owner key.
+        completionPublisher.publishForOrigin(agentId, conversationId, userMessage, assistantReply,
+                "channel", origin);
     }
 
     // ==================== 流式处理（Web 渠道专用，不走队列） ====================
@@ -1090,6 +1175,14 @@ public class ChannelMessageRouter {
      * 路由消息并使用流式处理（用于支持流式的渠道，如 Web）
      */
     public Flux<String> routeStream(ChannelMessage message, ChannelEntity channelEntity) {
+        ChannelEntity fresh = freshChannelEntity(channelEntity);
+        if (fresh == null) {
+            return Flux.error(new IllegalStateException("Channel no longer exists"));
+        }
+        if (Boolean.FALSE.equals(fresh.getEnabled())) {
+            return Flux.error(new IllegalStateException("Channel is disabled"));
+        }
+        channelEntity = fresh;
         Long agentId = channelEntity.getAgentId();
         if (agentId == null) {
             return Flux.error(new IllegalStateException("Channel has no associated agent"));
@@ -1163,6 +1256,49 @@ public class ChannelMessageRouter {
     }
 
     // ==================== 工具方法 ====================
+
+    /**
+     * Re-read the channel row from the database so the rest of the message
+     * pipeline sees current routing metadata (agentId, workspaceId, identityJson)
+     * rather than the snapshot captured when the adapter was constructed.
+     *
+     * <p>Failure semantics:
+     * <ul>
+     *   <li><b>Channel deleted</b> — {@link ChannelService#getChannel} throws
+     *       a {@link MateClawException} with {@code msgKey="err.channel.not_found"}.
+     *       We return {@code null} so the caller drops the message: the channel
+     *       no longer exists, routing the message would land it against a row
+     *       that's been removed.</li>
+     *   <li><b>Transient lookup failure</b> — any other exception (DB blip,
+     *       NPE in mapper, …). We fall back to the snapshot so an isolated
+     *       infrastructure hiccup doesn't black-hole live traffic.</li>
+     * </ul>
+     *
+     * <p>{@code enabled=false} is NOT handled here — that's an admin decision
+     * the callers check separately, with channel-type-specific logging.
+     */
+    private ChannelEntity freshChannelEntity(ChannelEntity snapshot) {
+        if (snapshot == null || snapshot.getId() == null) {
+            return snapshot;
+        }
+        try {
+            ChannelEntity latest = channelService.getChannel(snapshot.getId());
+            return latest != null ? latest : snapshot;
+        } catch (MateClawException biz) {
+            if ("err.channel.not_found".equals(biz.getMsgKey())) {
+                log.warn("Channel id={} no longer exists; dropping incoming message",
+                        snapshot.getId());
+                return null;
+            }
+            log.debug("Transient channel lookup failure id={}, using snapshot: {}",
+                    snapshot.getId(), biz.getMessage());
+            return snapshot;
+        } catch (Exception e) {
+            log.debug("Failed to refresh ChannelEntity id={}, using snapshot: {}",
+                    snapshot.getId(), e.getMessage());
+            return snapshot;
+        }
+    }
 
     /**
      * 构建会话 ID
