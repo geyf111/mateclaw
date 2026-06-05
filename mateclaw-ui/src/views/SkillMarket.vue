@@ -9,7 +9,7 @@
             <p class="mc-page-desc">{{ t('skills.desc') }}</p>
           </div>
           <div class="header-actions">
-            <button class="btn-secondary" @click="handleRefreshRuntime" :disabled="refreshing">
+            <!-- <button class="btn-secondary" @click="handleRefreshRuntime" :disabled="refreshing">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
                 <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
@@ -34,6 +34,12 @@
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
               {{ t('skills.newSkill') }}
+            </button> -->
+            <button class="btn-primary" @click="showImportDialog = true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              安装技能
             </button>
           </div>
         </div>
@@ -52,11 +58,17 @@
         <!-- Search + sort. Enabled vs disabled is now the section split below,
              so the old status dropdown is gone. -->
         <div class="skill-filter-bar mc-surface-card">
-          <input
+          <!-- <input
             v-model="query.keyword"
             class="skill-search-input"
             type="search"
             :placeholder="t('skills.search.placeholder')"
+          /> -->
+          <input
+            v-model="query.keyword"
+            class="skill-search-input"
+            type="search"
+            placeholder="搜索技能名称、描述"
           />
           <select v-model="query.sort" class="skill-status-filter" @change="onFilterChange">
             <option value="recommended">{{ t('skills.sort.recommended') }}</option>
@@ -85,8 +97,8 @@
             :class="{ disabled: !skill.enabled }"
             role="button"
             tabindex="0"
-            @click="openDetailDrawer(skill)"
-            @keydown.enter="openDetailDrawer(skill)"
+            @click="openConfigDialog(skill)"
+            @keydown.enter="openConfigDialog(skill)"
           >
             <div class="skill-header">
               <div class="skill-icon-wrap" :class="getSkillIconBg(skill.skillType)">
@@ -106,14 +118,25 @@
                    Skills page and Settings ▸ MCP Connections stay in sync.
                    ACP-derived skills have no such mapping and stay read-only
                    (padlock); configure / delete are gated for both below. -->
-              <label
+              <!-- <label
                 v-if="!isSkillRowVirtual(skill) || isMcpSkillRow(skill)"
                 class="toggle-switch"
                 @click.stop
               >
                 <input type="checkbox" :checked="skill.enabled" @change="toggleSkill(skill)" />
                 <span class="toggle-slider"></span>
-              </label>
+              </label> -->
+              <el-switch
+                v-if="!isSkillRowVirtual(skill) || isMcpSkillRow(skill)"
+                v-model="skill.enabled"
+                class="toggle-switch"
+                @click.stop
+                inline-prompt
+                active-text="启用"
+                inactive-text="禁用"
+                @change="toggleSkill(skill)"
+                :disabled="!skill.installed"
+              />
               <span
                 v-else
                 class="virtual-toggle-hint"
@@ -144,9 +167,10 @@
             </div>
 
             <div class="skill-footer" @click.stop>
-              <span v-if="skill.author" class="skill-author">by {{ skill.author }}</span>
+              <!-- <span v-if="skill.author" class="skill-author">by {{ skill.author }}</span> -->
+              <span class="skill-author">{{ skill.categoryName }}</span>
               <div class="skill-actions">
-                <button
+                <!-- <button
                   v-if="needsSetup(skill)"
                   class="skill-btn skill-btn-setup"
                   :title="t('skills.actions.setUp')"
@@ -155,19 +179,22 @@
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.26 1.3.73 1.77.47.47 1.11.73 1.77.73H21a2 2 0 1 1 0 4h-.09c-.66 0-1.3.26-1.77.73-.47.47-.73 1.11-.73 1.77z"/>
                   </svg>
-                </button>
+                </button> -->
                 <button
                   v-if="!isSkillRowVirtual(skill)"
                   class="skill-btn"
                   :title="t('skills.actions.configure')"
-                  @click="openEditFromCard(skill)"
+                  @click="openConfigDialog(skill)"
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <!-- <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg> -->
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                   </svg>
                 </button>
-                <button
+                <!-- <button
                   v-if="skill.skillType !== 'builtin' && !isSkillRowVirtual(skill)"
                   class="skill-btn danger"
                   :title="t('skills.actions.delete')"
@@ -177,7 +204,7 @@
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
                   </svg>
-                </button>
+                </button> -->
               </div>
             </div>
           </div>
@@ -692,6 +719,69 @@
       </div>
     </div>
 
+    <!-- 查看配置弹窗（只读） -->
+    <div v-if="showConfigDialog" class="modal-overlay" @click.self="closeConfigDialog">
+      <div class="modal modal-config">
+        <div class="modal-header">
+          <h2>查看</h2>
+          <button class="modal-close" @click="closeConfigDialog">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group full-width">
+              <label class="form-label">目录</label>
+              <input class="form-input" :value="configSkill?.categoryName || ''" disabled />
+            </div>
+            <div class="form-group">
+              <label class="form-label">图标</label>
+              <div class="config-icon-row">
+                <SkillIcon :value="configSkill?.icon" :size="48" />
+              </div>
+            </div>
+            <div class="form-group full-width">
+              <label class="form-label">显示名称</label>
+              <input class="form-input" :value="configSkill?.nameZh || ''" disabled />
+            </div>
+            <div class="form-group full-width">
+              <label class="form-label">显示描述</label>
+              <textarea class="form-textarea code" :value="configSkill?.descriptionZh || ''" disabled rows="6" />
+            </div>
+            <div class="form-group full-width">
+              <label class="form-label">名称</label>
+              <input class="form-input" :value="configSkill?.name || ''" disabled />
+            </div>
+            <div class="form-group full-width">
+              <label class="form-label">描述</label>
+              <textarea class="form-textarea code" :value="configSkill?.description || ''" disabled rows="3" />
+            </div>
+            <div class="form-group full-width">
+              <label class="form-label">配置（JSON）</label>
+              <textarea class="form-textarea code" :value="configSkill?.configJson || ''" disabled rows="6" />
+            </div>
+            <div class="form-group full-width">
+              <label class="form-label">技能内容</label>
+              <textarea class="form-textarea code" :value="configSkill?.skillContent || ''" disabled rows="6" />
+            </div>
+            <!-- <div class="form-group full-width">
+              <label class="form-label">源代码/脚本</label>
+              <textarea class="form-textarea code" :value="configSkill?.sourceCode || ''" disabled rows="6" />
+            </div> -->
+            <div class="form-group full-width">
+              <label class="form-label">密钥</label>
+              <input class="form-input" :value="configSkill?.secret || ''" disabled />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="closeConfigDialog">关闭</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Shared icon picker — single instance routed by iconPickerTarget. -->
     <SkillIconPicker
       v-model:visible="iconPickerVisible"
@@ -743,6 +833,10 @@ const showModal = ref(false)
 const creating = ref(false)
 const refreshing = ref(false)
 const showImportDialog = ref(false)
+
+/** 查看配置弹窗（只读） */
+const showConfigDialog = ref(false)
+const configSkill = ref<Skill | null>(null)
 
 const query = reactive({
   keyword: '',
@@ -955,14 +1049,15 @@ watch(detailTab, (tab) => {
 const categoryTabs = computed(() => [
   { label: t('skills.tabs.all'), value: 'all', icon: 'all', kind: 'source' },
   { label: t('skills.tabs.builtin'), value: 'builtin', icon: 'builtin', kind: 'source' },
-  { label: t('skills.tabs.mcp'), value: 'mcp', icon: 'mcp', kind: 'source' },
+  // { label: t('skills.tabs.mcp'), value: 'mcp', icon: 'mcp', kind: 'source' },
   // ACP (Agent Communication Protocol) — auto-bridged from
   // Settings ▸ ACP Endpoints; one card per enabled endpoint.
-  { label: t('skills.tabs.acp'), value: 'acp', icon: 'acp', kind: 'source' },
-  { label: t('skills.tabs.dynamic'), value: 'dynamic', icon: 'dynamic', kind: 'source' },
+  // { label: t('skills.tabs.acp'), value: 'acp', icon: 'acp', kind: 'source' },
+  // { label: t('skills.tabs.dynamic'), value: 'dynamic', icon: 'dynamic', kind: 'source' },
+  { label: '外部', value: 'dynamic', icon: 'dynamic', kind: 'source' },
   // Lifecycle tabs — orthogonal to skillType; they filter by lifecycle_state.
-  { label: t('skills.tabs.stale'), value: 'stale', icon: 'clock', kind: 'lifecycle' },
-  { label: t('skills.tabs.archived'), value: 'archived', icon: 'archive', kind: 'lifecycle' },
+  // { label: t('skills.tabs.stale'), value: 'stale', icon: 'clock', kind: 'lifecycle' },
+  // { label: t('skills.tabs.archived'), value: 'archived', icon: 'archive', kind: 'lifecycle' },
 ])
 
 /** Stale / archived counts, sourced from the curator status endpoint. */
@@ -1173,6 +1268,18 @@ function openEditFromCard(skill: Skill) {
   openDetailDrawer(skill, 'overview', opts)
 }
 
+/** 打开只读配置弹窗 */
+function openConfigDialog(skill: Skill) {
+  configSkill.value = skill
+  showConfigDialog.value = true
+}
+
+/** 关闭只读配置弹窗 */
+function closeConfigDialog() {
+  showConfigDialog.value = false
+  configSkill.value = null
+}
+
 // ==================== Inline edit (Overview / Body) ====================
 
 function startEditIdentity() {
@@ -1344,7 +1451,7 @@ async function toggleSkill(skill: Skill) {
     return
   }
   try {
-    await skillApi.toggle(skill.id, !skill.enabled)
+    await skillApi.toggle(skill.id, skill.enabled)
     await loadAll()
   } catch (e: any) {
     mcToast.error(typeof e === 'string' ? e : e?.message || t('skills.messages.toggleFailed'))
@@ -2046,6 +2153,7 @@ html.dark .scan-finding-item { background: rgba(255, 255, 255, 0.05); }
 /* Modal */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
 .modal { background: var(--mc-bg-elevated); border: 1px solid var(--mc-border); border-radius: 16px; width: 100%; max-width: 580px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
+.modal.modal-config { max-width: 720px; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--mc-border-light); }
 .modal-header h2 { font-size: 18px; font-weight: 600; color: var(--mc-text-primary); margin: 0; }
 .modal-close { width: 32px; height: 32px; border: none; background: none; cursor: pointer; color: var(--mc-text-tertiary); display: flex; align-items: center; justify-content: center; border-radius: 6px; }
@@ -2061,6 +2169,11 @@ html.dark .scan-finding-item { background: rgba(255, 255, 255, 0.05); }
 .form-input:disabled, .form-textarea:disabled { background: var(--mc-bg-sunken); color: var(--mc-text-tertiary); cursor: not-allowed; }
 .form-textarea { resize: vertical; font-family: inherit; }
 .form-textarea.code { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 13px; background: var(--mc-bg-sunken); }
+
+/* 配置弹窗（只读） */
+.config-icon-row { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--mc-border); border-radius: 8px; background: var(--mc-bg-sunken); }
+.config-icon-value { font-size: 12px; color: var(--mc-text-tertiary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--mc-border-light); }
 
 @media (max-width: 900px) {

@@ -84,7 +84,7 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { authApi } from '@/api/index'
+import { authApi, modelApi } from '@/api/index'
 import { ElNotification } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 
@@ -144,6 +144,7 @@ async function handleLogin() {
     localStorage.setItem('username', data.username || form.username)
     localStorage.setItem('role', data.role || 'user')
     if (data.clawAccessToken) {localStorage.setItem('clawAccessToken', data.clawAccessToken)}
+    await modelApi.syncModels()
     router.push('/')
     // Resolve capabilities before deciding the landing route so a viewer
     // lands on /chat (their only capability) and member+ on /dashboard.

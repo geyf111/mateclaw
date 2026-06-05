@@ -149,6 +149,8 @@ export const chatApi = {
     http.post<{ stopped: boolean }>(`/chat/${conversationId}/stop`),
   getPendingApprovals: (conversationId: string) =>
     http.get(`/chat/${conversationId}/pending-approvals`),
+  deleteMessage: (conversationId: string, messageId: string | number) =>
+    http.post(`/chat/${conversationId}/regenerate`, { messageId }),
 }
 
 // ==================== Conversation ====================
@@ -263,6 +265,10 @@ export const skillApi = {
   curatorReports: () => http.get('/skills/curator/reports'),
   /** Read one curator run report (parsed run.json). */
   curatorReport: (runId: string) => http.get(`/skills/curator/reports/${runId}`),
+  /** Get all skill categories. */
+  getAllCategories: () => http.get('/skills/categories'),
+  /** Sync skills from the platform. */
+  syncSkills: () => http.post('/skills/sync'),
 }
 
 /** Shape returned by GET /skills/{id}/secrets. */
@@ -401,6 +407,10 @@ export const skillInstallApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
+  searchFromPlatform: (keyword: string, categoryId?: string, page = 1, size = 10000) =>
+    http.get('/skills', { params: { keyword, categoryId, page, size } }),
+  installFromPlatform: (id: string) => http.post(`/skills/${id}/install`),
+  unInstallFromPlatform: (id: string) => http.post(`/skills/${id}/uninstall`),
 }
 
 // ==================== Datasource ====================
@@ -560,6 +570,7 @@ export const modelApi = {
   getDefaultEmbedding: () => http.get('/models/embedding/default'),
   setDefaultEmbedding: (modelId: string | number | '') =>
     http.post('/models/embedding/default', { modelId }),
+  syncModels: () => http.post('/models/sync'),
 }
 
 // ==================== Provider Pool (RFC-009 Phase 4) ====================

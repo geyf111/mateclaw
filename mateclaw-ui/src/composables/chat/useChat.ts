@@ -536,12 +536,12 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     }
 
     // Auto TTS: trigger when message_complete arrives with status=completed
-    if (data.status === 'completed' && data.hasContent && currentAssistantId.value) {
-      const msg = getMessage(currentAssistantId.value)
-      if (msg?.content && streamConversationId) {
-        triggerAutoTts(streamConversationId, msg.content)
-      }
-    }
+    // if (data.status === 'completed' && data.hasContent && currentAssistantId.value) {
+    //   const msg = getMessage(currentAssistantId.value)
+    //   if (msg?.content && streamConversationId) {
+    //     triggerAutoTts(streamConversationId, msg.content)
+    //   }
+    // }
 
     // Goal-evaluator breathing halo: when an assistant message finishes
     // and this conversation has an active goal, the backend's evaluation

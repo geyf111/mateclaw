@@ -6,7 +6,8 @@
           <div>
             <div class="mc-page-kicker">{{ t('scheduler.kicker') }}</div>
             <h1 class="mc-page-title">{{ t('scheduler.title') }}</h1>
-            <p class="mc-page-desc">{{ t('scheduler.desc') }}</p>
+            <!-- <p class="mc-page-desc">{{ t('scheduler.desc') }}</p> -->
+            <p class="mc-page-desc">定时任务与运行历史，集中在一个地方管理。</p>
           </div>
           <button class="btn-primary" @click="onAction">
             <svg v-if="activeTab === 'history'" width="16" height="16" viewBox="0 0 24 24"

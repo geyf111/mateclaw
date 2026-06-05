@@ -89,9 +89,9 @@
                    pre-opened via ?addProvider=1. -->
               <template v-if="query.trim() === '' && groups.length === 0">
                 {{ emptyHint || $t('chat.noProvidersConfigured') }}
-                <RouterLink class="model-empty__cta" to="/models?addProvider=1" @click="open = false">
+                <!-- <RouterLink class="model-empty__cta" to="/models?addProvider=1" @click="open = false">
                   {{ $t('chat.goConfigure') }}
-                </RouterLink>
+                </RouterLink> -->
               </template>
               <template v-else>
                 {{ $t('chat.noMatchModel') }}

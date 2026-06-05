@@ -124,7 +124,7 @@
           <div class="model-prompt">
             <div class="model-prompt-title">{{ modelPromptText.title }}</div>
             <div class="model-prompt-desc">{{ modelPromptText.desc }}</div>
-            <div class="model-prompt-actions">
+            <!-- <div class="model-prompt-actions">
               <button class="btn-primary" @click="handlePrimaryAction">
                 {{ primaryActionLabel }}
               </button>
@@ -135,7 +135,7 @@
               >
                 {{ $t('chat.promptAction.switchToModel', { name: bestSwitchTarget.label }) }}
               </button>
-            </div>
+            </div> -->
           </div>
         </template>
       </MessageList>
@@ -1681,7 +1681,7 @@ function handleStopStream() {
   stopChatGeneration()
 }
 
-function handleRegenerate(message: Message) {
+async function handleRegenerate(message: Message) {
   if (isGenerating.value) return
   const idx = messages.value.indexOf(message)
   if (idx >= 0) {
@@ -1694,6 +1694,15 @@ function handleRegenerate(message: Message) {
     .filter(p => p.type === 'text')
     .map(p => p.text || '')
     .join('\n') || lastUserMsg.content || ''
+
+  // Remove the user-trigger message too — regenerate will send a fresh one.
+  const userIdx = messages.value.indexOf(lastUserMsg)
+  if (userIdx >= 0) {
+    messages.value.splice(userIdx, 1)
+  }
+  try {
+    await chatApi.deleteMessage(lastUserMsg.conversationId, lastUserMsg.id as string)
+  } catch { /* best-effort: UI already removed it */ }
 
   handleSendMessage(text)
 }

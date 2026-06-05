@@ -2,7 +2,8 @@
   <div v-if="visible" class="modal-overlay" @click.self="handleClose">
     <div class="import-modal">
       <div class="modal-header">
-        <h2>{{ t('skills.import.title') }}</h2>
+        <!-- <h2>{{ t('skills.import.title') }}</h2> -->
+        <h2>安装技能</h2>
         <button class="modal-close" @click="handleClose" :disabled="installing">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -12,7 +13,7 @@
 
       <div class="modal-body">
         <!-- Tab 切换 -->
-        <div class="import-tabs">
+        <!-- <div class="import-tabs">
           <button class="import-tab" :class="{ active: activeTab === 'url' }" @click="activeTab = 'url'">
             {{ t('skills.import.urlTab') }}
           </button>
@@ -22,7 +23,7 @@
           <button class="import-tab" :class="{ active: activeTab === 'zip' }" @click="activeTab = 'zip'">
             {{ t('skills.import.zipTab') }}
           </button>
-        </div>
+        </div> -->
 
         <!-- URL 安装 -->
         <div v-if="activeTab === 'url'" class="tab-content">
@@ -58,7 +59,23 @@
         <!-- 搜索市场 -->
         <div v-if="activeTab === 'search'" class="tab-content">
           <div class="form-group">
-            <input v-model="searchQuery" class="form-input" :placeholder="t('skills.import.searchPlaceholder')"
+            <el-tree-select
+              v-model="selectedCategories"
+              :data="categories"
+              :render-after-expand="false"
+              check-strictly
+              clearable
+              :props="{ 
+                label: 'name',
+                value: 'id',
+                children: 'children' 
+              }"
+            />
+          </div>
+          <div class="form-group">
+            <!-- <input v-model="searchQuery" class="form-input" :placeholder="t('skills.import.searchPlaceholder')"
+              @keyup.enter="doSearch" :disabled="searching" /> -->
+            <el-input v-model="searchQuery" placeholder="请输入显示名称"
               @keyup.enter="doSearch" :disabled="searching" />
           </div>
           <button class="btn-secondary search-btn" @click="doSearch" :disabled="!searchQuery.trim() || searching">
@@ -68,7 +85,8 @@
           <div v-if="searchResults.length > 0" class="search-results">
             <div v-for="item in searchResults" :key="item.slug" class="search-item">
               <div class="search-item-info">
-                <span class="search-item-icon">{{ item.icon || '📦' }}</span>
+                <!-- <span class="search-item-icon">{{ item.icon || '📦' }}</span> -->
+                <SkillIcon :value="item.icon" :size="40" class="search-item-icon" />
                 <div>
                   <div class="search-item-name">{{ item.name }}</div>
                   <div class="search-item-desc">{{ item.description }}</div>
@@ -78,8 +96,11 @@
                   </div>
                 </div>
               </div>
-              <button class="btn-primary btn-sm" @click="installFromHub(item)" :disabled="installing">
+              <button v-if="!item.installed" class="btn-primary btn-sm" @click="installFromPlatform(item)" :disabled="installing">
                 {{ t('skills.import.install') }}
+              </button>
+              <button v-if="item.installed && !item.builtin" class="btn-error btn-sm" @click="unInstallFromPlatform(item)" :disabled="installing">
+                卸载
               </button>
             </div>
           </div>
@@ -152,8 +173,9 @@ import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { mcToast } from '@/composables/useMcToast'
 import { useFileDrop } from '@/composables/useFileDrop'
-import { skillInstallApi } from '@/api/index'
+import { skillInstallApi, skillApi } from '@/api/index'
 import type { InstallTask, HubSkillInfo } from '@/types/index'
+import SkillIcon from '@/components/common/SkillIcon.vue'
 
 const props = defineProps<{ visible: boolean }>()
 // RFC-090 §4.4 — when install completes, hand the parent the skill
@@ -167,7 +189,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const activeTab = ref<'url' | 'search' | 'zip'>('url')
+const activeTab = ref<'url' | 'search' | 'zip'>('search')
 const urlInput = ref('')
 const searchQuery = ref('')
 const searchResults = ref<HubSkillInfo[]>([])
@@ -181,16 +203,34 @@ const zipFile = ref<File | null>(null)
 const zipInputRef = ref<HTMLInputElement | null>(null)
 const { isDragging, onDragEnter, onDragLeave, onDrop } = useFileDrop(handleDroppedZip)
 let pollTimer: ReturnType<typeof setInterval> | null = null
+const categories = ref<string[]>([])
+const selectedCategories = ref('')
+
+async function loadCategories() {
+  const res: any = await skillApi.getAllCategories()
+  categories.value = res.data ? [res.data] : []
+}
+
+async function syncSkills() {
+  await skillApi.syncSkills()
+}
 
 watch(() => props.visible, (val) => {
   if (!val) {
     stopPolling()
     currentTask.value = null
+  } else {
+    syncSkills()
+    loadCategories()
   }
 })
 
 function handleClose() {
   if (installing.value) return
+  searchResults.value = []
+  searchDone.value = false
+  searchQuery.value = ''
+  selectedCategories.value = ''
   emit('update:visible', false)
 }
 
@@ -204,6 +244,34 @@ async function installFromHub(item: HubSkillInfo) {
   const url = item.bundleUrl || `https://clawhub.ai/skills/${item.slug}`
   await doInstall(url)
 }
+
+async function installFromPlatform(item: HubSkillInfo) {
+  installing.value = true
+  try {
+    await skillInstallApi.installFromPlatform(item.id)
+    mcToast.success(t('skills.import.installed'))
+    doSearch()
+    emit('installed')
+  } catch (error) {
+    mcToast.error(t('skills.import.failed'))
+  }
+  installing.value = false
+}
+
+async function unInstallFromPlatform(item: HubSkillInfo) {
+  installing.value = true
+  try {
+    await skillInstallApi.unInstallFromPlatform(item.id)
+    mcToast.success('卸载成功')
+    doSearch()
+    emit('installed')
+  } catch (error) {
+    mcToast.error('卸载失败')
+  }
+  installing.value = false
+}
+
+
 
 async function doInstall(bundleUrl: string) {
   installing.value = true
@@ -318,12 +386,13 @@ async function uploadZip() {
 
 async function doSearch() {
   const q = searchQuery.value.trim()
+  const categoryId = selectedCategories.value
   if (!q) return
   searching.value = true
   searchDone.value = false
   try {
-    const res: any = await skillInstallApi.searchHub(q)
-    searchResults.value = res.data || []
+    const res: any = await skillInstallApi.searchFromPlatform(q, categoryId)
+    searchResults.value = res.data.records || []
     searchDone.value = true
   } catch (e: any) {
     mcToast.error(e?.message || t('skills.import.searchFailed'))
@@ -380,6 +449,11 @@ function getStatusLabel(status: string): string {
 .btn-primary { display: flex; align-items: center; gap: 6px; padding: 8px 16px; background: var(--mc-primary); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
 .btn-primary:hover { background: var(--mc-primary-hover); }
 .btn-primary:disabled { background: var(--mc-border); cursor: not-allowed; }
+
+.btn-error { display: flex; align-items: center; gap: 6px; padding: 8px 16px; background: var(--mc-danger); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+.btn-error:hover { background: var(--mc-danger-hover); }
+.btn-error:disabled { background: var(--mc-border); cursor: not-allowed; }
+
 .btn-secondary { display: flex; align-items: center; gap: 6px; padding: 8px 16px; background: var(--mc-bg-elevated); color: var(--mc-text-primary); border: 1px solid var(--mc-border); border-radius: 8px; font-size: 14px; cursor: pointer; }
 .btn-secondary:hover { background: var(--mc-bg-sunken); }
 .btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }

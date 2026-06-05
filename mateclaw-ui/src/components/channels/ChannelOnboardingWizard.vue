@@ -80,8 +80,8 @@
               <p class="oauth-qr-status" :class="oauthStatus">{{ oauthStatusText }}</p>
             </div>
             <!-- Skip OAuth → save with just the name -->
-            <button v-if="channelType === 'feishu' || channelType === 'dingtalk'" type="button" class="oauth-skip" @click="onSkipOAuth">
-              {{ t('channels.wizard.skipOAuth') }}
+            <button v-if="channelType === 'feishu' || channelType === 'dingtalk'" type="button" class="oauth-skip" :disabled="saving" @click="onSkipOAuth">
+              {{ saving ? t('common.loading') : t('channels.wizard.skipOAuth') }}
             </button>
           </div>
 
@@ -341,7 +341,7 @@ const { t } = useI18n()
 // Channel types whose verifiers exist on the backend right now. The list
 // matches RFC-084 §4.3 — extending it requires no UI change, just register
 // a new ChannelVerifier bean.
-const VERIFIABLE_TYPES = new Set(['telegram', 'discord', 'slack', 'wecom', 'weixin', 'dingtalk', 'feishu'])
+const VERIFIABLE_TYPES = new Set(['telegram', 'discord', 'slack', 'wecom', 'weixin', 'dingtalk', 'feishu', 'qq'])
 
 // Channel types whose Step 1 is an OAuth/QR scan instead of a credential
 // paste form. Once the scan callback delivers credentials, Step 1 hands
@@ -542,15 +542,29 @@ function onOAuthStart() {
   }
 }
 
-function onSkipOAuth() {
-  verifyResult.value = {
-    ok: true,
-    skipped: true,
-    durationMs: 0,
-    headline: t('channels.wizard.verifySkipped'),
-    identity: {},
+async function onSkipOAuth() {
+  saving.value = true
+  try {
+    const configJson = buildConfigJson({
+      channelType: channelType.value,
+      channelConfig: channelConfig.value,
+      accessControl: defaultAccessControl(),
+      renderConfig: defaultRenderConfig(),
+    })
+    const payload: Partial<Channel> = {
+      ...form.value,
+      configJson,
+      enabled: true,
+    }
+    const res: any = await channelApi.create(payload)
+    mcToast.success(t('channels.messages.saveSuccess'))
+    emit('created', res.data as Channel)
+    close()
+  } catch (e: any) {
+    mcToast.error(e?.message || t('channels.wizard.saveFailed'))
+  } finally {
+    saving.value = false
   }
-  currentStep.value = 2
 }
 
 function getDomainOrDefault(): string {

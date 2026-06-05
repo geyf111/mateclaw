@@ -309,7 +309,9 @@ export interface Skill {
   nameZh?: string
   nameEn?: string
   description?: string
+  descriptionZh?: string
   skillType: string
+  categoryName?: string
   icon?: string
   version?: string
   author?: string
@@ -337,6 +339,8 @@ export interface Skill {
   lastActivityAt?: string
   /** When the curator moved this skill to archived state */
   archivedAt?: string
+  secret?: string
+  installed?: boolean
 }
 
 /** 运行时解析状态（来自 /runtime/status） */
@@ -484,6 +488,9 @@ export interface InstallResult {
 }
 
 export interface HubSkillInfo {
+  id: string
+  builtin?: boolean
+  installed: boolean
   name: string
   slug: string
   description: string

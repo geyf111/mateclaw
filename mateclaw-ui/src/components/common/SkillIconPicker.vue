@@ -89,9 +89,9 @@
               </button>
             </div>
 
-            <p class="mc-picker-foot">
+            <!-- <p class="mc-picker-foot">
               {{ t('common.iconPicker.pixelartCount', { n: pixelartCount }) }}
-            </p>
+            </p> -->
           </div>
 
           <!-- Free-form emoji input -->
@@ -167,7 +167,7 @@ const { t } = useI18n()
 const tabs = computed(() => [
   { id: 'pixelart' as const, label: t('common.iconPicker.tabPixelart') },
   { id: 'emoji' as const,    label: t('common.iconPicker.tabEmoji') },
-  { id: 'url' as const,      label: t('common.iconPicker.tabUrl') },
+  // { id: 'url' as const,      label: t('common.iconPicker.tabUrl') },
 ])
 
 const activeTab = ref<'pixelart' | 'emoji' | 'url'>('pixelart')

@@ -204,7 +204,7 @@
           <p class="error-card__action">{{ errorAction }}</p>
           <div class="error-card__footer">
             <span v-if="errorCode" class="error-card__code">{{ errorCode }}</span>
-            <button v-if="errorRetryable" class="error-card__retry" type="button" @click="$emit('regenerate')">
+            <button v-if="errorRetryable" class="error-card__retry" type="button" @click="handleRegenerate">
               <el-icon><RefreshRight /></el-icon>
               {{ $t('chat.retry') }}
             </button>
@@ -227,7 +227,7 @@
           </div>
           <p class="incomplete-card__description">{{ $t('chat.incompleteDescription') }}</p>
           <div class="incomplete-card__footer">
-            <button class="incomplete-card__retry" type="button" @click="$emit('regenerate')">
+            <button class="incomplete-card__retry" type="button" @click="handleRegenerate">
               <el-icon><RefreshRight /></el-icon>
               {{ $t('chat.incompleteRetry') }}
             </button>
@@ -393,7 +393,7 @@
             class="action-btn"
             type="button"
             :title="$t('chat.regenerate')"
-            @click="$emit('regenerate')"
+            @click="handleRegenerate"
           >
             <el-icon><RefreshRight /></el-icon>
           </button>
@@ -438,7 +438,7 @@ import {
 import { useMarkdownRenderer } from '@/composables/useMarkdownRenderer'
 import { useAuthenticatedAttachment } from '@/composables/useAuthenticatedAttachment'
 import { useToolLabel } from '@/composables/useToolLabel'
-import { http } from '@/api'
+import { http, chatApi } from '@/api'
 import { copyToClipboard } from '@/utils/clipboard'
 import TypingCursor from './TypingCursor.vue'
 import BrowserTimeline from './BrowserTimeline.vue'
@@ -648,6 +648,19 @@ const showActions = computed(() => {
 
 const copyState = ref<'idle' | 'copied'>('idle')
 let copyTimer: ReturnType<typeof setTimeout> | null = null
+
+async function handleRegenerate() {
+  const cid = props.message.conversationId
+  const mid = props.message.id
+  if (!cid || mid == null) return
+  try {
+    await chatApi.deleteMessage(cid, mid)
+  } catch (e: any) {
+    mcToast.error(e?.message || t('chat.deleteFailed'))
+    return
+  }
+  emit('regenerate')
+}
 
 function copyMessage() {
   const text = displayContent.value || props.message.content || ''
@@ -1083,7 +1096,7 @@ const feedbackInfo = computed<FeedbackInfo | undefined>(() => {
 
 function handleFeedbackAction(action: string) {
   if (action === 'retry' || action === 'regenerate') {
-    emit('regenerate')
+    handleRegenerate()
     return
   }
   if (action === 'report') {

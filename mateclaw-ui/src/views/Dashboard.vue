@@ -76,10 +76,10 @@
                   <span v-if="modelProviders.length" class="models-count">
                     {{ readyProviderCount }}/{{ modelProviders.length }} {{ t('dashboard.models.configured') }}
                   </span>
-                  <button class="models-manage" @click="goToModels">
+                  <!-- <button class="models-manage" @click="goToModels">
                     {{ t('dashboard.models.manage') }}
                     <el-icon><ArrowRight /></el-icon>
-                  </button>
+                  </button> -->
                 </div>
               </div>
               <div v-if="modelProviders.length" class="provider-chips">
@@ -103,7 +103,7 @@
               </div>
               <div v-else class="models-empty">
                 <span class="models-empty__text">{{ t('dashboard.models.empty') }}</span>
-                <button class="models-empty__btn" @click="goToModels">{{ t('dashboard.models.emptyCta') }}</button>
+                <!-- <button class="models-empty__btn" @click="goToModels">{{ t('dashboard.models.emptyCta') }}</button> -->
               </div>
             </div>
           </div>

@@ -227,7 +227,7 @@ let isActive = true
 
 async function loadAgents() {
   const res: any = await agentApi.list()
-  agents.value = res.data || []
+  agents.value = res.data.filter((i: Agent) => i.enabled) || []
 }
 
 function startStatusPolling() {

@@ -414,7 +414,8 @@ const navGroups = computed(() => [
       },
       {
         path: '/agents',
-        label: t('nav.agents'),
+        // label: t('nav.agents'),
+        label: '数字员工',
         icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>`,
         requiredCapability: 'manage:agents',
       },
@@ -454,12 +455,12 @@ const navGroups = computed(() => [
         icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
         requiredCapability: 'manage:skills',
       },
-      {
-        path: '/models',
-        label: t('settings.sections.model'),
-        icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>',
-        requiredCapability: 'manage:models',
-      },
+      // {
+      //   path: '/models',
+      //   label: t('settings.sections.model'),
+      //   icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>',
+      //   requiredCapability: 'manage:models',
+      // },
       // {
       //   path: '/plugins',
       //   label: t('nav.plugins'),
@@ -480,18 +481,18 @@ const navGroups = computed(() => [
       // },
     ] as NavItem[]),
   },
-  {
-    key: 'system',
-    label: t('nav.system'),
-    items: filterNav([
-      {
-        path: '/security',
-        label: t('nav.security'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
-        requiredCapability: 'manage:security',
-      },
-    ] as NavItem[]),
-  },
+  // {
+  //   key: 'system',
+  //   label: t('nav.system'),
+  //   items: filterNav([
+  //     {
+  //       path: '/security',
+  //       label: t('nav.security'),
+  //       icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
+  //       requiredCapability: 'manage:security',
+  //     },
+  //   ] as NavItem[]),
+  // },
 ].filter((group) => group.items.length > 0))
 
 function toggleSidebar() {
