@@ -52,7 +52,7 @@
         <div class="config-section">
           <div class="tab-bar">
             <button class="tab-btn" :class="{ active: configTab === 'form' }" @click="switchTab('form')">{{ t('channels.tabs.form') }}</button>
-            <button class="tab-btn" :class="{ active: configTab === 'json' }" @click="switchTab('json')">{{ t('channels.tabs.json') }}</button>
+            <!-- <button class="tab-btn" :class="{ active: configTab === 'json' }" @click="switchTab('json')">{{ t('channels.tabs.json') }}</button> -->
           </div>
 
           <!-- 表单配置 -->
