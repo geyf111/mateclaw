@@ -25,7 +25,7 @@
           <col style="width: 14%; min-width: 110px" />
           <col style="width: 20%; min-width: 150px" />
           <col style="width: 14%; min-width: 100px" />
-          <col style="width: 14%; min-width: 90px" />
+          <!-- <col style="width: 14%; min-width: 90px" /> -->
         </colgroup>
         <thead>
           <tr>
@@ -34,7 +34,7 @@
             <th>{{ t('scheduler.history.columns.status') }}</th>
             <th>{{ t('scheduler.history.columns.startedAt') }}</th>
             <th>{{ t('scheduler.history.columns.duration') }}</th>
-            <th>{{ t('scheduler.history.columns.tokens') }}</th>
+            <!-- <th>{{ t('scheduler.history.columns.tokens') }}</th> -->
           </tr>
         </thead>
         <tbody>
@@ -57,7 +57,7 @@
             </td>
             <td class="time-cell" :title="formatTime(run.startedAt)">{{ formatTime(run.startedAt) }}</td>
             <td class="time-cell">{{ formatDuration(run.startedAt, run.finishedAt) }}</td>
-            <td class="time-cell">{{ run.tokenUsage != null ? run.tokenUsage : '-' }}</td>
+            <!-- <td class="time-cell">{{ run.tokenUsage != null ? run.tokenUsage : '-' }}</td> -->
           </tr>
         </tbody>
       </table>

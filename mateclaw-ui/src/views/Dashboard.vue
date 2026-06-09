@@ -160,7 +160,7 @@
                     <th>{{ t('dashboard.runColumns.status') }}</th>
                     <th>{{ t('dashboard.runColumns.trigger') }}</th>
                     <th>{{ t('dashboard.runColumns.duration') }}</th>
-                    <th>{{ t('dashboard.runColumns.tokens') }}</th>
+                    <!-- <th>{{ t('dashboard.runColumns.tokens') }}</th> -->
                   </tr>
                 </thead>
                 <tbody>
@@ -172,7 +172,7 @@
                     </td>
                     <td class="cell-trigger">{{ run.triggerType }}</td>
                     <td class="cell-duration">{{ calcDuration(run) }}</td>
-                    <td class="cell-tokens">{{ run.tokenUsage || '-' }}</td>
+                    <!-- <td class="cell-tokens">{{ run.tokenUsage || '-' }}</td> -->
                   </tr>
                 </tbody>
               </table>
