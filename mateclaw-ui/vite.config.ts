@@ -74,7 +74,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../mateclaw-server/src/main/resources/static',
+    outDir: './static',
     emptyOutDir: true,
     // Cap warning so a future barrel import (see history with monaco) trips
     // the build log instead of slipping in silently.
