@@ -382,10 +382,10 @@ html.dark body::before {
   mix-blend-mode: normal;
 }
 
-::selection {
+/* ::selection {
   background: var(--mc-primary-bg);
   color: var(--mc-text-primary);
-}
+} */
 
 /* ================================================================
    Scrollbar
