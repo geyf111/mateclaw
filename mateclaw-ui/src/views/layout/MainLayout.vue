@@ -143,9 +143,9 @@
 
         <template v-else>
           <div class="collapsed-footer-actions">
-            <button class="footer-icon-btn" :class="healthStatus" @click="showDoctor = true" :title="t('doctor.title')">
+            <!-- <button class="footer-icon-btn" :class="healthStatus" @click="showDoctor = true" :title="t('doctor.title')">
               <span class="health-dot"></span>
-            </button>
+            </button> -->
             <button class="footer-icon-btn" :title="t('nav.logout')" @click="logout">
               <el-icon :size="16"><SwitchButton /></el-icon>
             </button>
