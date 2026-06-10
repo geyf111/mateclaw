@@ -52,7 +52,7 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://192.168.10.33:18088',
+        target: 'http://localhost:55883',
         changeOrigin: true,
         // ws:true forwards WebSocket Upgrade requests through to the backend.
         // Without it Vite serves the GET /api/v1/talk/ws as a regular HTTP
@@ -68,7 +68,7 @@ export default defineConfig({
       // browser then tries to render as an image and shows a broken-icon
       // placeholder for any built-in skill that ships a logo.
       '/skill-assets': {
-        target: 'http://192.168.10.33:18088',
+        target: 'http://localhost:55883',
         changeOrigin: true,
       },
     },

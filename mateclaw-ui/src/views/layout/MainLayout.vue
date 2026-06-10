@@ -207,6 +207,7 @@ import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { applyLocale, currentLocale, type AppLocale } from '@/i18n'
 import { SwitchButton, Lock } from '@element-plus/icons-vue'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
+import { clearAllTimers } from '@/utils/clearAllTimers'
 
 const router = useRouter()
 const route = useRoute()
@@ -514,6 +515,7 @@ function isNavItemActive(item: { path: string; label: string }) {
 const showChangePassword = ref(false)
 
 function logout() {
+  clearAllTimers()
   localStorage.removeItem('token')
   localStorage.removeItem('username')
   localStorage.removeItem('role')
