@@ -1160,7 +1160,7 @@ async function loadSegment(key: 'enabled' | 'available', allowPageClamp = true) 
 
     const res: any = await skillApi.page(params)
     const data = res.data || {}
-    const records: Skill[] = Array.isArray(data.records) ? data.records : []
+    const records: Skill[] = Array.isArray(data.records) ? data.records.filter((i: Skill) => i.installed) : []
     // Trust the backend total when it's positive. Only fall back to an inferred
     // floor when the backend reports 0 (broken pagination interceptor) — using
     // Math.max unconditionally produced an off-by-one whenever total was an
