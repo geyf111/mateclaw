@@ -21,16 +21,17 @@
             <label class="form-label">{{ t('channels.fields.type') }}</label>
             <select v-model="form.channelType" class="form-input" @change="onChannelTypeChange">
               <!-- <option value="web">{{ t('channels.types.web') }}</option> -->
-              <option value="dingtalk">{{ t('channels.types.dingtalk') }}</option>
-              <option value="feishu">{{ t('channels.types.feishu') }}</option>
+              <!-- <option value="dingtalk">{{ t('channels.types.dingtalk') }}</option> -->
+              <!-- <option value="feishu">{{ t('channels.types.feishu') }}</option> -->
               <!-- <option value="telegram">{{ t('channels.types.telegram') }}</option> -->
               <!-- <option value="discord">{{ t('channels.types.discord') }}</option> -->
               <!-- <option value="wecom">{{ t('channels.types.wecom') }}</option> -->
-              <option value="weixin">{{ t('channels.types.weixin') }}</option>
-              <option value="qq">{{ t('channels.types.qq') }}</option>
+              <!-- <option value="weixin">{{ t('channels.types.weixin') }}</option> -->
+              <!-- <option value="qq">{{ t('channels.types.qq') }}</option> -->
               <!-- <option value="slack">{{ t('channels.types.slack') }}</option> -->
               <!-- <option value="webchat">{{ t('channels.types.webchat') }}</option> -->
               <!-- <option value="webhook">{{ t('channels.types.webhook') }}</option> -->
+              <option v-for="type in supportedTypes" :key="type" :value="type">{{ t(`channels.types.${type}`) }}</option>
             </select>
           </div>
           <div class="form-group full-width">
@@ -481,6 +482,7 @@ import { useFeishuAppRegister } from '@/composables/channels/useFeishuAppRegiste
 import { useDingTalkAppRegister } from '@/composables/channels/useDingTalkAppRegister'
 import { useQqAppRegister } from '@/composables/channels/useQqAppRegister'
 import AgentPickerDialog from '@/components/common/AgentPickerDialog.vue'
+import { channelApi } from '@/api'
 
 interface Props {
   modelValue: boolean
@@ -783,7 +785,19 @@ function initDefaultFieldValues() {
   }
 }
 
+const supportedTypes = ref([]);
+const getSupportedTypes = async () => {
+  try {
+    await channelApi.channelsSync()
+    const res = await channelApi.status()
+    supportedTypes.value = res.data.supportedTypes || []
+  } catch (e) {
+    supportedTypes.value = []
+  }
+}
+
 onMounted(() => {
+  getSupportedTypes()
   if (props.editingChannel) initFromEditing(props.editingChannel)
   else initForCreate()
 })
