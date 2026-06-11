@@ -180,7 +180,7 @@
            reply when the conversation has no active goal and the user
            hasn't dismissed it for this conv. -->
       <GoalSetInlinePrompt
-        v-if="showGoalSetPrompt"
+        v-if="showGoalSetPrompt && false"
         :conversation-id="currentConversationId"
         :agent-id="String(selectedAgentId)"
         :workspace-id="String(currentWorkspaceId || '1')"
