@@ -66,7 +66,8 @@
                   <span class="active-model__label">{{ t('dashboard.models.activeModel') }}</span>
                   <span v-if="activeModel" class="active-model__value">
                     <span class="active-model__dot"></span>
-                    {{ activeProviderLabel }} · {{ activeModel.model }}
+                    <!-- {{ activeProviderLabel }} · {{ activeModel.model }} -->
+                    {{ activeModel.providerName }} · {{ activeModel.model }}
                   </span>
                   <span v-else class="active-model__value active-model__value--empty">
                     {{ t('dashboard.models.notSet') }}
@@ -75,6 +76,9 @@
                 <div class="models-card__actions">
                   <span v-if="modelProviders.length" class="models-count">
                     {{ readyProviderCount }}/{{ modelProviders.length }} {{ t('dashboard.models.configured') }}
+                  </span>
+                  <span v-else-if="enabledProviders.length" class="models-count">
+                    {{ enabledProviderCount }}/{{ enabledProviders.length }} {{ t('dashboard.models.configured') }}
                   </span>
                   <!-- <button class="models-manage" @click="goToModels">
                     {{ t('dashboard.models.manage') }}
@@ -89,7 +93,6 @@
                   class="provider-chip"
                   :class="'provider-chip--' + providerChipStatus(p)"
                   :title="p.name"
-                  @click="goToModels"
                 >
                   <span class="provider-chip__dot"></span>
                   <img
@@ -99,6 +102,24 @@
                     @error="onProviderIconError"
                   />
                   <span class="provider-chip__name">{{ p.name }}</span>
+                </button>
+              </div>
+              <div v-else-if="enabledProviders.length" class="provider-chips">
+                <button
+                  v-for="p in enabledProviders"
+                  :key="p.provider"
+                  class="provider-chip"
+                  :class="'provider-chip--' + providerChipStatus(p)"
+                  :title="p.providerName"
+                >
+                  <span class="provider-chip__dot"></span>
+                  <img
+                    class="provider-chip__icon"
+                    :src="getProviderIcon(p.provider)"
+                    :alt="p.providerName"
+                    @error="onProviderIconError"
+                  />
+                  <span class="provider-chip__name">{{ p.providerName }}</span>
                 </button>
               </div>
               <div v-else class="models-empty">
@@ -218,7 +239,7 @@ const todayStats = reactive({
 
 // ── Model configuration card ──
 const modelProviders = ref<any[]>([])
-const activeModel = ref<{ providerId: string; model: string } | null>(null)
+const activeModel = ref<{ providerId: string; model: string; providerName: string } | null>(null)
 
 const readyProviderCount = computed(
   () => modelProviders.value.filter((p) => providerChipStatus(p) === 'ready').length,
@@ -229,6 +250,11 @@ const activeProviderLabel = computed(() => {
   const match = modelProviders.value.find((p) => p.id === activeModel.value!.providerId)
   return match?.name || activeModel.value.providerId
 })
+
+const enabledProviders = ref<any[]>([])
+const enabledProviderCount = computed(
+  () => enabledProviders.value.filter((p) => providerChipStatus(p) === 'ready').length,
+)
 
 // Maps a provider's liveness to a chip status, falling back to the legacy
 // configured/available booleans for backends that don't report liveness.
@@ -250,6 +276,15 @@ function providerChipStatus(p: any): 'ready' | 'partial' | 'down' {
 
 function goToModels() {
   router.push('/settings/models')
+}
+
+function uniqueByProvider(list: any[]) {
+  const set = new Set();
+  return list.filter(item => {
+    if (set.has(item.provider)) return false;
+    set.add(item.provider);
+    return true;
+  });
 }
 
 onMounted(async () => {
@@ -275,12 +310,14 @@ onMounted(async () => {
   // Model configuration card — loaded independently so a failure here never
   // blanks the analytics above, and vice versa.
   try {
-    const [provRes, activeRes] = await Promise.all([
+    const [provRes, activeRes, enabledRes] = await Promise.all([
       modelApi.listProviders().catch(() => ({ data: [] })),
       modelApi.getActive().catch(() => ({ data: null })),
+      modelApi.listEnabled().catch(() => ({ data: null })),
     ])
     modelProviders.value = (provRes as any).data || []
     activeModel.value = (activeRes as any).data?.activeLlm || null
+    enabledProviders.value = uniqueByProvider((enabledRes as any).data || [])
   } catch {
     // Non-critical
   }
