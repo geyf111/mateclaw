@@ -212,10 +212,10 @@
               {{ t('agents.tabs.skills', 'Skills') }}
               <span v-if="selectedSkillIds.length" class="tab-badge">{{ selectedSkillIds.length }}</span>
             </button>
-            <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'tools' }" @click="modalTab = 'tools'">
+            <!-- <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'tools' }" @click="modalTab = 'tools'">
               {{ t('agents.tabs.tools', 'Tools') }}
               <span v-if="selectedToolNames.length" class="tab-badge">{{ selectedToolNames.length }}</span>
-            </button>
+            </button> -->
             <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'providers' }" @click="modalTab = 'providers'">
               {{ t('agents.tabs.providers', 'Providers') }}
               <span v-if="selectedProviderIds.length" class="tab-badge">{{ selectedProviderIds.length }}</span>
