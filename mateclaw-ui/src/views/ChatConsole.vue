@@ -1168,6 +1168,38 @@ async function loadAgents() {
   }
 }
 
+function groupModelsByProvider(models: any[]) {
+  const providerMap = new Map();
+
+  for (const model of models) {
+    const providerId = model.provider;
+    const providerName = model.providerName;
+    const liveness = model.liveness;
+    const available = model.available;
+
+    // 如果该 provider 尚未记录，则创建分组条目
+    if (!providerMap.has(providerId)) {
+      providerMap.set(providerId, {
+        id: providerId, // 转为数字，若需保留字符串可去掉 Number()
+        name: providerName,
+        liveness: liveness,
+        available: available || true,
+        extraModels: []
+      });
+    }
+
+    // 清洗模型对象：移除 provider、providerName、liveness
+    const { provider, providerName: _, liveness: __, ...cleanedModel } = model;
+    cleanedModel.id = cleanedModel.modelName || cleanedModel.id;
+    
+    // 将清洗后的模型添加到 extraModels
+    providerMap.get(providerId).extraModels.push(cleanedModel);
+  }
+
+  // 将 Map 转换为数组并返回
+  return Array.from(providerMap.values());
+}
+
 async function loadModelState() {
   // /default + /active + /enabled are viewer-accessible and required to chat.
   // /models (provider list) is admin-only because it returns API keys + base
@@ -1203,8 +1235,11 @@ async function loadModelState() {
     providersUnavailable.value = false
   } catch (e: any) {
     if (e?.response?.status === 403) {
-      providers.value = []
-      providersUnavailable.value = true
+      providers.value = groupModelsByProvider(enabledModels.value)
+      providersUnavailable.value = false
+      
+      // providers.value = []
+      // providersUnavailable.value = true
     } else {
       // Non-403 failure is still a real problem worth surfacing.
       mcToast.error(t('chat.loadModelFailed'))

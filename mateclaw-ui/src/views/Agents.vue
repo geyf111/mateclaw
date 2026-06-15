@@ -878,6 +878,40 @@ async function applyTemplate(id: string) {
   }
 }
 
+function groupModelsByProvider(models: any[]) {
+  const providerMap = new Map();
+
+  for (const model of models) {
+    const providerId = model.provider;
+    const providerName = model.providerName;
+    const liveness = model.liveness;
+    const available = model.available;
+    const configured = model.configured;
+
+    // 如果该 provider 尚未记录，则创建分组条目
+    if (!providerMap.has(providerId)) {
+      providerMap.set(providerId, {
+        id: providerId, // 转为数字，若需保留字符串可去掉 Number()
+        name: providerName,
+        liveness: liveness,
+        available: available || true,
+        configured: configured || true,
+        extraModels: []
+      });
+    }
+
+    // 清洗模型对象：移除 provider、providerName、liveness
+    const { provider, providerName: _, liveness: __, ...cleanedModel } = model;
+    cleanedModel.id = cleanedModel.modelName || cleanedModel.id;
+    
+    // 将清洗后的模型添加到 extraModels
+    providerMap.get(providerId).extraModels.push(cleanedModel);
+  }
+
+  // 将 Map 转换为数组并返回
+  return Array.from(providerMap.values());
+}
+
 async function openEditModal(agent: Agent) {
   editingAgent.value = agent
   form.value = {
@@ -900,7 +934,7 @@ async function openEditModal(agent: Agent) {
 
   // Load available skills/tools/providers and current bindings in parallel
   try {
-    const [skillsRes, toolsRes, providersRes, boundSkillsRes, boundToolsRes, providerPrefsRes] = await Promise.all([
+    const [skillsRes, toolsRes, boundSkillsRes, boundToolsRes, providerPrefsRes, modelsEnabledRes] = await Promise.all([
       // RFC-042: /skills is now paginated; binding dropdown only needs enabled skills,
       // so listEnabled() is both semantically correct and shape-stable (returns array).
       skillApi.listEnabled(),
@@ -908,18 +942,33 @@ async function openEditModal(agent: Agent) {
       // tool grouped by server, with stale/available flags so the picker
       // matches the runtime callback set exactly.
       toolApi.listAvailable(),
-      modelApi.listProviders(),
       agentBindingApi.listSkills(agent.id),
       agentBindingApi.listTools(agent.id),
       agentBindingApi.listProviderPreferences(agent.id),
+      modelApi.listEnabled()
     ])
+    try {
+      const providersRes = await modelApi.listProviders()
+      availableProviders.value = ((providersRes as any).data || [])
+        .filter((p: any) => p.configured)
+        .map((p: any) => ({ id: p.id, name: p.name }))
+    } catch (e: any) {
+      if (e?.response?.status === 403) {
+        availableProviders.value = groupModelsByProvider(modelsEnabledRes.data || [])
+          .filter((p: any) => p.configured)
+          .map((p: any) => ({ id: p.id, name: p.name }))
+      } else {
+        // Non-403 failure is still a real problem worth surfacing.
+        mcToast.error(t('chat.loadModelFailed'))
+      }
+    }
     availableSkills.value = (skillsRes as any).data || []
     availableTools.value = (toolsRes as any).data || []
     // Pool of providers the user has actually configured — no point letting an
     // agent prefer a provider that doesn't exist on this deployment.
-    availableProviders.value = ((providersRes as any).data || [])
-      .filter((p: any) => p.configured)
-      .map((p: any) => ({ id: p.id, name: p.name }))
+    // availableProviders.value = ((providersRes as any).data || [])
+    //   .filter((p: any) => p.configured)
+    //   .map((p: any) => ({ id: p.id, name: p.name }))
     selectedSkillIds.value = ((boundSkillsRes as any).data || [])
       .filter((b: any) => b.enabled)
       .map((b: any) => b.skillId)
