@@ -499,7 +499,8 @@ export interface HubSkillInfo {
   icon?: string
   tags?: string[]
   downloads?: number
-  bundleUrl: string
+  bundleUrl: string,
+  skillType: string
 }
 
 // ==================== 工具 ====================

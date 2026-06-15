@@ -1,17 +1,12 @@
 <template>
-  <div v-if="visible" class="modal-overlay" @click.self="handleClose">
-    <div class="import-modal">
-      <div class="modal-header">
-        <!-- <h2>{{ t('skills.import.title') }}</h2> -->
-        <h2>安装技能</h2>
-        <button class="modal-close" @click="handleClose" :disabled="installing">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
-      </div>
-
-      <div class="modal-body">
+  <MateDrawer
+    :visible="visible"
+    title="安装技能"
+    :close-label="t('common.cancel')"
+    size="md"
+    @close="handleClose"
+  >
+    <div class="mc-drawer-content import-drawer-body">
         <!-- Tab 切换 -->
         <!-- <div class="import-tabs">
           <button class="import-tab" :class="{ active: activeTab === 'url' }" @click="activeTab = 'url'">
@@ -78,7 +73,7 @@
             <el-input v-model="searchQuery" placeholder="请输入显示名称"
               @keyup.enter="doSearch" :disabled="searching" />
           </div>
-          <button class="btn-secondary search-btn" @click="doSearch" :disabled="!searchQuery.trim() || searching">
+          <button class="btn-secondary search-btn" @click="doSearch" :disabled="searching">
             {{ searching ? t('skills.import.searching') : t('skills.import.search') }}
           </button>
 
@@ -103,6 +98,9 @@
                 卸载
               </button>
             </div>
+          </div>
+          <div v-else-if="!searchDone && searchResults.length === 0" class="search-empty">
+            加载中...
           </div>
           <div v-else-if="searchDone && searchResults.length === 0" class="search-empty">
             {{ t('skills.import.noResults') }}
@@ -163,9 +161,8 @@
             ({{ currentTask.result.sourceType }})
           </div>
         </div>
-      </div>
     </div>
-  </div>
+  </MateDrawer>
 </template>
 
 <script setup lang="ts">
@@ -176,6 +173,8 @@ import { useFileDrop } from '@/composables/useFileDrop'
 import { skillInstallApi, skillApi } from '@/api/index'
 import type { InstallTask, HubSkillInfo } from '@/types/index'
 import SkillIcon from '@/components/common/SkillIcon.vue'
+import MateDrawer from '@/components/common/MateDrawer.vue'
+import { tr } from 'element-plus/es/locale/index.mjs'
 
 const props = defineProps<{ visible: boolean }>()
 // RFC-090 §4.4 — when install completes, hand the parent the skill
@@ -209,18 +208,19 @@ const selectedCategories = ref('')
 async function loadCategories() {
   const res: any = await skillApi.getAllCategories()
   categories.value = res.data ? [res.data] : []
+  doSearch()
 }
 
 async function syncSkills() {
   await skillApi.syncSkills()
 }
 
-watch(() => props.visible, (val) => {
+watch(() => props.visible, async (val) => {
   if (!val) {
     stopPolling()
     currentTask.value = null
   } else {
-    syncSkills()
+    await syncSkills()
     loadCategories()
   }
 })
@@ -387,12 +387,12 @@ async function uploadZip() {
 async function doSearch() {
   const q = searchQuery.value.trim()
   const categoryId = selectedCategories.value
-  if (!q) return
+  // if (!q) return
   searching.value = true
   searchDone.value = false
   try {
     const res: any = await skillInstallApi.searchFromPlatform(q, categoryId)
-    searchResults.value = res.data.records || []
+    searchResults.value = res.data.records.filter((i: HubSkillInfo) => !i.builtin && i.skillType !== 'mcp') || []
     searchDone.value = true
   } catch (e: any) {
     mcToast.error(e?.message || t('skills.import.searchFailed'))
@@ -416,20 +416,25 @@ function getStatusLabel(status: string): string {
 </script>
 
 <style scoped>
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
-.import-modal { background: var(--mc-bg-elevated); border: 1px solid var(--mc-border); border-radius: 16px; width: 100%; max-width: 520px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
-.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--mc-border-light); }
-.modal-header h2 { font-size: 18px; font-weight: 600; color: var(--mc-text-primary); margin: 0; }
-.modal-close { width: 32px; height: 32px; border: none; background: none; cursor: pointer; color: var(--mc-text-tertiary); display: flex; align-items: center; justify-content: center; border-radius: 6px; }
-.modal-close:hover { background: var(--mc-bg-sunken); color: var(--mc-text-primary); }
-.modal-close:disabled { opacity: 0.5; cursor: not-allowed; }
-.modal-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.import-drawer-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+:deep(.mc-drawer-body) {
+  overflow: hidden;
+}
 
 .import-tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--mc-bg-sunken); border-radius: 8px; padding: 3px; }
 .import-tab { flex: 1; padding: 8px 12px; border: none; background: none; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--mc-text-secondary); cursor: pointer; transition: all 0.15s; }
 .import-tab.active { background: var(--mc-bg-elevated); color: var(--mc-text-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
 
-.tab-content { display: flex; flex-direction: column; gap: 12px; }
+.tab-content { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
 .form-group { display: flex; flex-direction: column; gap: 4px; }
 .form-input { padding: 10px 12px; border: 1px solid var(--mc-border); border-radius: 8px; font-size: 14px; color: var(--mc-text-primary); outline: none; background: var(--mc-bg-sunken); transition: border-color 0.15s; }
 .form-input:focus { border-color: var(--mc-primary); box-shadow: 0 0 0 2px rgba(217,119,87,0.1); }
@@ -459,7 +464,7 @@ function getStatusLabel(status: string): string {
 .btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
 .btn-sm { padding: 5px 12px; font-size: 12px; border-radius: 6px; flex-shrink: 0; }
 
-.search-results { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; max-height: 300px; overflow-y: auto; }
+.search-results { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; flex: 1; overflow-y: auto; }
 .search-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--mc-border); border-radius: 8px; background: var(--mc-bg); }
 .search-item:hover { border-color: var(--mc-primary-light); }
 .search-item-info { display: flex; gap: 10px; align-items: flex-start; overflow: hidden; }
