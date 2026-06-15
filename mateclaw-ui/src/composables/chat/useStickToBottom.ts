@@ -37,7 +37,7 @@ export interface StickToBottomReturn {
 // 默认配置
 const DEFAULT_OPTIONS: Required<StickToBottomOptions> = {
   enabled: true,
-  offset: 70,
+  offset: 0,
   smooth: true,
   duration: 350,
 }

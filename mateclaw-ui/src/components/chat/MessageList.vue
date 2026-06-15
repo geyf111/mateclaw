@@ -169,7 +169,7 @@ const isCronHeader = (msg: Message) => {
 // 智能滚动
 const { scrollRef, contentRef, isAtBottom, scrollToBottom } = useStickToBottom({
   enabled: props.autoScroll,
-  offset: 70,
+  offset: 0,
   smooth: true,
 })
 
