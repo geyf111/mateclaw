@@ -59,12 +59,12 @@
                   v-else-if="group.provider.liveness === 'COOLDOWN'"
                   class="model-group-header__chip model-group-header__chip--info"
                 >{{ $t('provider.status.cooldown', { s: cooldownSeconds(group.provider) }) }}</span>
-                <button
+                <!-- <button
                   v-if="!isSelectable(group.provider)"
                   class="model-group-header__fix"
                   @click.stop="emitNavigateFix(group.provider)"
                   type="button"
-                >{{ $t('chat.promptAction.fixThis') }}</button>
+                >{{ $t('chat.promptAction.fixThis') }}</button> -->
               </div>
               <div
                 v-for="item in group.models"
@@ -224,7 +224,8 @@ const groups = computed<ModelGroup[]>(() => {
       cloud.push(group)
     }
   }
-
+  console.log([...cloud, ...local]);
+  
   return [...cloud, ...local]
 })
 
