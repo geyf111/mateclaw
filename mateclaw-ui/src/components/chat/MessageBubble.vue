@@ -389,7 +389,7 @@
           </button> -->
           <!-- 重新生成（仅 assistant） -->
           <button
-            v-if="role === 'assistant' && !isGenerating"
+            v-if="role === 'assistant' && !isGenerating && isLast"
             class="action-btn"
             type="button"
             :title="$t('chat.regenerate')"
