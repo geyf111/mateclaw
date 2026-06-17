@@ -261,6 +261,7 @@ onActivated(() => {
   isActive = true
   if (isInitialLoading.value) return
   loadStatus()
+  loadAgents()
   startStatusPolling()
 })
 
