@@ -144,6 +144,7 @@ async function handleLogin() {
     localStorage.setItem('username', data.username || form.username)
     localStorage.setItem('role', data.role || 'user')
     if (data.clawAccessToken) {localStorage.setItem('clawAccessToken', data.clawAccessToken)}
+    localStorage.setItem('workspace-id', data.workspaceId)
     await modelApi.syncModels()
     router.push('/')
     // Resolve capabilities before deciding the landing route so a viewer
