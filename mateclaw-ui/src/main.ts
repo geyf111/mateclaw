@@ -34,6 +34,27 @@ async function bootstrap() {
   }
 
   app.mount('#app')
+
+  // 捕获所有a标签点击，自动添加target="_blank"，原生浏览器行为
+  document.body.addEventListener('click', (e: MouseEvent) => {
+    let target: HTMLElement | null = e.target as HTMLElement
+    while (target && target.tagName !== 'A') {
+      target = target.parentElement
+    }
+    if (!target) return
+
+    const href = target.getAttribute('href')
+    if (!href) return
+
+    // 只处理 http/https 外部链接
+    if (/^https?:/.test(href)) {
+      // 直接设置target="_blank"，原生行为会调用系统默认浏览器
+      target.setAttribute('target', '_blank')
+      // 加rel防安全警告
+      target.setAttribute('rel', 'noopener noreferrer')
+    }
+  })
+
 }
 
 bootstrap()
