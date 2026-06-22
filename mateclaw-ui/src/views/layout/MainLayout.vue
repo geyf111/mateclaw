@@ -519,6 +519,8 @@ function logout() {
   localStorage.removeItem('token')
   localStorage.removeItem('username')
   localStorage.removeItem('role')
+  localStorage.removeItem('mc-workspace-id')
+  localStorage.removeItem('workspace-id')
   router.push('/login')
 }
 

@@ -13,6 +13,8 @@ export function handleAuthFailure() {
   localStorage.removeItem('token')
   localStorage.removeItem('username')
   localStorage.removeItem('role')
+  localStorage.removeItem('mc-workspace-id')
+  localStorage.removeItem('workspace-id')
   // 已经在登录页则不再跳转，避免死循环
   if (window.location.pathname === '/login') {
     return

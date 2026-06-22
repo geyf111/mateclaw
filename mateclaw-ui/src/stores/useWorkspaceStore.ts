@@ -88,6 +88,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function fetchWorkspaces() {
     loading.value = true
     try {
+      // 从 localStorage 重新同步，防止登出后内存中残留上一个用户的 workspace ID
+      const storedId = localStorage.getItem('mc-workspace-id')
+      if (storedId) {
+        currentWorkspaceId.value = storedId
+      } else {
+        currentWorkspaceId.value = null
+      }
+
       const res: any = await workspaceTeamApi.list()
       workspaces.value = res.data || []
       if (
