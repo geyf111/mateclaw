@@ -314,7 +314,8 @@ onMounted(async () => {
     try {
       const res: any = await setupApi.onboardingStatus()
       if (res?.data && !res.data.hasDefaultModel) {
-        showOnboarding.value = true
+        return
+        // showOnboarding.value = true
       }
     } catch {
       // If endpoint doesn't exist yet, skip onboarding
