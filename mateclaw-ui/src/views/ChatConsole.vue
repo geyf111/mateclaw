@@ -569,6 +569,9 @@ const {
   baseUrl: '',
   thinkingLevel,
   onStreamEnd: async (meta) => {
+    // Clean up the per-conversation cache — once the stream ends, the DB
+    // has the complete message, so stale cache entries don't accumulate.
+    generatingAssistantCache.delete(meta.conversationId)
     // Restore the input/attachments if the turn ended in an error and the
     // user hasn't typed something else in the meantime.
     if (meta.reason === 'error' && pendingSendDraft.value) {
@@ -860,6 +863,15 @@ function applyPendingRouteAction() {
     nextTick(() => chatInputRef.value?.focus?.())
   }
 }
+
+// Per-conversation cache for in-progress assistant messages. When the user
+// switches away from a generating conversation, we stash the partial assistant
+// here so switching back can append it to the DB snapshot (the DB doesn't have
+// unpersisted streaming content). We only save the assistant, not the whole
+// array — the user message was already persisted before SSE started, so the
+// DB has it; caching the full array would create duplicate user messages
+// because client-side IDs differ from DB IDs for fresh conversations.
+const generatingAssistantCache = new Map<string, Message>()
 
 // 轮询定时器：让 ChatConsole 能实时感知外部渠道（WeChat/DingTalk/…）推进来的新消息，
 // 无需 F5 即可看到侧栏列表更新和选中会话的消息/流状态。
@@ -1384,6 +1396,16 @@ async function selectConversation(conv: Conversation) {
   // 点同一个会话则完全不 reset，避免打断正在观察的流。
   const switchingAway = currentConversationId.value !== conv.conversationId
   if (switchingAway) {
+    // Stash the generating assistant before leaving so switching back can
+    // restore it — the DB snapshot doesn't have unpersisted streaming content.
+    // Use 'interrupted' status (not 'generating') so the cached message won't
+    // make isGenerating=true and block reconnectStream's early-exit guard.
+    if (currentConversationId.value) {
+      const lastMsg = messages.value[messages.value.length - 1]
+      if (lastMsg?.role === 'assistant' && lastMsg.status === 'generating') {
+        generatingAssistantCache.set(currentConversationId.value, { ...lastMsg, status: 'interrupted' as const })
+      }
+    }
     resetForNewConversation()
   }
   currentConversationId.value = conv.conversationId
@@ -1508,7 +1530,24 @@ async function selectConversation(conv: Conversation) {
       }
     }
     if (currentConversationId.value === requestedConvId && shouldReconnect) {
+      // Inject the cached generating assistant before reconnecting so
+      // reconnectStream can reuse it instead of creating an empty placeholder.
+      // The DB snapshot doesn't have unpersisted streaming content yet.
+      const cachedAssistant = generatingAssistantCache.get(requestedConvId)
+      if (cachedAssistant) {
+        generatingAssistantCache.delete(requestedConvId)
+        // Guard against a stale pollActivity tick that already appended a
+        // DB-persisted version of this message — only append if we don't
+        // already have it.
+        const alreadyHas = messages.value.some(m => m.id === cachedAssistant.id)
+        if (!alreadyHas) {
+          messages.value = [...messages.value, cachedAssistant]
+        }
+      }
       await reconnectStream(requestedConvId)
+    } else {
+      // Stream not running — discard any stale cache; DB is authoritative.
+      generatingAssistantCache.delete(requestedConvId)
     }
   } catch (e) {
     mcToast.error(t('chat.loadMessagesFailed'))

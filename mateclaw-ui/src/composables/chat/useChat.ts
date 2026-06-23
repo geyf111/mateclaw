@@ -231,9 +231,15 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     // Guard: only write to the message created in the current turn to avoid stale segment pollution
     if ((msg as any)._turnId && (msg as any)._turnId !== activeTurnId) return
     const metadata = parseMetadata((msg as any).metadata)
+    // Merge with existing segments to preserve the timeline from before a
+    // disconnect/reconnect — replace would wipe pre-switch segments when the
+    // reconnected stream creates new ones.
+    const existing = (metadata?.segments as any[]) || []
+    const existingIds = new Set(existing.map((s: any) => s?.id).filter(Boolean))
+    const novel = currentSegments.value.filter(s => !existingIds.has(s.id))
     updateMessage(currentAssistantId.value, {
       ...msg,
-      metadata: { ...metadata, segments: [...currentSegments.value] }
+      metadata: { ...metadata, segments: [...existing, ...novel] }
     } as any)
   }
   const heartbeat = ref<HeartbeatData | null>(null)
@@ -2005,9 +2011,23 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       }
     }
 
-    const assistantMessage = createAssistantMessage('', conversationId)
-    ;(assistantMessage as any)._turnId = activeTurnId
-    currentAssistantId.value = assistantMessage.id as string
+    // If the last message is a generating or interrupted assistant (preserved
+    // from a previous partial stream when the user switched away and back),
+    // reuse it instead of creating a duplicate empty placeholder.
+    // 'interrupted' is the cache status set by ChatConsole to avoid making
+    // isGenerating=true before reconnectStream runs.
+    const lastMsg = messages.value[messages.value.length - 1]
+    if (lastMsg && lastMsg.role === 'assistant'
+        && lastMsg.conversationId === conversationId
+        && (lastMsg.status === 'generating' || lastMsg.status === 'interrupted')) {
+      currentAssistantId.value = lastMsg.id as string
+      ;(lastMsg as any)._turnId = activeTurnId
+      setMessageStatus(lastMsg.id as string, 'generating')
+    } else {
+      const assistantMessage = createAssistantMessage('', conversationId)
+      ;(assistantMessage as any)._turnId = activeTurnId
+      currentAssistantId.value = assistantMessage.id as string
+    }
 
     try {
       // connect() owns lastEventId injection — it knows whether the dedup
