@@ -86,7 +86,7 @@
         <div v-for="section in skillSections" :key="section.key" class="skill-section">
           <div class="skill-section-head">
             <span class="skill-section-title">{{ section.label }}</span>
-            <span class="skill-section-count">{{ t('skills.sections.countItems', { n: section.state.total }) }}</span>
+            <span class="skill-section-count" v-if="section.key === 'enabled'">{{ t('skills.sections.countItems', { n: section.state.total }) }}</span>
           </div>
 
           <div class="skill-grid" v-if="section.state.items.length > 0">
