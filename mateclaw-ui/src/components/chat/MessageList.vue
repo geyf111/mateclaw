@@ -72,7 +72,7 @@
             :assistant-icon="assistantIcon"
             :user-icon="userIcon"
             :show-cursor="showCursorForMessage(msg)"
-            @regenerate="$emit('regenerate', msg)"
+            @regenerate="(tailDeleted) => $emit('regenerate', msg, tailDeleted)"
             @toggle-thinking="(expanded) => $emit('toggle-thinking', msg, expanded)"
             @approve="(pendingId) => $emit('approve', pendingId)"
             @deny="(pendingId) => $emit('deny', pendingId)"
@@ -139,7 +139,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
-  regenerate: [message: Message]
+  regenerate: [message: Message, tailDeleted: number]
   'toggle-thinking': [message: Message, expanded: boolean]
   'suggestion-click': [suggestion: string]
   scroll: [event: Event]

@@ -474,7 +474,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
-  regenerate: []
+  regenerate: [tailDeleted: number]
   'toggle-thinking': [expanded: boolean]
   approve: [pendingId: string]
   deny: [pendingId: string]
@@ -653,13 +653,15 @@ async function handleRegenerate() {
   const cid = props.message.conversationId
   const mid = props.message.id
   if (!cid || mid == null) return
+  let tailDeleted = 1
   try {
-    await chatApi.deleteMessage(cid, mid)
+    const res = await chatApi.deleteMessage(cid, mid)
+    tailDeleted = res?.data?.tailDeleted ?? 1
   } catch (e: any) {
     mcToast.error(e?.message || t('chat.deleteFailed'))
     return
   }
-  emit('regenerate')
+  emit('regenerate', tailDeleted)
 }
 
 function copyMessage() {

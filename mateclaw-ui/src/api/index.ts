@@ -150,7 +150,7 @@ export const chatApi = {
   getPendingApprovals: (conversationId: string) =>
     http.get(`/chat/${conversationId}/pending-approvals`),
   deleteMessage: (conversationId: string, messageId: string | number) =>
-    http.post(`/chat/${conversationId}/regenerate`, { messageId }),
+    http.post<{ tailDeleted: number }>(`/chat/${conversationId}/regenerate`, { messageId }),
 }
 
 // ==================== Conversation ====================

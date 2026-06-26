@@ -1755,12 +1755,9 @@ function handleStopStream() {
   stopChatGeneration()
 }
 
-async function handleRegenerate(message: Message) {
+function handleRegenerate(message: Message, tailDeleted: number = 1) {
   if (isGenerating.value) return
-  const idx = messages.value.indexOf(message)
-  if (idx >= 0) {
-    messages.value.splice(idx, 1)
-  }
+
   const lastUserMsg = messages.value.findLast(m => m.role === 'user')
   if (!lastUserMsg) return
 
@@ -1769,14 +1766,20 @@ async function handleRegenerate(message: Message) {
     .map(p => p.text || '')
     .join('\n') || lastUserMsg.content || ''
 
-  // Remove the user-trigger message too — regenerate will send a fresh one.
+  // Delete tailDeleted assistant messages from the end of the list.
+  for (let i = 0; i < tailDeleted - 1; i++) {
+    const lastAssistant = messages.value.findLast(m => m.role === 'assistant')
+    if (lastAssistant) {
+      const idx = messages.value.indexOf(lastAssistant)
+      messages.value.splice(idx, 1)
+    }
+  }
+
+  // Remove the last user message — regenerate will re-send it.
   const userIdx = messages.value.indexOf(lastUserMsg)
   if (userIdx >= 0) {
     messages.value.splice(userIdx, 1)
   }
-  try {
-    await chatApi.deleteMessage(lastUserMsg.conversationId, lastUserMsg.id as string)
-  } catch { /* best-effort: UI already removed it */ }
 
   handleSendMessage(text)
 }
