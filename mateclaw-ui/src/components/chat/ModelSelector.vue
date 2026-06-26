@@ -274,6 +274,7 @@ function onItemClick(provider: ProviderInfo, value: string) {
   if (isSelectable(provider)) {
     handleSelect(value)
   } else {
+    return
     emitNavigateFix(provider)
   }
 }
