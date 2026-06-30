@@ -135,7 +135,6 @@
                 active-text="启用"
                 inactive-text="禁用"
                 @change="toggleSkill(skill)"
-                :disabled="!skill.installed"
               />
               <span
                 v-else
@@ -1160,7 +1159,13 @@ async function loadSegment(key: 'enabled' | 'available', allowPageClamp = true) 
 
     const res: any = await skillApi.page(params)
     const data = res.data || {}
-    const records: Skill[] = Array.isArray(data.records) ? data.records.filter((i: Skill) => i.installed || i.builtin) : []
+    let records: Skill[] = []
+    if (key === 'enabled') {
+      records = Array.isArray(data.records) ? data.records : []
+    } else {
+      records = Array.isArray(data.records) ? data.records.filter((i: Skill) => i.installed || i.platformStatus === 'REMOVED') : []
+    }
+    
     // Trust the backend total when it's positive. Only fall back to an inferred
     // floor when the backend reports 0 (broken pagination interceptor) — using
     // Math.max unconditionally produced an off-by-one whenever total was an
@@ -1442,6 +1447,24 @@ async function deleteSkill(idOrSkill: string | number | Skill) {
 }
 
 async function toggleSkill(skill: Skill) {
+  // 未安装且platformStatus为REMOVED，启用提示平台已移除，是否删除技能
+  if (!skill.installed && skill.platformStatus === 'REMOVED') {
+    const ok = await mcConfirm({
+      title: t('skills.messages.deleteTitle'),
+      message: '平台已移除该技能，是否删除?',
+      tone: 'danger',
+    })
+    if (!ok) return skill.enabled = !skill.enabled
+    try {
+      await skillApi.deleteSkill(skill.id)
+      await loadAll()
+      mcToast.success('删除技能成功')
+      return
+    } catch (e: any) {
+      mcToast.error(typeof e === 'string' ? e : e?.message || t('skills.messages.deleteFailed'))
+    }
+  }
+
   // MCP virtual skills support enable/disable — the backend forwards it to
   // the underlying MCP server. ACP virtual skills stay read-only: the UI
   // hides their toggle, and this short-circuit keeps the toast accurate if
@@ -1455,6 +1478,8 @@ async function toggleSkill(skill: Skill) {
     await loadAll()
   } catch (e: any) {
     mcToast.error(typeof e === 'string' ? e : e?.message || t('skills.messages.toggleFailed'))
+    // Revert the toggle state if the backend failed.
+    skill.enabled = !skill.enabled
   }
 }
 

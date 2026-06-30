@@ -341,6 +341,7 @@ export interface Skill {
   archivedAt?: string
   secret?: string
   installed?: boolean
+  platformStatus?: string | null
 }
 
 /** 运行时解析状态（来自 /runtime/status） */
@@ -500,7 +501,8 @@ export interface HubSkillInfo {
   tags?: string[]
   downloads?: number
   bundleUrl: string,
-  skillType: string
+  skillType: string,
+  platformStatus?: string | null
 }
 
 // ==================== 工具 ====================

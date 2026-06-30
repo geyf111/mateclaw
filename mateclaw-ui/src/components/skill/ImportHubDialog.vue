@@ -392,7 +392,7 @@ async function doSearch() {
   searchDone.value = false
   try {
     const res: any = await skillInstallApi.searchFromPlatform(q, categoryId)
-    searchResults.value = res.data.records.filter((i: HubSkillInfo) => !i.builtin && i.skillType !== 'mcp') || []
+    searchResults.value = res.data.records.filter((i: HubSkillInfo) => !i.builtin && i.skillType !== 'mcp' && i.platformStatus !== 'REMOVED') || []
     searchDone.value = true
   } catch (e: any) {
     mcToast.error(e?.message || t('skills.import.searchFailed'))

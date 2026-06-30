@@ -269,6 +269,8 @@ export const skillApi = {
   getAllCategories: () => http.get('/skills/categories'),
   /** Sync skills from the platform. */
   syncSkills: () => http.post('/skills/sync'),
+  /** Delete a skill. */
+  deleteSkill: (id: string | number) => http.delete(`/skills/cleanup-removed?skillId=${id}`),
 }
 
 /** Shape returned by GET /skills/{id}/secrets. */
