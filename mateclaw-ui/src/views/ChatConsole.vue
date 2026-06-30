@@ -978,7 +978,10 @@ async function pollActivity() {
           // 2. 再接入流，让后续 content_delta 实时累积到 assistant 气泡。
           await refreshCurrentConversationMessages(cid)
           if (currentConversationId.value !== cid || isGenerating.value) return
-          await reconnectStream(cid)
+          // SSE reconnect is a long-lived observation. The backend may keep
+          // the emitter open after `done` for late async events; awaiting it
+          // here would keep activityPolling=true and block later channel turns.
+          void reconnectStream(cid)
         } else if (!hasLocalOnlyFailedTail()) {
           // 不在跑：从 DB 对齐消息（新 user 消息 / 刚落库 assistant 会合并进来）。
           // 但若末尾是本地失败气泡（SSE setup 失败一类，后端从未持久化过），
