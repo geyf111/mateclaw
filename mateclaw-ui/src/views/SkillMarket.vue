@@ -1275,6 +1275,10 @@ function openEditFromCard(skill: Skill) {
 
 /** 打开只读配置弹窗 */
 function openConfigDialog(skill: Skill) {
+  // 设置密钥脱敏字段
+  if (skill?.secret) {
+    skill.secret = '********'
+  }
   configSkill.value = skill
   showConfigDialog.value = true
 }
