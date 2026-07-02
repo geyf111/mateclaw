@@ -771,6 +771,7 @@ async function refreshLiveCounts() {
 }
 
 onMounted(() => {
+  skillApi.syncSkills()
   loadAgents()
   // RFC-03 G1: load models once for the per-Agent override dropdown.
   // Failure is non-fatal — the dropdown just shows only "global default".

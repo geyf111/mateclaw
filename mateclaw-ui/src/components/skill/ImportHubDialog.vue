@@ -221,6 +221,7 @@ watch(() => props.visible, async (val) => {
     currentTask.value = null
   } else {
     await syncSkills()
+    emit('installed')
     loadCategories()
   }
 })
