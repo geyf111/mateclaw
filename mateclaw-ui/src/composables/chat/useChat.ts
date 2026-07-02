@@ -235,11 +235,17 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     // disconnect/reconnect — replace would wipe pre-switch segments when the
     // reconnected stream creates new ones.
     const existing = (metadata?.segments as any[]) || []
-    const existingIds = new Set(existing.map((s: any) => s?.id).filter(Boolean))
-    const novel = currentSegments.value.filter(s => !existingIds.has(s.id))
+    const currentById = new Map(
+      currentSegments.value
+        .filter((s: any) => s?.id)
+        .map((s: any) => [s.id, s])
+    )
+    const merged = existing.map((s: any) => currentById.get(s?.id) || s)
+    const mergedIds = new Set(merged.map((s: any) => s?.id).filter(Boolean))
+    const novel = currentSegments.value.filter(s => !mergedIds.has(s.id))
     updateMessage(currentAssistantId.value, {
       ...msg,
-      metadata: { ...metadata, segments: [...existing, ...novel] }
+      metadata: { ...metadata, segments: [...merged, ...novel] }
     } as any)
   }
   const heartbeat = ref<HeartbeatData | null>(null)
@@ -275,6 +281,35 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       }
     }
     return metadata
+  }
+
+  /**
+   * When reconnecting to a still-running turn, the cached assistant message
+   * already has streamed segments from before the conversation switch. Restore
+   * those segments into the live stash so post-reconnect deltas continue the
+   * last running content segment instead of starting a new visual block on
+   * every conversation switch.
+   */
+  const restoreSegmentContextFromMessage = (message: Message | undefined) => {
+    const metadata = parseMetadata((message as any)?.metadata)
+    const segs = Array.isArray(metadata?.segments) ? metadata.segments : []
+    if (segs.length > 0) {
+      currentSegments.value = segs.map((s: any) => ({ ...s }))
+    }
+    for (let i = segs.length - 1; i >= 0; i--) {
+      const idx = segs[i]?.iterationIndex
+      if (typeof idx === 'number') {
+        ;(currentSegments.value as any)._currentIteration = idx
+        break
+      }
+    }
+    for (let i = segs.length - 1; i >= 0; i--) {
+      const subId = segs[i]?.subagentId
+      if (subId) {
+        ;(currentSegments.value as any)._currentSubagentId = subId
+        break
+      }
+    }
   }
 
   /**
@@ -2022,6 +2057,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         && (lastMsg.status === 'generating' || lastMsg.status === 'interrupted')) {
       currentAssistantId.value = lastMsg.id as string
       ;(lastMsg as any)._turnId = activeTurnId
+      restoreSegmentContextFromMessage(lastMsg)
       setMessageStatus(lastMsg.id as string, 'generating')
     } else {
       const assistantMessage = createAssistantMessage('', conversationId)

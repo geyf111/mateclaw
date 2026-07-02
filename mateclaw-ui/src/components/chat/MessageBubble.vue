@@ -1022,9 +1022,12 @@ const groupedIterations = computed(() => {
       contents: segs.filter(s => s.type === 'content'),
     }]
   }
+  const fallbackIteration = segs.reduce((max, s) => (
+    typeof s.iterationIndex === 'number' ? Math.max(max, s.iterationIndex) : max
+  ), 0)
   const buckets = new Map<number, { thinkings: MessageSegment[]; tools: MessageSegment[]; contents: MessageSegment[] }>()
   for (const s of segs) {
-    const idx = s.iterationIndex ?? 0
+    const idx = s.iterationIndex ?? fallbackIteration
     if (!buckets.has(idx)) buckets.set(idx, { thinkings: [], tools: [], contents: [] })
     const b = buckets.get(idx)!
     if (s.type === 'thinking') b.thinkings.push(s)
