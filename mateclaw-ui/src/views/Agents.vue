@@ -4,9 +4,11 @@
       <div class="mc-page-inner agents-page">
         <div class="mc-page-header">
           <div>
-            <div class="mc-page-kicker">{{ t('agents.kicker') }}</div>
-            <h1 class="mc-page-title">{{ t('agents.title') }}</h1>
-            <p class="mc-page-desc">{{ t('agents.desc') }}</p>
+            <!-- <div class="mc-page-kicker">{{ t('agents.kicker') }}</div> -->
+            <!-- <h1 class="mc-page-title">{{ t('agents.title') }}</h1> -->
+            <h1 class="mc-page-title">智能助手</h1>
+            <!-- <p class="mc-page-desc">{{ t('agents.desc') }}</p> -->
+            <p class="mc-page-desc">招募、培训和管理你的智能助手</p>
           </div>
           <div class="header-right">
             <!-- Roster / Live view switch — one team, two states. Admin only.
@@ -35,7 +37,8 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
-              {{ t('agents.newAgent') }}
+              <!-- {{ t('agents.newAgent') }} -->
+              新助手
             </button>
           </div>
         </div>
@@ -195,7 +198,8 @@
     <div v-if="showModal" class="modal-overlay">
       <div class="modal">
         <div class="modal-header">
-          <h2>{{ editingAgent ? t('agents.modal.editTitle') : t('agents.modal.newTitle') }}</h2>
+          <!-- <h2>{{ editingAgent ? t('agents.modal.editTitle') : t('agents.modal.newTitle') }}</h2> -->
+          <h2>{{ editingAgent ? '编辑助手' : '新助手' }}</h2>
           <button class="modal-close" @click="closeModal">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -219,6 +223,14 @@
             <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'providers' }" @click="modalTab = 'providers'">
               {{ t('agents.tabs.providers', 'Providers') }}
               <span v-if="selectedProviderIds.length" class="tab-badge">{{ selectedProviderIds.length }}</span>
+            </button>
+            <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'knowledge' }" @click="modalTab = 'knowledge'">
+              知识库
+              <span v-if="selectedKnowledgeBaseIds.length" class="tab-badge">{{ selectedKnowledgeBaseIds.length }}</span>
+            </button>
+            <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'mcp' }" @click="modalTab = 'mcp'">
+              MCP
+              <span v-if="selectedMCPIds.length" class="tab-badge">{{ selectedMCPIds.length }}</span>
             </button>
           </div>
 
@@ -353,6 +365,74 @@
                     <span v-if="skill.description" class="binding-desc">{{ skill.description?.slice(0, 80) }}</span>
                   </div>
                   <span v-if="skill.version" class="binding-version">v{{ skill.version }}</span>
+                </label>
+              </div>
+            </template>
+          </div>
+
+          <!-- Knowledge Base Tab -->
+          <div v-if="modalTab === 'knowledge'" class="binding-tab">
+            <div class="binding-intro">
+              <span class="binding-intro__kicker">知识库</span>
+              <p class="binding-intro__tagline">为助手绑定知识库，增强其领域知识</p>
+            </div>
+            <p class="binding-hint">勾选后助手将能检索对应知识库的内容</p>
+            <div v-if="availableKnowledgeBases.length === 0" class="binding-empty">暂无可选知识库</div>
+            <template v-else>
+              <div class="binding-search">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input v-model="kbBindingSearch" placeholder="搜索知识库..." />
+              </div>
+              <div v-if="filteredAvailableKnowledgeBases.length === 0" class="binding-empty binding-empty--compact">无匹配的知识库</div>
+              <div v-else class="binding-list">
+                <label
+                  v-for="kb in filteredAvailableKnowledgeBases"
+                  :key="kb.id"
+                  class="binding-item"
+                  :class="{ selected: selectedKnowledgeBaseIds.includes(kb.id) }"
+                >
+                  <input type="checkbox" :value="kb.id" v-model="selectedKnowledgeBaseIds" class="binding-checkbox" />
+                  <span class="binding-icon">📚</span>
+                  <div class="binding-info">
+                    <span class="binding-name">{{ kb.name }}</span>
+                    <span v-if="kb.description" class="binding-desc">{{ kb.description?.slice(0, 80) }}</span>
+                  </div>
+                </label>
+              </div>
+            </template>
+          </div>
+
+          <!-- MCP Tab -->
+          <div v-if="modalTab === 'mcp'" class="binding-tab">
+            <div class="binding-intro">
+              <span class="binding-intro__kicker">MCP</span>
+              <p class="binding-intro__tagline">为助手绑定 MCP 服务器，扩展工具能力</p>
+            </div>
+            <p class="binding-hint">勾选后助手将能调用对应 MCP 服务器提供的工具</p>
+            <div v-if="availableMCPs.length === 0" class="binding-empty">暂无可选 MCP 服务器</div>
+            <template v-else>
+              <div class="binding-search">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input v-model="mcpBindingSearch" placeholder="搜索 MCP..." />
+              </div>
+              <div v-if="filteredAvailableMCPs.length === 0" class="binding-empty binding-empty--compact">无匹配的 MCP 服务器</div>
+              <div v-else class="binding-list">
+                <label
+                  v-for="mcp in filteredAvailableMCPs"
+                  :key="mcp.id"
+                  class="binding-item"
+                  :class="{ selected: selectedMCPIds.includes(mcp.id) }"
+                >
+                  <input type="checkbox" :value="mcp.id" v-model="selectedMCPIds" class="binding-checkbox" />
+                  <span class="binding-icon">🔌</span>
+                  <div class="binding-info">
+                    <span class="binding-name">{{ mcp.name }}</span>
+                    <span v-if="mcp.description" class="binding-desc">{{ mcp.description?.slice(0, 80) }}</span>
+                  </div>
                 </label>
               </div>
             </template>
@@ -533,7 +613,7 @@ const searchText = ref('')
 const activeFilter = ref('all')
 const showModal = ref(false)
 const editingAgent = ref<Agent | null>(null)
-const modalTab = ref<'basic' | 'skills' | 'tools' | 'providers'>('basic')
+const modalTab = ref<'basic' | 'skills' | 'knowledge' | 'mcp' | 'tools' | 'providers'>('basic')
 /** RFC-090 §9.2 调整 B — Tool picker is an Advanced bypass; collapsed by
  *  default but stays open as soon as the agent has any direct tool
  *  bindings, so existing users don't lose visibility on their picks. */
@@ -542,10 +622,16 @@ const advancedToolsOpen = ref(false)
 // Binding state
 const availableSkills = ref<any[]>([])
 const availableTools = ref<any[]>([])
+const availableKnowledgeBases = ref<any[]>([])
+const availableMCPs = ref<any[]>([])
 const skillBindingSearch = ref('')
 const toolBindingSearch = ref('')
+const kbBindingSearch = ref('')
+const mcpBindingSearch = ref('')
 
 const filteredAvailableSkills = computed(() => filterAgentBindingItems(availableSkills.value, skillBindingSearch.value))
+const filteredAvailableKnowledgeBases = computed(() => filterAgentBindingItems(availableKnowledgeBases.value, kbBindingSearch.value))
+const filteredAvailableMCPs = computed(() => filterAgentBindingItems(availableMCPs.value, mcpBindingSearch.value))
 
 /**
  * Group the flat /tools/available payload by source so the picker
@@ -670,6 +756,8 @@ function onToolToggle(toolName: string, event: Event) {
 }
 const selectedSkillIds = ref<number[]>([])
 const selectedToolNames = ref<string[]>([])
+const selectedKnowledgeBaseIds = ref<number[]>([])
+const selectedMCPIds = ref<number[]>([])
 // RFC-009 PR-3: per-agent provider preference order
 const availableProviders = ref<{ id: string; name: string }[]>([])
 const selectedProviderIds = ref<string[]>([])
@@ -823,8 +911,12 @@ function openBlankCreateModal() {
   modalTab.value = 'basic'
   skillBindingSearch.value = ''
   toolBindingSearch.value = ''
+  kbBindingSearch.value = ''
+  mcpBindingSearch.value = ''
   selectedSkillIds.value = []
   selectedToolNames.value = []
+  selectedKnowledgeBaseIds.value = []
+  selectedMCPIds.value = []
   selectedProviderIds.value = []
   showModal.value = true
 }
@@ -857,18 +949,19 @@ function moveProvider(idx: number, dir: -1 | 1) {
 
 async function loadTemplates() {
   try {
-    const res: any = await templateApi.list()
+    const res: any = await agentApi.getPresets()
     templates.value = res.data || []
   } catch {
     // Fallback: skip templates, open blank form
-    openBlankCreateModal()
+    // openBlankCreateModal()
   }
 }
 
 async function applyTemplate(id: string) {
   applyingTemplate.value = true
   try {
-    await templateApi.apply(id)
+    // await templateApi.apply(id)
+    await agentApi.createPreset(id)
     mcToast.success(t('agents.templates.applied'))
     showTemplateSelector.value = false
     await loadAgents()
@@ -935,7 +1028,7 @@ async function openEditModal(agent: Agent) {
 
   // Load available skills/tools/providers and current bindings in parallel
   try {
-    const [skillsRes, toolsRes, boundSkillsRes, boundToolsRes, providerPrefsRes, modelsEnabledRes] = await Promise.all([
+    const [skillsRes, toolsRes, boundSkillsRes, boundToolsRes, providerPrefsRes, modelsEnabledRes, kbBasesRes, mcpRes] = await Promise.all([
       // RFC-042: /skills is now paginated; binding dropdown only needs enabled skills,
       // so listEnabled() is both semantically correct and shape-stable (returns array).
       skillApi.listEnabled(),
@@ -946,7 +1039,9 @@ async function openEditModal(agent: Agent) {
       agentBindingApi.listSkills(agent.id),
       agentBindingApi.listTools(agent.id),
       agentBindingApi.listProviderPreferences(agent.id),
-      modelApi.listEnabled()
+      modelApi.listEnabled(),
+      agentBindingApi.listKnowledgeBases(agent.id),
+      agentBindingApi.listMCPs(agent.id),
     ])
     try {
       const providersRes = await modelApi.listProviders()
@@ -965,6 +1060,9 @@ async function openEditModal(agent: Agent) {
     }
     availableSkills.value = (skillsRes as any).data || []
     availableTools.value = (toolsRes as any).data || []
+    // availableKnowledgeBases.value = (kbBasesRes as any).data || []
+    // availableMCPs.value = (mcpRes as any).data || []
+
     // Pool of providers the user has actually configured — no point letting an
     // agent prefer a provider that doesn't exist on this deployment.
     // availableProviders.value = ((providersRes as any).data || [])
@@ -979,6 +1077,12 @@ async function openEditModal(agent: Agent) {
     selectedProviderIds.value = ((providerPrefsRes as any).data || [])
       .filter((b: any) => b.enabled)
       .map((b: any) => b.providerId)
+    selectedKnowledgeBaseIds.value = ((kbBasesRes as any).data || [])
+      .filter((b: any) => b.enabled)
+      .map((b: any) => b.kbRefId)
+    selectedMCPIds.value = ((mcpRes as any).data || [])
+      .filter((b: any) => b.enabled)
+      .map((b: any) => b.mcpRefId)
   } catch {
     // Non-blocking: binding data load failure doesn't prevent editing basic info
   }
@@ -989,6 +1093,8 @@ function closeModal() {
   editingAgent.value = null
   skillBindingSearch.value = ''
   toolBindingSearch.value = ''
+  kbBindingSearch.value = ''
+  mcpBindingSearch.value = ''
 }
 
 async function saveAgent() {
@@ -1014,6 +1120,8 @@ async function saveAgent() {
         agentBindingApi.setSkills(agentId, selectedSkillIds.value),
         agentBindingApi.setTools(agentId, selectedToolNames.value),
         agentBindingApi.setProviderPreferences(agentId, selectedProviderIds.value),
+        agentBindingApi.setKnowledgeBases(agentId, selectedKnowledgeBaseIds.value),
+        agentBindingApi.setMCPs(agentId, selectedMCPIds.value),
       ])
     }
 
@@ -1028,7 +1136,8 @@ async function saveAgent() {
 async function deleteAgent(agent: Agent) {
   const ok = await mcConfirm({
     title: t('agents.actions.delete'),
-    message: t('agents.messages.deleteConfirm'),
+    // message: t('agents.messages.deleteConfirm'),
+    message: '确认让该助手离职吗？删除后不可恢复。',
     tone: 'danger',
   })
   if (!ok) return

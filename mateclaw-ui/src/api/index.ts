@@ -108,6 +108,10 @@ export const agentApi = {
   getState: (id: string | number) => http.get(`/agents/${id}/state`),
   /** Lightweight capability snapshot used by the chat console attachment hint. */
   getCapabilities: (id: string | number) => http.get(`/agents/${id}/capabilities`),
+  /** 获取平台配置的助手*/
+  getPresets: () => http.get('/agents/presets'),
+  /** 创建平台配置的助手 */
+  createPreset: (id: string) => http.post(`/agents/presets/${id}/apply`),
 }
 
 // ==================== Templates ====================
@@ -920,6 +924,14 @@ export const agentBindingApi = {
     http.get(`/agents/${agentId}/provider-preferences`),
   setProviderPreferences: (agentId: string | number, providerIds: string[]) =>
     http.put(`/agents/${agentId}/provider-preferences`, providerIds),
+  /** 获取助手绑定的知识库 */
+  listKnowledgeBases: (agentId: string | number) => http.get(`/agents/${agentId}/knowledge-bases`),
+  /** 设置助手绑定的知识库 */
+  setKnowledgeBases: (agentId: string | number, kbIds: number[]) => http.put(`/agents/${agentId}/knowledge-bases`, kbIds),
+  /** 获取助手绑定的MCP */
+  listMCPs: (agentId: string | number) => http.get(`/agents/${agentId}/mcps`),
+  /** 设置助手绑定的MCP */
+  setMCPs: (agentId: string | number, mcpIds: number[]) => http.put(`/agents/${agentId}/mcps`, mcpIds),
 }
 
 // ==================== Dashboard ====================
