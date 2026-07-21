@@ -14,7 +14,8 @@
         </div>
         <transition name="fade">
           <div v-if="!effectiveCollapsed" class="logo-text">
-            <span class="logo-name">GL<span class="logo-name-highlight">Claw</span></span>
+            <!-- <span class="logo-name">GL<span class="logo-name-highlight">Claw</span></span> -->
+            <span class="logo-name">GClaw · 龙爪</span>
             <span class="logo-version">v{{ appVersion }}</span>
           </div>
         </transition>

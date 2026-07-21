@@ -1,6 +1,6 @@
 export default {
   app: {
-    title: 'GLClaw - AI 助手',
+    title: 'GClaw · 龙爪',
   },
   common: {
     save: '保存',

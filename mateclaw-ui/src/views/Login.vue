@@ -3,7 +3,8 @@
     <div class="login-center">
       <div class="login-logo">
         <img src="/logo/mateclaw_logo_s.png" alt="MateClaw" class="logo-image" />
-        <h1 class="logo-title">GL<span class="logo-title-highlight">Claw</span></h1>
+        <!-- <h1 class="logo-title">GL<span class="logo-title-highlight">Claw</span></h1> -->
+        <span class="logo-title-text">GClaw · 龙爪</span>
       </div>
       <!-- <div class="login-header">
         <h1 class="header-main-title">欢迎登录</h1>
@@ -241,6 +242,14 @@ html.dark .login-page {
   margin: 0;
   letter-spacing: -0.04em;
 }
+
+.logo-title-text {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+
 
 .logo-title-highlight {
   color: var(--mc-primary);
