@@ -14,7 +14,8 @@
                 <img src="/logo/mateclaw_logo_s.png" alt="GLClaw" class="welcome-logo__icon" />
               </div>
             </div>
-            <h2 class="welcome-title">GL<span class="welcome-title-highlight">Claw</span></h2>
+            <!-- <h2 class="welcome-title">GL<span class="welcome-title-highlight">Claw</span></h2> -->
+             <h2 class="welcome-title">GClaw · 龙爪</h2>
             <!-- <p class="welcome-subtitle">{{ subtitle }}</p>
             <div v-if="suggestions.length" class="welcome-suggestions">
               <button
