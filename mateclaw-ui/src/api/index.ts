@@ -928,10 +928,14 @@ export const agentBindingApi = {
   listKnowledgeBases: (agentId: string | number) => http.get(`/agents/${agentId}/knowledge-bases`),
   /** 设置助手绑定的知识库 */
   setKnowledgeBases: (agentId: string | number, kbIds: number[]) => http.put(`/agents/${agentId}/knowledge-bases`, kbIds),
+  /** 获取平台全量知识库 */
+  getKnowledgeBases: () => http.get('/platform/knowledge-bases'),
   /** 获取助手绑定的MCP */
   listMCPs: (agentId: string | number) => http.get(`/agents/${agentId}/mcps`),
   /** 设置助手绑定的MCP */
   setMCPs: (agentId: string | number, mcpIds: number[]) => http.put(`/agents/${agentId}/mcps`, mcpIds),
+  /** 获取平台全量MCP */
+  getMCPs: () => http.get('/platform/mcps'),
 }
 
 // ==================== Dashboard ====================

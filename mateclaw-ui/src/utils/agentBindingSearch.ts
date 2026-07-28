@@ -26,7 +26,9 @@ export function filterAgentBindingItems<T extends SearchableRecord>(items: T[], 
     includesQuery(item.version, q) ||
     includesQuery(item.source, q) ||
     includesQuery(item.group, q) ||
-    includesQuery(item.providerName, q)
+    includesQuery(item.providerName, q) ||
+    includesQuery(item.mcpName, q) ||
+    includesQuery(item.kbName, q)
   ))
 }
 

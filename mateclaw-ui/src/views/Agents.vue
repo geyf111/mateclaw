@@ -389,14 +389,14 @@
               <div v-else class="binding-list">
                 <label
                   v-for="kb in filteredAvailableKnowledgeBases"
-                  :key="kb.id"
+                  :key="kb.kbRefId"
                   class="binding-item"
-                  :class="{ selected: selectedKnowledgeBaseIds.includes(kb.id) }"
+                  :class="{ selected: selectedKnowledgeBaseIds.includes(kb.kbRefId) }"
                 >
-                  <input type="checkbox" :value="kb.id" v-model="selectedKnowledgeBaseIds" class="binding-checkbox" />
+                  <input type="checkbox" :value="kb.kbRefId" v-model="selectedKnowledgeBaseIds" class="binding-checkbox" />
                   <span class="binding-icon">📚</span>
                   <div class="binding-info">
-                    <span class="binding-name">{{ kb.name }}</span>
+                    <span class="binding-name">{{ kb.kbName }}</span>
                     <span v-if="kb.description" class="binding-desc">{{ kb.description?.slice(0, 80) }}</span>
                   </div>
                 </label>
@@ -423,14 +423,14 @@
               <div v-else class="binding-list">
                 <label
                   v-for="mcp in filteredAvailableMCPs"
-                  :key="mcp.id"
+                  :key="mcp.mcpRefId"
                   class="binding-item"
-                  :class="{ selected: selectedMCPIds.includes(mcp.id) }"
+                  :class="{ selected: selectedMCPIds.includes(mcp.mcpRefId) }"
                 >
-                  <input type="checkbox" :value="mcp.id" v-model="selectedMCPIds" class="binding-checkbox" />
+                  <input type="checkbox" :value="mcp.mcpRefId" v-model="selectedMCPIds" class="binding-checkbox" />
                   <span class="binding-icon">🔌</span>
                   <div class="binding-info">
-                    <span class="binding-name">{{ mcp.name }}</span>
+                    <span class="binding-name">{{ mcp.mcpName }}</span>
                     <span v-if="mcp.description" class="binding-desc">{{ mcp.description?.slice(0, 80) }}</span>
                   </div>
                 </label>
@@ -1028,7 +1028,7 @@ async function openEditModal(agent: Agent) {
 
   // Load available skills/tools/providers and current bindings in parallel
   try {
-    const [skillsRes, toolsRes, boundSkillsRes, boundToolsRes, providerPrefsRes, modelsEnabledRes, kbBasesRes, mcpRes] = await Promise.all([
+    const [skillsRes, toolsRes, boundSkillsRes, boundToolsRes, providerPrefsRes, modelsEnabledRes, kbBasesRes, mcpRes, allKnowledgeBasesRes, allMCPsRes] = await Promise.all([
       // RFC-042: /skills is now paginated; binding dropdown only needs enabled skills,
       // so listEnabled() is both semantically correct and shape-stable (returns array).
       skillApi.listEnabled(),
@@ -1042,6 +1042,8 @@ async function openEditModal(agent: Agent) {
       modelApi.listEnabled(),
       agentBindingApi.listKnowledgeBases(agent.id),
       agentBindingApi.listMCPs(agent.id),
+      agentBindingApi.getKnowledgeBases(),
+      agentBindingApi.getMCPs(),
     ])
     try {
       const providersRes = await modelApi.listProviders()
@@ -1060,8 +1062,8 @@ async function openEditModal(agent: Agent) {
     }
     availableSkills.value = (skillsRes as any).data || []
     availableTools.value = (toolsRes as any).data || []
-    // availableKnowledgeBases.value = (kbBasesRes as any).data || []
-    // availableMCPs.value = (mcpRes as any).data || []
+    availableKnowledgeBases.value = (allKnowledgeBasesRes as any).data || []
+    availableMCPs.value = (allMCPsRes as any).data || []
 
     // Pool of providers the user has actually configured — no point letting an
     // agent prefer a provider that doesn't exist on this deployment.
