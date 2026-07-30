@@ -3515,6 +3515,7 @@ export default {
       emptyCta: 'Configure',
     },
     recentRuns: 'Recent Cron Job Runs',
+    recentRunsDelayHint: 'Up to 10 minutes of data delay',
     noRuns: 'No runs yet',
     runColumns: {
       time: 'Time',

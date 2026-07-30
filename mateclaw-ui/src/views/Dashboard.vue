@@ -169,7 +169,7 @@
 
           <div class="runs-section">
             <div class="section-head">
-              <h2 class="section-title">{{ t('dashboard.recentRuns') }}</h2>
+              <h2 class="section-title">{{ t('dashboard.recentRuns') }} <span class="delay-hint">{{ t('dashboard.recentRunsDelayHint') }}</span></h2>
               <p class="section-subtitle">{{ t('dashboard.runsDesc') }}</p>
             </div>
             <div class="runs-table-wrapper mc-surface-card">
@@ -310,6 +310,8 @@ onMounted(async () => {
   // Model configuration card — loaded independently so a failure here never
   // blanks the analytics above, and vice versa.
   try {
+    // 进入仪表盘时主动同步模型状态
+    await modelApi.syncModels()
     const [provRes, activeRes, enabledRes] = await Promise.all([
       modelApi.listProviders().catch(() => ({ data: [] })),
       modelApi.getActive().catch(() => ({ data: null })),
@@ -518,6 +520,13 @@ function calcDuration(run: any): string {
   color: var(--mc-text-primary);
   letter-spacing: -0.03em;
   margin: 0 0 4px;
+}
+
+.delay-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--mc-text-tertiary);
+  margin-left: 6px;
 }
 
 .section-subtitle {

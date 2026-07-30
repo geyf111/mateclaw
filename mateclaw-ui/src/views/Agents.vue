@@ -858,9 +858,11 @@ async function refreshLiveCounts() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   skillApi.syncSkills()
   loadAgents()
+  // 进入智能助手页面时主动同步模型状态
+  await modelApi.syncModels()
   // RFC-03 G1: load models once for the per-Agent override dropdown.
   // Failure is non-fatal — the dropdown just shows only "global default".
   loadAvailableModels()

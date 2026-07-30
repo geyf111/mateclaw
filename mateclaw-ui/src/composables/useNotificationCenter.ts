@@ -11,9 +11,9 @@
  * non-admins, so we mirror it here.
  */
 import { computed, onScopeDispose, ref } from 'vue'
-import { notificationApi, type NotificationSummary, modelApi } from '@/api'
+import { notificationApi, type NotificationSummary } from '@/api'
 
-const POLL_INTERVAL_MS = 15_000
+const POLL_INTERVAL_MS = 600_000 // 10 minutes
 
 const summary = ref<NotificationSummary>({
   pendingApprovals: 0,
@@ -62,7 +62,6 @@ async function refresh(): Promise<void> {
         downMcps: toCount(raw.downMcps),
       }
     }
-    await modelApi.syncModels()
   } catch {
     // Silent: stale counts beat a flapping badge.
   } finally {
