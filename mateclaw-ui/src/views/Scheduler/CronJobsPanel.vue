@@ -318,6 +318,7 @@ import { mcToast } from '@/composables/useMcToast'
 import { mcConfirm } from '@/components/common/useConfirm'
 import { useCronJobStore } from '@/stores/useCronJobStore'
 import { useAgentStore } from '@/stores/useAgentStore'
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { wikiApi } from '@/api/index'
 import type { CronJob } from '@/types/index'
 import CronExpressionField from '@/components/common/CronExpressionField.vue'
@@ -420,6 +421,13 @@ watch(() => form.value.taskType, (next) => {
 })
 
 onMounted(() => {
+  store.fetchJobs()
+  agentStore.fetchAgents()
+})
+
+const workspaceStore = useWorkspaceStore()
+watch(() => workspaceStore.currentWorkspaceId, (newId, oldId) => {
+  if (!oldId || newId === oldId) return
   store.fetchJobs()
   agentStore.fetchAgents()
 })

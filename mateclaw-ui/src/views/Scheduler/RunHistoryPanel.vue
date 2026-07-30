@@ -70,6 +70,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { dashboardApi } from '@/api'
 import { useCronJobStore } from '@/stores/useCronJobStore'
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 
 /** One row of cron run history, mirroring the backend CronJobRunEntity. */
 interface CronJobRun {
@@ -157,6 +158,12 @@ function formatDuration(start?: string, end?: string): string {
 
 onMounted(refresh)
 watch(() => runs.value.length, (n) => emit('count', n), { immediate: true })
+
+const workspaceStore = useWorkspaceStore()
+watch(() => workspaceStore.currentWorkspaceId, (newId, oldId) => {
+  if (!oldId || newId === oldId) return
+  refresh()
+})
 
 // The Scheduler shell owns the "Refresh" header button for this tab.
 defineExpose({ refresh })

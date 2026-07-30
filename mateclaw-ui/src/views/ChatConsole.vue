@@ -1084,6 +1084,23 @@ watch(currentConversationId, async (cid) => {
   }
 }, { immediate: true })
 
+// When the workspace changes (e.g. project switch), re-fetch all
+// workspace-scoped data without a page reload.
+watch(() => workspaceStoreForGoal.currentWorkspaceId, async (newId, oldId) => {
+  if (!oldId || newId === oldId) return
+  resetForNewConversation()
+  messages.value = []
+  currentConversationId.value = ''
+  await modelApi.syncModels()
+  await Promise.all([loadAgents(), loadModelState(), loadConversations()])
+  // If the previously selected agent is not available in the new workspace,
+  // fall back to the first enabled agent.
+  if (selectedAgentId.value && !agents.value.some(a => String(a.id) === String(selectedAgentId.value))) {
+    selectedAgentId.value = agents.value[0]?.id ?? ''
+  }
+  applyConversationModel()
+})
+
 // Derive props for the inline prompt + system-line slots that sit
 // between MessageList and ChatInput. The prompt shows only when:
 //   1) there's a current conversation, agent, and at least one assistant
@@ -1262,6 +1279,11 @@ async function loadModelState() {
     mcToast.error(t('chat.loadModelFailed'))
     blockingPrompt.value = true
     recoverablePrompt.value = false
+    defaultModel.value = null
+    globalDefaultModel.value = null
+    activeModels.value = null
+    enabledModels.value = []
+    providers.value = []
     return
   }
   try {

@@ -1233,6 +1233,12 @@ export const triggerApi = {
   }) => http.post('/triggers/events', envelope),
 }
 
+// ==================== Project ====================
+export const projectApi = {
+  listEnabled: () => http.get('/projects/list/enable'),
+  setCurrent: (projectId: string | number) => http.put('/projects/current', { projectId }),
+}
+
 // ==================== Persistent goals (RFC 48) ====================
 //
 // Snowflake IDs are sent as strings end-to-end — the backend's

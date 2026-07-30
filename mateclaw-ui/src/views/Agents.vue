@@ -581,7 +581,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { mcToast } from '@/composables/useMcToast'
@@ -600,6 +600,7 @@ import {
   TAGLINE_CJK_BUDGET,
   type AgentPromptProfile,
 } from '@/utils/agentPromptProfile'
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { agentIconColor } from '@/utils/agentIconColor'
 import { filterAgentBindingItems, filterAgentToolGroups } from '@/utils/agentBindingSearch'
 import { useSkillName } from '@/composables/useSkillName'
@@ -876,6 +877,16 @@ onBeforeUnmount(() => {
   if (livePollTimer) clearInterval(livePollTimer)
 })
 
+const workspaceStore = useWorkspaceStore()
+watch(() => workspaceStore.currentWorkspaceId, (newId, oldId) => {
+  if (!oldId || newId === oldId) return
+  skillApi.syncSkills()
+  loadAgents()
+  modelApi.syncModels()
+  loadAvailableModels()
+  if (isAdminRole.value) refreshLiveCounts()
+})
+
 async function loadAgents() {
   try {
     const res: any = await agentApi.list()
@@ -954,6 +965,7 @@ async function loadTemplates() {
     const res: any = await agentApi.getPresets()
     templates.value = res.data || []
   } catch {
+    templates.value = []
     // Fallback: skip templates, open blank form
     // openBlankCreateModal()
   }

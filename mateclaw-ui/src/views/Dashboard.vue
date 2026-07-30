@@ -212,6 +212,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ArrowRight, ChatDotRound, DataLine, Document, Tools } from '@element-plus/icons-vue'
 import { dashboardApi, modelApi } from '@/api'
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { getProviderIcon, onProviderIconError } from '@/utils/providerIcons'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -287,7 +288,9 @@ function uniqueByProvider(list: any[]) {
   });
 }
 
-onMounted(async () => {
+const workspaceStore = useWorkspaceStore()
+
+async function loadAnalytics() {
   try {
     const [overviewRes, runsRes, trendRes] = await Promise.all([
       dashboardApi.overview(),
@@ -306,11 +309,10 @@ onMounted(async () => {
   } catch {
     // Dashboard data is non-critical
   }
+}
 
-  // Model configuration card — loaded independently so a failure here never
-  // blanks the analytics above, and vice versa.
+async function loadModelConfig() {
   try {
-    // 进入仪表盘时主动同步模型状态
     await modelApi.syncModels()
     const [provRes, activeRes, enabledRes] = await Promise.all([
       modelApi.listProviders().catch(() => ({ data: [] })),
@@ -323,6 +325,16 @@ onMounted(async () => {
   } catch {
     // Non-critical
   }
+}
+
+onMounted(async () => {
+  await Promise.all([loadAnalytics(), loadModelConfig()])
+})
+
+watch(() => workspaceStore.currentWorkspaceId, (newId, oldId) => {
+  if (!oldId || newId === oldId) return
+  loadAnalytics()
+  loadModelConfig()
 })
 
 onUnmounted(() => {

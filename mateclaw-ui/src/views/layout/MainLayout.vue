@@ -33,6 +33,8 @@
         </button>
       </div>
 
+      <!-- 项目切换 -->
+      <ProjectSwitcher :collapsed="effectiveCollapsed" />
       <!-- 工作区切换 -->
       <!-- <WorkspaceSwitcher :collapsed="effectiveCollapsed" /> -->
 
@@ -199,6 +201,7 @@ import type { ThemeMode } from '@/stores/useThemeStore'
 import { http, settingsApi, setupApi } from '@/api/index'
 import OnboardingWizard from '@/views/Onboarding/OnboardingWizard.vue'
 import DoctorDrawer from '@/views/Doctor/DoctorDrawer.vue'
+import ProjectSwitcher from '@/components/project/ProjectSwitcher.vue'
 import WorkspaceSwitcher from '@/components/workspace/WorkspaceSwitcher.vue'
 import NavBadge from '@/components/common/NavBadge.vue'
 import McTooltip from '@/components/common/McTooltip.vue'
@@ -522,6 +525,7 @@ function logout() {
   localStorage.removeItem('role')
   localStorage.removeItem('mc-workspace-id')
   localStorage.removeItem('workspace-id')
+  localStorage.removeItem('mc-project-id')
   router.push('/login')
 }
 
