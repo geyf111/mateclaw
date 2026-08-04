@@ -259,7 +259,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { mcToast } from '@/composables/useMcToast'
 import { ChatDotRound, Delete, Setting, UploadFilled } from '@element-plus/icons-vue'
-import { conversationApi, agentApi, modelApi, chatApi, cronJobApi } from '@/api/index'
+import { conversationApi, agentApi, modelApi, chatApi, cronJobApi, channelApi } from '@/api/index'
 import { copyToClipboard } from '@/utils/clipboard'
 import { useFileDrop } from '@/composables/useFileDrop'
 import { useIsMobile, useMediaQuery, BREAKPOINTS } from '@/composables/useBreakpoint'
@@ -875,6 +875,10 @@ const generatingAssistantCache = new Map<string, Message>()
 
 // 轮询定时器：让 ChatConsole 能实时感知外部渠道（WeChat/DingTalk/…）推进来的新消息，
 // 无需 F5 即可看到侧栏列表更新和选中会话的消息/流状态。
+// Only poll when at least one external channel (WeChat/DingTalk/…) is
+// configured — without channels there is no external source that can push
+// new messages into a conversation.
+const hasChannels = ref(false)
 let activityPollTimer: number | null = null
 // Reentrancy guard: setInterval fires every ACTIVITY_POLL_MS regardless of
 // whether the previous async pollActivity has finished. If one cycle runs long
@@ -952,7 +956,19 @@ function hasLocalOnlyFailedTail(): boolean {
   return !/^\d+$/.test(String(last.id))
 }
 
+async function fetchChannelPresence() {
+  try {
+    const res: any = await channelApi.healthAll()
+    const list = res?.data ?? []
+    hasChannels.value = Array.isArray(list) && list.some((ch: any) => ch.enabled)
+  } catch {
+    hasChannels.value = false
+  }
+}
+
 async function pollActivity() {
+  // 没有外部渠道配置时无需轮询——没有渠道就没有外部消息来源
+  if (!hasChannels.value) return
   // 页面不可见时不轮询，避免切到别的标签还在空耗
   if (typeof document !== 'undefined' && document.hidden) return
   // Skip when the previous cycle is still running so slow polls can't stack.
@@ -1008,9 +1024,13 @@ onMounted(async () => {
   startECharts()
   startKatex()
   startMermaid()
+  // 先同步模型状态，确保后续 loadModelState 拉到最新数据
+  await modelApi.syncModels()
   await Promise.all([loadAgents(), loadModelState(), loadConversations()])
   await hydrateStateFromRoute()
   applyPendingRouteAction()
+  // 探测是否有外部渠道配置，决定是否启用轮询
+  fetchChannelPresence()
   activityPollTimer = window.setInterval(pollActivity, ACTIVITY_POLL_MS)
   elapsedTickTimer = window.setInterval(() => {
     if (activeCronRuns.value.length > 0) elapsedNow.value = Date.now()
@@ -1063,6 +1083,23 @@ watch(currentConversationId, async (cid) => {
     await goalStore.loadActiveForConversation(cid)
   }
 }, { immediate: true })
+
+// When the workspace changes (e.g. project switch), re-fetch all
+// workspace-scoped data without a page reload.
+watch(() => workspaceStoreForGoal.currentWorkspaceId, async (newId, oldId) => {
+  if (!oldId || newId === oldId) return
+  resetForNewConversation()
+  messages.value = []
+  currentConversationId.value = ''
+  await modelApi.syncModels()
+  await Promise.all([loadAgents(), loadModelState(), loadConversations()])
+  // If the previously selected agent is not available in the new workspace,
+  // fall back to the first enabled agent.
+  if (selectedAgentId.value && !agents.value.some(a => String(a.id) === String(selectedAgentId.value))) {
+    selectedAgentId.value = agents.value[0]?.id ?? ''
+  }
+  applyConversationModel()
+})
 
 // Derive props for the inline prompt + system-line slots that sit
 // between MessageList and ChatInput. The prompt shows only when:
@@ -1242,6 +1279,11 @@ async function loadModelState() {
     mcToast.error(t('chat.loadModelFailed'))
     blockingPrompt.value = true
     recoverablePrompt.value = false
+    defaultModel.value = null
+    globalDefaultModel.value = null
+    activeModels.value = null
+    enabledModels.value = []
+    providers.value = []
     return
   }
   try {

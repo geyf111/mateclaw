@@ -3609,6 +3609,7 @@ export default {
       emptyCta: '去配置',
     },
     recentRuns: '最近定时任务执行',
+    recentRunsDelayHint: '存在10分钟数据延时',
     noRuns: '暂无执行记录',
     runColumns: {
       time: '时间',
