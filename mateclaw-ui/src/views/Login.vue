@@ -180,12 +180,12 @@ async function handleLogin() {
 
 <style scoped>
 .login-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  /* min-height: 100vh; */
+  /* display: flex; */
+  /* align-items: center; */
+  /* justify-content: center; */
   /* background: linear-gradient(160deg, #FAF5F0 0%, #F5EDE5 100%); */
-  padding: 24px;
+  /* padding: 24px; */
 }
 
 :root.dark .login-page,
@@ -203,7 +203,7 @@ html.dark .login-page {
   animation: fadeUp 0.6s ease-out both;
   background-color: #fff;
   padding: 48px;
-  border-radius: 20px;
+  /* border-radius: 20px; */
   box-shadow: var(--mc-shadow-soft);
 }
 
@@ -446,7 +446,7 @@ html.dark .login-page {
 /* Mobile */
 @media (max-width: 480px) {
   .login-page {
-    padding: 16px;
+    /* padding: 16px; */
   }
 }
 </style>
