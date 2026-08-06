@@ -341,6 +341,10 @@ export function useStream(options: UseStreamOptions): UseStreamReturn {
       if (token) {
         authHeaders['Authorization'] = `Bearer ${token}`
       }
+      const workspaceId = localStorage.getItem('mc-workspace-id')
+      if (workspaceId) {
+        authHeaders['X-Workspace-Id'] = workspaceId
+      }
 
       const response = await fetch(url, {
         method,

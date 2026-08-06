@@ -372,14 +372,10 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   // Message queue
   const messageQueue = useMessageQueue()
 
-  // Stream connection (inject auth + workspace headers, consistent with the axios interceptor)
+  // Stream connection (inject auth headers; workspace id is read dynamically in useStream.connect())
   const streamHeaders: Record<string, string> = {}
   if (token) {
     streamHeaders['Authorization'] = `Bearer ${token}`
-  }
-  const wsId = localStorage.getItem('mc-workspace-id')
-  if (wsId) {
-    streamHeaders['X-Workspace-Id'] = wsId
   }
   const stream = useStream({
     url: `${baseUrl}/api/v1/chat/stream`,
