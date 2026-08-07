@@ -85,7 +85,7 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { authApi, modelApi } from '@/api/index'
+import { authApi } from '@/api/index'
 import { ElNotification } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { useProjectStore } from '@/stores/useProjectStore'
@@ -147,15 +147,9 @@ async function handleLogin() {
     localStorage.setItem('username', data.username || form.username)
     localStorage.setItem('role', data.role || 'user')
     if (data.clawAccessToken) {localStorage.setItem('clawAccessToken', data.clawAccessToken)}
-    await modelApi.syncModels()
-    router.push('/')
-    // Resolve capabilities before deciding the landing route so a viewer
-    // lands on /chat (their only capability) and member+ on /dashboard.
-    // try {
-    //   await workspaceStore.fetchWorkspaces()
-    // } catch {
-    //   /* default-deny is fine; router guard will still steer */
-    // }
+    // Ensure project context (incl. /projects/current) is resolved before
+    // navigating, so that component onMounted hooks that call syncModels
+    // run with the correct project/workspace already in place.
     try {
       await projectStore.fetchProjects()
     } catch {
