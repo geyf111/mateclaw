@@ -431,7 +431,7 @@ html.dark .login-page {
 /* Mobile */
 @media (max-width: 480px) {
   .login-page {
-    padding: 16px;
+    /* padding: 16px; */
   }
 }
 </style>
