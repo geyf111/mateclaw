@@ -203,6 +203,7 @@ html.dark .login-page {
 /* Logo */
 .login-logo {
   text-align: center;
+  height: 143px;
 }
 
 .login-header {
