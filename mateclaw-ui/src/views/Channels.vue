@@ -169,12 +169,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, onActivated, onDeactivated, watch } from 'vue'
+import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { mcToast } from '@/composables/useMcToast'
 import { mcConfirm } from '@/components/common/useConfirm'
 import { channelApi, agentApi } from '@/api'
-import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+
 import type { Channel, Agent } from '@/types'
 
 // Async-loaded modal: separate chunk, only fetched when the user first clicks
@@ -276,12 +276,6 @@ onUnmounted(() => {
   stopStatusPolling()
 })
 
-const workspaceStore = useWorkspaceStore()
-watch(() => workspaceStore.currentWorkspaceId, (newId, oldId) => {
-  if (!oldId || newId === oldId) return
-  if (!isActive) return
-  void Promise.all([loadChannels(), loadStatus(), loadAgents()])
-})
 
 // ==================== Data loading ====================
 

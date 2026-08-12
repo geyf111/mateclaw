@@ -805,7 +805,7 @@ import SkillIcon from '@/components/common/SkillIcon.vue'
 import SkillIconPicker from '@/components/common/SkillIconPicker.vue'
 import SkillLineIcon from '@/components/skill/SkillLineIcon.vue'
 import { mcConfirm } from '@/components/common/useConfirm'
-import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+
 import { useSkillName } from '@/composables/useSkillName'
 
 const { t } = useI18n()
@@ -1081,12 +1081,6 @@ function parseTags(tags: string): string[] {
 
 onMounted(loadAll)
 
-const workspaceStore = useWorkspaceStore()
-watch(() => workspaceStore.currentWorkspaceId, (newId, oldId) => {
-  if (!oldId || newId === oldId) return
-  resetSegmentPages()
-  loadAll()
-})
 
 async function loadAll() {
   // Only block on the skill list itself; counts and runtime status fill in

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { projectApi } from '@/api/index'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+import router from '@/router'
 export interface Project {
   id: string | number
   name: string
@@ -52,6 +53,9 @@ export const useProjectStore = defineStore('project', () => {
       const workspaceId: string | null = res?.data?.workspaceId || res?.workspaceId || null
       if (workspaceId) {
         await useWorkspaceStore().switchWorkspace(workspaceId)
+        if (router.currentRoute.value.name !== 'Dashboard') {
+          router.push({ name: 'Dashboard' })
+        }
       }
     } catch (e) {
       console.warn('Failed to set current project:', e)
