@@ -1752,6 +1752,11 @@ async function handleSendMessage(content: string) {
   chatInputRef.value?.clear?.()
   pendingAttachments.value = []
 
+  // 无外部渠道时，发送后主动刷新会话列表以确保流状态对齐
+  if (!hasChannels.value) {
+    loadConversations()
+  }
+
   try {
     await sendChatMessage(content, {
       conversationId: currentConversationId.value,
