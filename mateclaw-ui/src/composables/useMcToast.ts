@@ -104,6 +104,13 @@ function remove(id: number): void {
   if (idx >= 0) toasts.splice(idx, 1)
 }
 
+function dismissAll(): void {
+  toasts.splice(0, toasts.length)
+  const host = document.querySelector('.mc-toast-host')
+  if (host) host.remove()
+  mounted = false
+}
+
 function show(type: McToastType, message: string, opts?: McToastOptions): void {
   ensureHost()
   const id = nextId++
@@ -125,4 +132,5 @@ export const mcToast = {
   info(message: string, opts?: McToastOptions): void {
     show('info', message, opts)
   },
+  dismissAll,
 }

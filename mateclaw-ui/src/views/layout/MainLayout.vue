@@ -211,6 +211,7 @@ import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { applyLocale, currentLocale, type AppLocale } from '@/i18n'
 import { SwitchButton, Lock } from '@element-plus/icons-vue'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
+import { mcToast } from '@/composables/useMcToast'
 import { clearAllTimers } from '@/utils/clearAllTimers'
 
 const router = useRouter()
@@ -521,6 +522,7 @@ const showChangePassword = ref(false)
 
 function logout() {
   clearAllTimers()
+  mcToast.dismissAll()
   localStorage.removeItem('token')
   localStorage.removeItem('username')
   localStorage.removeItem('role')
