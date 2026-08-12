@@ -3,6 +3,8 @@
  * 统一处理 token 失效跳转和自动续期
  */
 
+import { mcToast } from '@/composables/useMcToast'
+
 let isRedirecting = false
 
 /**
@@ -10,6 +12,7 @@ let isRedirecting = false
  * 使用 isRedirecting 标记防止多个并发请求同时触发跳转
  */
 export function handleAuthFailure() {
+  mcToast.dismissAll()
   localStorage.removeItem('token')
   localStorage.removeItem('username')
   localStorage.removeItem('role')
