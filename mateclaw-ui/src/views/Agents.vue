@@ -600,7 +600,7 @@ import {
   TAGLINE_CJK_BUDGET,
   type AgentPromptProfile,
 } from '@/utils/agentPromptProfile'
-import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+
 import { agentIconColor } from '@/utils/agentIconColor'
 import { filterAgentBindingItems, filterAgentToolGroups } from '@/utils/agentBindingSearch'
 import { useSkillName } from '@/composables/useSkillName'
@@ -877,15 +877,6 @@ onBeforeUnmount(() => {
   if (livePollTimer) clearInterval(livePollTimer)
 })
 
-const workspaceStore = useWorkspaceStore()
-watch(() => workspaceStore.currentWorkspaceId, (newId, oldId) => {
-  if (!oldId || newId === oldId) return
-  skillApi.syncSkills()
-  loadAgents()
-  modelApi.syncModels()
-  loadAvailableModels()
-  if (isAdminRole.value) refreshLiveCounts()
-})
 
 async function loadAgents() {
   try {
