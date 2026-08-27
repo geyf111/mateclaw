@@ -318,6 +318,8 @@ export default {
     streamReconnecting: 'Reconnecting...',
     streamStopped: 'Stopped',
     streamCompleted: 'Completed',
+    completedTimeline: 'Completed · {duration}',
+    durationUnavailable: 'unknown duration',
     // Context compaction (compact_status SSE)
     compactStart: 'Compacting context…',
     compactPairSafe: 'Adjusting boundary to preserve tool_call pairs…',

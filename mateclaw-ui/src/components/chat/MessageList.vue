@@ -75,6 +75,7 @@
             :show-cursor="showCursorForMessage(msg)"
             @regenerate="(tailDeleted) => $emit('regenerate', msg, tailDeleted)"
             @toggle-thinking="(expanded) => $emit('toggle-thinking', msg, expanded)"
+            @toggle-completed-timeline="handleCompletedTimelineToggle"
             @approve="(pendingId) => $emit('approve', pendingId)"
             @deny="(pendingId) => $emit('deny', pendingId)"
           />
@@ -168,11 +169,18 @@ const isCronHeader = (msg: Message) => {
 }
 
 // 智能滚动
-const { scrollRef, contentRef, isAtBottom, scrollToBottom } = useStickToBottom({
+const { scrollRef, contentRef, isAtBottom, scrollToBottom, holdScrollPosition } = useStickToBottom({
   enabled: props.autoScroll,
   offset: 0,
   smooth: true,
 })
+
+function handleCompletedTimelineToggle(expanded: boolean) {
+  // Expanding exposes earlier parts of a completed turn. Freeze the current
+  // viewport before its height changes, rather than letting ResizeObserver
+  // interpret that change as streamed output that should stick to bottom.
+  if (expanded) holdScrollPosition()
+}
 
 // 判断消息是否显示光标
 const showCursorForMessage = (msg: Message) => {
