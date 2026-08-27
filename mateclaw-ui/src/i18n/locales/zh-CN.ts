@@ -318,6 +318,8 @@ export default {
     streamReconnecting: '重新连接...',
     streamStopped: '已停止',
     streamCompleted: '已完成',
+    completedTimeline: '已完成 · 耗时 {duration}',
+    durationUnavailable: '未知',
     // Context compaction (compact_status SSE)
     compactStart: '正在压缩上下文…',
     compactPairSafe: '调整边界以保留 tool_call 配对…',

@@ -30,6 +30,8 @@ export interface StickToBottomReturn {
   scrollToBottom: (options?: { force?: boolean; smooth?: boolean }) => Promise<void>
   /** 停止自动滚动 */
   stopScroll: () => void
+  /** Preserve the current viewport across a user-triggered content expansion. */
+  holdScrollPosition: () => void
   /** 检查是否在底部 */
   checkIsAtBottom: () => boolean
 }
@@ -123,6 +125,33 @@ export function useStickToBottom(
   const stopScroll = () => {
     escapedFromLock.value = true
     isAtBottom.value = false
+  }
+
+  /**
+   * A disclosure (for example a completed turn's execution timeline) changes
+   * content height without representing new chat output. Treat it as the user
+   * choosing to inspect history: retain the exact viewport and suspend the
+   * sticky-bottom lock until they deliberately scroll back to the bottom.
+   *
+   * Two animation frames cover both browser scroll anchoring and the
+   * ResizeObserver callback that run after Vue flushes the expanded DOM.
+   */
+  const holdScrollPosition = () => {
+    const element = scrollRef.value
+    if (!element) return
+
+    const scrollTop = element.scrollTop
+    escapedFromLock.value = true
+    isAtBottom.value = false
+
+    let remainingFrames = 2
+    const restore = () => {
+      element.scrollTop = scrollTop
+      lastScrollTop = scrollTop
+      remainingFrames -= 1
+      if (remainingFrames > 0) requestAnimationFrame(restore)
+    }
+    requestAnimationFrame(restore)
   }
 
   // 处理滚动事件
@@ -244,6 +273,7 @@ export function useStickToBottom(
     contentRef,
     scrollToBottom,
     stopScroll,
+    holdScrollPosition,
     checkIsAtBottom,
   }
 }

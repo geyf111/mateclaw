@@ -454,8 +454,14 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     if (isStaleEvent(data)) return
     // Suppress thinking display when thinkingLevel=off
     if (options.thinkingLevel?.value === 'off') return
+    // Some providers emit an empty boundary chunk between ReAct iterations.
+    // Treat it as a transport/lifecycle signal, not visible reasoning: creating
+    // a segment for it leaves an occasional blank "Thinking" card when the
+    // next tool event immediately closes that segment.
+    const delta = typeof data.delta === 'string' ? data.delta : ''
+    if (!delta.trim()) return
     if (currentAssistantId.value) {
-      appendMessageContent(currentAssistantId.value, data.delta || '', 'thinking')
+      appendMessageContent(currentAssistantId.value, delta, 'thinking')
       if (streamPhase.value !== 'summarizing_observations') {
         streamPhase.value = options.thinkingLevel?.value === 'off' ? 'streaming' : 'thinking'
       }
@@ -475,7 +481,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         segs.push(thinkSeg)
         flushSegmentsToMessage()
       }
-      thinkSeg.thinkingText = (thinkSeg.thinkingText || '') + (data.delta || '')
+      thinkSeg.thinkingText = (thinkSeg.thinkingText || '') + delta
       // First thinking delta — same lifecycle flip as content_delta.
       if (lifecycleStage.value && lifecycleStage.value.stage !== 'streaming') {
         lifecycleStage.value = { stage: 'streaming', since: Date.now() }
@@ -550,8 +556,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
               status: data.status || 'completed',
               metadata: { ...metadata, toolCalls }
             } as any)
-            // Do not clear currentAssistantId here — the 'done' event does it
-            return
+            // Do not clear currentAssistantId here — the 'done' event does it.
           }
         }
       }
@@ -622,12 +627,15 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         if (data.assistantMessageId) {
           msg.id = data.assistantMessageId
         }
-        // Merge server-authoritative segment annotations (carries fields the
-        // live SSE path can't compute, like the 'superseded' marker the
-        // backend's SegmentSupersedeDetector writes onto pre-tool model
-        // claims that the actual tool result replaced). The local segments
-        // keep their content / status; the server segments only contribute
-        // their annotation fields.
+        // Merge server-authoritative segment fields. The live SSE path uses
+        // the browser receipt time while building segments, which is useful
+        // for immediate rendering but can differ from the server event time
+        // by several seconds. Completed-timeline duration is calculated from
+        // these timestamps, so replace them with the persisted server values
+        // as soon as the terminal event arrives. This also carries fields the
+        // live path cannot compute, like the 'superseded' marker the backend's
+        // SegmentSupersedeDetector writes onto pre-tool model claims that the
+        // actual tool result replaced.
         //
         // Matching: client and server use DIFFERENT id schemes (client uses
         // timestamp-based ids like `seg-1778744207326-0`; server uses
@@ -659,6 +667,10 @@ export function useChat(options: UseChatOptions): UseChatReturn {
                 const remote = serverByTypeIndex.get(`${local.type}#${idx}`)
                 if (!remote) return local
                 const next = { ...local }
+                const remoteTimestamp = Number(remote.timestamp)
+                if (Number.isFinite(remoteTimestamp) && remoteTimestamp > 0) {
+                  next.timestamp = remoteTimestamp
+                }
                 if (remote.superseded !== undefined) next.superseded = remote.superseded
                 if (remote.supersededBySegmentId !== undefined) {
                   next.supersededBySegmentId = remote.supersededBySegmentId

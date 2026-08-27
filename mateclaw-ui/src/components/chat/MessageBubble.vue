@@ -33,47 +33,76 @@
         <!-- Plan-step panel — always rendered at the top of the bubble whenever
              this turn has a plan, in both the segmented and fallback render
              paths, so plan-mode progress is never buried in a collapsed panel. -->
-        <PlanStepsPanel v-if="planMeta" :plan="planMeta" :is-generating="isGenerating" />
+        <PlanStepsPanel
+          v-if="planMeta && !shouldCollapseCompletedTimeline"
+          :plan="planMeta"
+          :is-generating="isGenerating"
+        />
 
         <!-- ===== 分段式渲染模式（Claude Code 风格）===== -->
         <template v-if="useSegmentedView">
           <div class="segments-view">
-            <template v-for="iter in groupedIterations" :key="iter.key">
-              <!-- Iteration interrupted before any output landed — surface a chip
-                   so the user knows the agent moved on instead of silently
-                   skipping a turn. -->
-              <div v-if="iter.empty" class="iter-empty-chip">
-                <el-icon><WarningFilled /></el-icon>
-                <span>{{ $t('chat.iterationEmpty', { index: iter.index + 1 }) }}</span>
-              </div>
-              <template v-else>
-                <ThinkingSegment v-for="t in iter.thinkings" :key="t.id" :segment="t" />
-                <ToolCallSegment v-for="tool in iter.tools" :key="tool.id" :segment="tool" />
-                <template v-for="c in iter.contents" :key="c.id">
-                  <button
-                    v-if="c.superseded"
-                    class="superseded-toggle"
-                    type="button"
-                    @click="toggleSupersededSegment(c.id)"
-                  >
-                    <el-icon><InfoFilled /></el-icon>
-                    <span>{{ $t('chat.supersededPreviewCollapsed') }}</span>
-                    <span class="superseded-toggle__action">
-                      {{ isSupersededExpanded(c.id) ? $t('chat.collapse') : $t('chat.expand') }}
-                    </span>
-                  </button>
-                  <div v-if="c.repetitionWarning && (!c.superseded || isSupersededExpanded(c.id))" class="repetition-warning">
-                    <el-icon><WarningFilled /></el-icon>
-                    <span class="repetition-warning__text">{{ $t('chat.contentRepetitionWarning') }}</span>
-                    <span v-if="c.truncatedChars" class="repetition-warning__meta">({{ c.truncatedChars }} chars)</span>
-                  </div>
-                  <ContentSegment
-                    v-if="!c.superseded || isSupersededExpanded(c.id)"
-                    :segment="c"
-                    :show-cursor="showCursor && c.status === 'running'"
-                    :class="{ 'content-segment--superseded': c.superseded }"
-                  />
-                </template>
+            <!-- Once the turn is terminal, retain the detailed ReAct timeline
+                 behind one compact disclosure and keep the final answer in
+                 view. During streaming this is deliberately absent, so every
+                 thinking/reply/tool event remains visible in arrival order. -->
+            <button
+              v-if="shouldCollapseCompletedTimeline"
+              class="completed-timeline-toggle"
+              type="button"
+              :aria-expanded="completedTimelineExpanded"
+              @click="toggleCompletedTimeline"
+            >
+              <el-icon class="completed-timeline-toggle__status"><Select /></el-icon>
+              <span class="completed-timeline-toggle__label">
+                {{ $t('chat.completedTimeline', { duration: completedTimelineDuration }) }}
+              </span>
+              <el-icon
+                class="completed-timeline-toggle__arrow"
+                :class="{ 'is-open': completedTimelineExpanded }"
+              ><ArrowDown /></el-icon>
+            </button>
+            <!--
+              Render the stream as an append-only timeline. `segments` is
+              populated in SSE arrival order (thinking → reply → tool → …).
+              Grouping each iteration into independent thinking/tool/content
+              buckets looked tidy, but it re-sorted already rendered entries
+              whenever a later segment arrived. That made a serial tool call
+              appear to jump backwards in time during streaming.
+            -->
+            <template v-for="segment in displayedTimelineSegments" :key="segment.id">
+              <ThinkingSegment
+                v-if="segment.type === 'thinking'"
+                :segment="segment"
+              />
+              <ToolCallSegment
+                v-else-if="segment.type === 'tool_call'"
+                :segment="segment"
+              />
+              <template v-else-if="segment.type === 'content'">
+                <button
+                  v-if="segment.superseded"
+                  class="superseded-toggle"
+                  type="button"
+                  @click="toggleSupersededSegment(segment.id)"
+                >
+                  <el-icon><InfoFilled /></el-icon>
+                  <span>{{ $t('chat.supersededPreviewCollapsed') }}</span>
+                  <span class="superseded-toggle__action">
+                    {{ isSupersededExpanded(segment.id) ? $t('chat.collapse') : $t('chat.expand') }}
+                  </span>
+                </button>
+                <div v-if="segment.repetitionWarning && (!segment.superseded || isSupersededExpanded(segment.id))" class="repetition-warning">
+                  <el-icon><WarningFilled /></el-icon>
+                  <span class="repetition-warning__text">{{ $t('chat.contentRepetitionWarning') }}</span>
+                  <span v-if="segment.truncatedChars" class="repetition-warning__meta">({{ segment.truncatedChars }} chars)</span>
+                </div>
+                <ContentSegment
+                  v-if="!segment.superseded || isSupersededExpanded(segment.id)"
+                  :segment="segment"
+                  :show-cursor="showCursor && segment.status === 'running'"
+                  :class="{ 'content-segment--superseded': segment.superseded }"
+                />
               </template>
             </template>
           </div>
@@ -476,6 +505,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   regenerate: [tailDeleted: number]
   'toggle-thinking': [expanded: boolean]
+  'toggle-completed-timeline': [expanded: boolean]
   approve: [pendingId: string]
   deny: [pendingId: string]
 }>()
@@ -922,6 +952,14 @@ const segments = computed<MessageSegment[]>(() => {
   if (props.message.role !== 'assistant') return []
   const meta = parsedMetadata.value
 
+  // A few older/live streams can contain a thinking segment produced from an
+  // empty provider boundary chunk. It is not a user-visible step, and showing
+  // it creates an empty thinking card between serial tool calls. Keep the
+  // actual event log untouched; filter only this presentation artifact.
+  const withoutEmptyThinking = (items: MessageSegment[]) => items.filter(segment =>
+    segment.type !== 'thinking' || !!segment.thinkingText?.trim()
+  )
+
   // 优先：使用 metadata.segments（流式时由前端写入，历史时由后端持久化）
   if (meta?.segments && Array.isArray(meta.segments) && meta.segments.length > 0
       && typeof meta.segments[0] === 'object' && meta.segments[0]?.type) {
@@ -932,47 +970,27 @@ const segments = computed<MessageSegment[]>(() => {
     if (!hasThinking) {
       const thinkingPart = props.message.contentParts?.find(p => p.type === 'thinking')
       if (thinkingPart?.text) {
-        // Tag with iterationIndex=0 so groupedIterations puts it in the FIRST
-        // iteration's thinking bucket instead of the default-zero bucket
-        // colliding with later iteration content. Without this, the fallback
-        // thinking renders below the answer for any conversation that has
-        // multi-iteration RFC-22 segments tagged elsewhere.
+        // Retain a stable iteration marker for compatibility with persisted
+        // RFC-22 segments. The live renderer uses timeline order, so this
+        // marker is informational only and never changes display order.
         const firstIter = segs.find(s => typeof s.iterationIndex === 'number')?.iterationIndex ?? 0
         segs.unshift({ id: 'th-fb', type: 'thinking', status: 'completed', thinkingText: thinkingPart.text, iterationIndex: firstIter })
       }
     }
 
-    // 去重：相同 toolName + toolArgs 的 tool_call segment 只保留第一个
-    const seenToolCalls = new Set<string>()
-    const deduped = segs.filter(seg => {
-      if (seg.type !== 'tool_call') return true
-      const key = `${seg.toolName}::${seg.toolArgs || ''}`
-      if (seenToolCalls.has(key)) return false
-      seenToolCalls.add(key)
-      return true
-    })
-    segs.length = 0
-    segs.push(...deduped)
+    // `metadata.segments` is an event log, not a set. Do not deduplicate or
+    // normalize it here: the same tool may intentionally be called twice
+    // (for example, retrying a weather lookup after first fetching time), and
+    // any reordering makes the live view disagree with the persisted history.
 
-    // 修复历史消息顺序：如果 thinking 被落在 content 后面，提到首个 content 前
-    // 只处理单个 thinking 段的常见场景，避免破坏复杂交错时间线
-    const thinkingIndices = segs
-      .map((seg, index) => seg.type === 'thinking' ? index : -1)
-      .filter(index => index >= 0)
-    const firstNonThinkingIdx = segs.findIndex((seg: MessageSegment) => seg.type !== 'thinking')
-    if (thinkingIndices.length === 1 && firstNonThinkingIdx >= 0 && thinkingIndices[0] > firstNonThinkingIdx) {
-      const [thinkingSeg] = segs.splice(thinkingIndices[0], 1)
-      segs.splice(0, 0, thinkingSeg)
-    }
-
-    return segs
+    return withoutEmptyThinking(segs)
   }
 
   // Fallback：从 toolCalls + contentParts 做 best-effort 重建（旧消息兼容）
   // 注意：这会丢失事件交错顺序（所有 thinking 在前，所有 tool calls 在中，content 在后）
   const segs: MessageSegment[] = []
   const thinkingPart = props.message.contentParts?.find(p => p.type === 'thinking')
-  if (thinkingPart?.text) {
+  if (thinkingPart?.text?.trim()) {
     segs.push({ id: 'th-0', type: 'thinking', status: 'completed', thinkingText: thinkingPart.text })
   }
   const toolCalls = meta?.toolCalls || []
@@ -986,7 +1004,7 @@ const segments = computed<MessageSegment[]>(() => {
   if (props.message.content) {
     segs.push({ id: 'ct-0', type: 'content', status: 'completed', text: props.message.content })
   }
-  return segs
+  return withoutEmptyThinking(segs)
 })
 
 /**
@@ -1003,46 +1021,78 @@ const useSegmentedView = computed(() =>
 )
 
 /**
- * Group segments by iterationIndex so each ReAct iteration renders as its own
- * thinking/tool-calls/content cluster. Falls back to a single ungrouped bucket
- * for legacy messages (no iterationIndex tagged) so historical conversations
- * keep rendering as before — including the existing "single-thinking reorder"
- * normalization done in the `segments` computed above.
+ * The canonical, chronological event timeline. Do not sort or group this
+ * list: Vue can then retain each existing keyed segment in place while a new
+ * SSE event appends the next segment.
  */
-const groupedIterations = computed(() => {
-  const segs = segments.value || []
-  const anyTagged = segs.some(s => typeof s.iterationIndex === 'number')
-  if (!anyTagged) {
-    return [{
-      key: 'all',
-      index: 0,
-      empty: false,
-      thinkings: segs.filter(s => s.type === 'thinking'),
-      tools: segs.filter(s => s.type === 'tool_call'),
-      contents: segs.filter(s => s.type === 'content'),
-    }]
+const timelineSegments = computed<MessageSegment[]>(() => segments.value || [])
+
+/**
+ * A completed multi-step turn keeps the process available without competing
+ * with the answer: all entries except the final content segment are hidden by
+ * default and are restored verbatim when the user expands the summary.
+ *
+ * This only reads persisted message state/segment timestamps, so a historical
+ * message receives exactly the same collapsed presentation after reload.
+ */
+const completedTimelineExpanded = ref(false)
+function toggleCompletedTimeline() {
+  const expanded = !completedTimelineExpanded.value
+  // Notify the scroll container before Vue applies the height-changing DOM
+  // update. The click is an explicit request to inspect the execution history,
+  // so it must not be treated like a new streaming message and snap to bottom.
+  emit('toggle-completed-timeline', expanded)
+  completedTimelineExpanded.value = expanded
+}
+const finalContentSegment = computed<MessageSegment | undefined>(() =>
+  timelineSegments.value.findLast(segment => segment.type === 'content')
+)
+const shouldCollapseCompletedTimeline = computed(() =>
+  role.value === 'assistant'
+  && status.value === 'completed'
+  && timelineSegments.value.length > 1
+  && !!finalContentSegment.value
+)
+const displayedTimelineSegments = computed<MessageSegment[]>(() => {
+  if (!shouldCollapseCompletedTimeline.value || completedTimelineExpanded.value) {
+    return timelineSegments.value
   }
-  const fallbackIteration = segs.reduce((max, s) => (
-    typeof s.iterationIndex === 'number' ? Math.max(max, s.iterationIndex) : max
-  ), 0)
-  const buckets = new Map<number, { thinkings: MessageSegment[]; tools: MessageSegment[]; contents: MessageSegment[] }>()
-  for (const s of segs) {
-    const idx = s.iterationIndex ?? fallbackIteration
-    if (!buckets.has(idx)) buckets.set(idx, { thinkings: [], tools: [], contents: [] })
-    const b = buckets.get(idx)!
-    if (s.type === 'thinking') b.thinkings.push(s)
-    else if (s.type === 'tool_call') b.tools.push(s)
-    else if (s.type === 'content') b.contents.push(s)
-  }
-  return [...buckets.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([index, b]) => ({
-      key: `iter-${index}`,
-      index,
-      empty: b.thinkings.length === 0 && b.tools.length === 0 && b.contents.length === 0,
-      ...b,
-    }))
+  return finalContentSegment.value ? [finalContentSegment.value] : timelineSegments.value
 })
+
+function formatCompletedTimelineDuration(elapsedMs: number): string {
+  const seconds = Math.max(1, Math.round(elapsedMs / 1000))
+  if (seconds < 60) return `${seconds}${locale.value.startsWith('zh') ? ' 秒' : 's'}`
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  return locale.value.startsWith('zh')
+    ? `${minutes} 分 ${remainder} 秒`
+    : `${minutes}m ${remainder}s`
+}
+
+const completedTimelineDuration = computed(() => {
+  // Total turn duration starts when the server accepts the turn, matching the
+  // Loading bar's "connecting" phase rather than the first visible token.
+  // It is persisted with the message, so both a live turn and a history reload
+  // use the same measurement.
+  const persistedDurationMs = Number(parsedMetadata.value?.turnDurationMs)
+  if (Number.isFinite(persistedDurationMs) && persistedDurationMs >= 0) {
+    return formatCompletedTimelineDuration(persistedDurationMs)
+  }
+
+  // Compatibility fallback for messages saved before turnDurationMs existed.
+  const timestamps = timelineSegments.value
+    .map(segment => Number(segment.timestamp))
+    .filter((timestamp): timestamp is number => Number.isFinite(timestamp) && timestamp > 0)
+  if (timestamps.length < 2) return t('chat.durationUnavailable')
+
+  const elapsedMs = Math.max(0, timestamps[timestamps.length - 1] - timestamps[0])
+  return formatCompletedTimelineDuration(elapsedMs)
+})
+
+// Conversation switches mount a new bubble, but this also covers the rare
+// in-place replacement of a message object with a different persisted ID.
+watch(() => props.message.id, () => { completedTimelineExpanded.value = false })
 
 const toolCallsMeta = computed<ToolCallMeta[]>(() => {
   return parsedMetadata.value?.toolCalls || []
@@ -1238,6 +1288,47 @@ watch(isGenerating, (generating) => {
   gap: 2px;
   padding: 4px 0;
   min-width: 0;
+}
+
+.completed-timeline-toggle {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 9px;
+  margin: 2px 0 7px;
+  border: 1px solid var(--mc-border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--mc-panel-raised, #f8fafc);
+  color: var(--mc-text-secondary, #64748b);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.completed-timeline-toggle:hover {
+  background: var(--mc-primary-bg, #fff5f0);
+  border-color: var(--mc-primary-light, #f0b9a3);
+  color: var(--mc-text-primary, #334155);
+}
+
+.completed-timeline-toggle__status {
+  color: var(--mc-success, #22a06b);
+}
+
+.completed-timeline-toggle__label {
+  font-weight: 600;
+}
+
+.completed-timeline-toggle__arrow {
+  color: var(--mc-text-tertiary, #94a3b8);
+  transition: transform 0.15s;
+}
+
+.completed-timeline-toggle__arrow.is-open {
+  transform: rotate(180deg);
 }
 
 /* Iteration "no output" chip (interrupted iteration). */
