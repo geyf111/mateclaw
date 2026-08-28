@@ -194,7 +194,10 @@ watch(
   () => props.messages,
   async () => {
     await nextTick()
-    scrollToBottom()
+    // Streaming updates arrive frequently. Keep an already-sticky viewport at
+    // the newest token synchronously; a new smooth scroll per token falls
+    // behind as the answer grows.
+    scrollToBottom({ smooth: false })
   },
   { deep: true }
 )
@@ -205,7 +208,7 @@ watch(
   async (isLoading) => {
     if (isLoading) {
       await nextTick()
-      scrollToBottom()
+      scrollToBottom({ smooth: false })
     }
   }
 )
