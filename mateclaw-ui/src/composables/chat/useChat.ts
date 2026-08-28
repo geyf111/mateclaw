@@ -627,61 +627,19 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         if (data.assistantMessageId) {
           msg.id = data.assistantMessageId
         }
-        // Merge server-authoritative segment fields. The live SSE path uses
-        // the browser receipt time while building segments, which is useful
-        // for immediate rendering but can differ from the server event time
-        // by several seconds. Completed-timeline duration is calculated from
-        // these timestamps, so replace them with the persisted server values
-        // as soon as the terminal event arrives. This also carries fields the
-        // live path cannot compute, like the 'superseded' marker the backend's
-        // SegmentSupersedeDetector writes onto pre-tool model claims that the
-        // actual tool result replaced.
-        //
-        // Matching: client and server use DIFFERENT id schemes (client uses
-        // timestamp-based ids like `seg-1778744207326-0`; server uses
-        // `co-0 / to-1 / th-2` from its accumulator). They DO produce
-        // segments in the same temporal order from the same event stream,
-        // so we pair by (type, intra-type index): the N-th content/tool/
-        // thinking segment locally aligns with the N-th of the same type
-        // on the server. Extra local-only segments (rare streaming
-        // artifacts that the server pruned) end up unmatched and pass
-        // through untouched — no risk of mislabelling.
+        // The terminal payload is the persisted, server-authoritative event
+        // log. Provider adapters may buffer or reorder live thinking/content
+        // deltas, so keeping the browser-built array order and only overlaying
+        // timestamps can produce a non-chronological completed timeline. Use
+        // the server order, IDs and complete fields exactly as history reloads
+        // do. This also keeps superseded references internally consistent.
         if (Array.isArray(data.segments) && data.segments.length > 0) {
           const metadata = parseMetadata((msg as any).metadata)
-          const localSegs = (metadata?.segments as any[]) || []
-          if (localSegs.length > 0) {
-            const serverByTypeIndex = new Map<string, any>()
-            const serverTypeCount = new Map<string, number>()
-            for (const s of data.segments as any[]) {
-              if (!s || typeof s !== 'object' || typeof s.type !== 'string') continue
-              const idx = serverTypeCount.get(s.type) || 0
-              serverByTypeIndex.set(`${s.type}#${idx}`, s)
-              serverTypeCount.set(s.type, idx + 1)
-            }
-            if (serverByTypeIndex.size > 0) {
-              const localTypeCount = new Map<string, number>()
-              const merged = localSegs.map((local: any) => {
-                if (!local || typeof local.type !== 'string') return local
-                const idx = localTypeCount.get(local.type) || 0
-                localTypeCount.set(local.type, idx + 1)
-                const remote = serverByTypeIndex.get(`${local.type}#${idx}`)
-                if (!remote) return local
-                const next = { ...local }
-                const remoteTimestamp = Number(remote.timestamp)
-                if (Number.isFinite(remoteTimestamp) && remoteTimestamp > 0) {
-                  next.timestamp = remoteTimestamp
-                }
-                if (remote.superseded !== undefined) next.superseded = remote.superseded
-                if (remote.supersededBySegmentId !== undefined) {
-                  next.supersededBySegmentId = remote.supersededBySegmentId
-                }
-                if (remote.supersededReason !== undefined) {
-                  next.supersededReason = remote.supersededReason
-                }
-                return next
-              })
-              ;(msg as any).metadata = { ...(metadata || {}), segments: merged }
-            }
+          const persistedSegments = (data.segments as any[])
+            .filter(segment => segment && typeof segment === 'object' && typeof segment.type === 'string')
+            .map(segment => ({ ...segment }))
+          if (persistedSegments.length > 0) {
+            ;(msg as any).metadata = { ...(metadata || {}), segments: persistedSegments }
           }
         }
         messages.value[msgIndex] = { ...msg }
