@@ -57,6 +57,27 @@ export function useStickToBottom(
   let isScrolling = false
   let lastScrollTop = 0
   let isSelecting = false
+  // Incremented whenever the user takes over scrolling. A smooth scroll can
+  // finish asynchronously after a wheel/touch gesture, so its completion must
+  // not restore the sticky state or leave the browser moving toward an old
+  // bottom position.
+  let scrollRequestId = 0
+
+  const cancelPendingScroll = () => {
+    scrollRequestId += 1
+    isScrolling = false
+
+    const element = scrollRef.value
+    if (!element) return
+
+    // CSS sets scroll-behavior: smooth on the list. Temporarily overriding it
+    // makes this a synchronous no-op scroll, which cancels a native smooth
+    // scroll already in progress.
+    const previousScrollBehavior = element.style.scrollBehavior
+    element.style.scrollBehavior = 'auto'
+    element.scrollTo({ top: element.scrollTop, behavior: 'auto' })
+    element.style.scrollBehavior = previousScrollBehavior
+  }
 
   // 是否在底部附近
   const isNearBottom = computed(() => {
@@ -85,6 +106,7 @@ export function useStickToBottom(
     if (isSelecting) return
 
     const element = scrollRef.value
+    const requestId = ++scrollRequestId
     const targetScrollTop = element.scrollHeight - element.clientHeight
 
     // 已经在底部，无需滚动
@@ -112,17 +134,34 @@ export function useStickToBottom(
         setTimeout(checkScrollEnd, opts.duration)
       })
     } else {
-      // 直接滚动
-      element.scrollTop = targetScrollTop
-      isScrolling = false
+      // The list itself declares `scroll-behavior: smooth`. Override it for
+      // streamed updates: each token must land at the latest bottom instead of
+      // repeatedly restarting a smooth animation that can never catch up.
+      // Keep the programmatic-scroll marker until the next frame as browsers
+      // dispatch the corresponding `scroll` event asynchronously. Otherwise
+      // that event can be mistaken for a user scrolling down and prematurely
+      // release an escaped sticky lock.
+      isScrolling = true
+      const previousScrollBehavior = element.style.scrollBehavior
+      element.style.scrollBehavior = 'auto'
+      element.scrollTo({ top: targetScrollTop, behavior: 'auto' })
+      element.style.scrollBehavior = previousScrollBehavior
       lastScrollTop = element.scrollTop
+      requestAnimationFrame(() => {
+        if (requestId === scrollRequestId) isScrolling = false
+      })
     }
+
+    // A user gesture interrupted this request while awaiting the native
+    // smooth-scroll completion. Do not overwrite the state it established.
+    if (requestId !== scrollRequestId) return
 
     isAtBottom.value = true
   }
 
   // 停止自动滚动
   const stopScroll = () => {
+    cancelPendingScroll()
     escapedFromLock.value = true
     isAtBottom.value = false
   }
@@ -140,6 +179,7 @@ export function useStickToBottom(
     const element = scrollRef.value
     if (!element) return
 
+    cancelPendingScroll()
     const scrollTop = element.scrollTop
     escapedFromLock.value = true
     isAtBottom.value = false
@@ -157,14 +197,23 @@ export function useStickToBottom(
   // 处理滚动事件
   const handleScroll = () => {
     if (!scrollRef.value) return
-    if (isScrolling) {
-      lastScrollTop = scrollRef.value.scrollTop
-      return
-    }
 
     const element = scrollRef.value
     const currentScrollTop = element.scrollTop
-    
+
+    if (isScrolling) {
+      // Programmatic stick-to-bottom scrolling only moves downward. A reverse
+      // movement therefore came from the user (for example keyboard scrolling)
+      // and must take precedence over the pending request.
+      if (currentScrollTop < lastScrollTop) {
+        cancelPendingScroll()
+        escapedFromLock.value = true
+        isAtBottom.value = false
+      }
+      lastScrollTop = currentScrollTop
+      return
+    }
+
     // 检测滚动方向
     const isScrollingUp = currentScrollTop < lastScrollTop
     const isScrollingDown = currentScrollTop > lastScrollTop
@@ -177,8 +226,11 @@ export function useStickToBottom(
       isAtBottom.value = false
     }
 
-    // 向下滚动到底部，恢复自动滚动
-    if ((isScrollingDown || checkIsAtBottom()) && isNearBottom.value) {
+    // DOM scroll metrics are not reactive, so `isNearBottom` (a computed
+    // value) can still contain the initial bottom state. Read the element's
+    // current position here; otherwise any small downward wheel movement after
+    // scrolling up incorrectly releases the sticky lock.
+    if (isScrollingDown && checkIsAtBottom()) {
       escapedFromLock.value = false
       isAtBottom.value = true
     }
@@ -190,7 +242,7 @@ export function useStickToBottom(
     
     // 如果用户向上滚动，确保我们记录这个行为
     if (e.deltaY < 0) {
-      isScrolling = false
+      cancelPendingScroll()
       escapedFromLock.value = true
       isAtBottom.value = false
     }
@@ -198,6 +250,10 @@ export function useStickToBottom(
 
   // 处理鼠标/触摸开始（选择文本）
   const handlePointerDown = () => {
+    // Dragging the scrollbar and touch scrolling do not emit a wheel event.
+    // Cancel any in-flight smooth scroll here so their subsequent scroll
+    // events are handled as user intent rather than being ignored.
+    cancelPendingScroll()
     isSelecting = true
   }
 
