@@ -1075,8 +1075,15 @@ const completedTimelineDuration = computed(() => {
   // Loading bar's "connecting" phase rather than the first visible token.
   // It is persisted with the message, so both a live turn and a history reload
   // use the same measurement.
-  const persistedDurationMs = Number(parsedMetadata.value?.turnDurationMs)
-  if (Number.isFinite(persistedDurationMs) && persistedDurationMs >= 0) {
+  const persistedDurationValue = parsedMetadata.value?.turnDurationMs
+  const persistedDurationMs = Number(persistedDurationValue)
+  if (
+    persistedDurationValue !== null
+    && persistedDurationValue !== undefined
+    && persistedDurationValue !== ''
+    && Number.isFinite(persistedDurationMs)
+    && persistedDurationMs >= 0
+  ) {
     return formatCompletedTimelineDuration(persistedDurationMs)
   }
 
@@ -1086,7 +1093,7 @@ const completedTimelineDuration = computed(() => {
     .filter((timestamp): timestamp is number => Number.isFinite(timestamp) && timestamp > 0)
   if (timestamps.length < 2) return t('chat.durationUnavailable')
 
-  const elapsedMs = Math.max(0, timestamps[timestamps.length - 1] - timestamps[0])
+  const elapsedMs = Math.max(0, Math.max(...timestamps) - Math.min(...timestamps))
   return formatCompletedTimelineDuration(elapsedMs)
 })
 
