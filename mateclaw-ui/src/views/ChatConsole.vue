@@ -7,238 +7,260 @@
           <div v-if="isMobile && convPanelOpen" class="conv-backdrop" @click="convPanelOpen = false"></div>
         </Transition>
 
-    <!-- 会话侧边栏 -->
-    <ConversationSidebar
-      :conversations="conversations"
-      :current-conversation-id="currentConversationId"
-      :agents="agents"
-      :selected-agent-id="selectedAgentId"
-      :collapsed="convPanelCollapsed"
-      :mobile-open="convPanelOpen"
-      :is-mobile="isMobile"
-      @select="selectConversation"
-      @new-chat="newConversation"
-      @agent-picked="onAgentPicked"
-      @toggle-collapse="toggleConvPanel"
-      @refresh="loadConversations"
-      @deleted="onConversationsDeleted"
-    />
+        <!-- 会话侧边栏 -->
+        <ConversationSidebar
+          :conversations="conversations"
+          :current-conversation-id="currentConversationId"
+          :agents="agents"
+          :selected-agent-id="selectedAgentId"
+          :collapsed="convPanelCollapsed"
+          :mobile-open="convPanelOpen"
+          :is-mobile="isMobile"
+          @select="selectConversation"
+          @new-chat="newConversation"
+          @agent-picked="onAgentPicked"
+          @toggle-collapse="toggleConvPanel"
+          @refresh="loadConversations"
+          @deleted="onConversationsDeleted"
+        />
 
-    <!-- 主聊天区域 -->
-    <div
-      class="chat-area"
-      @dragenter.prevent="onDragEnter"
-      @dragover.prevent
-      @dragleave="onDragLeave"
-      @drop.prevent="onDrop"
-    >
-      <!-- 拖拽上传遮罩 -->
-      <Transition name="fade">
-        <div v-if="isDragging" class="drop-overlay">
-          <div class="drop-overlay__content">
-            <el-icon><UploadFilled /></el-icon>
-            <span>{{ $t('chat.dropToUpload') }}</span>
-          </div>
-        </div>
-      </Transition>
-      <!-- 头部 -->
-      <div class="chat-header">
-        <div class="chat-header-left">
-          <button v-if="isMobile" class="conv-toggle-btn" @click="convPanelOpen = !convPanelOpen" :title="$t('chat.conversations')">
-            <el-icon><ChatDotRound /></el-icon>
-          </button>
-          <div class="chat-stage-copy" v-if="currentAgent">
-            <div class="chat-stage-kicker">{{ $t('nav.chat') }}</div>
-            <!--
-              Header reads as "who is this employee" — name + tagline.
-              The runtime mode (ReAct / Plan-Execute) is technical jargon
-              to end users and lives in the badge tooltip instead, so the
-              header doesn't get polluted.
-            -->
-            <div
-              class="agent-badge"
-              :title="`${currentAgent.name}${currentAgentRuntimeMode ? ' · ' + currentAgentRuntimeMode : ''}`"
-            >
-              <span class="agent-badge-icon" :style="{ color: agentIconColor(currentAgent.icon) }"><SkillIcon :value="currentAgent.icon" :size="22" :fallback="'🤖'" /></span>
-              <div class="agent-badge-text">
-                <span class="agent-badge-name">{{ currentAgent.name }}</span>
+        <!-- 主聊天区域 -->
+        <div
+          class="chat-area"
+          @dragenter.prevent="onDragEnter"
+          @dragover.prevent
+          @dragleave="onDragLeave"
+          @drop.prevent="onDrop"
+        >
+          <!-- 拖拽上传遮罩 -->
+          <Transition name="fade">
+            <div v-if="isDragging" class="drop-overlay">
+              <div class="drop-overlay__content">
+                <el-icon><UploadFilled /></el-icon>
+                <span>{{ $t('chat.dropToUpload') }}</span>
               </div>
-              <span class="status-dot" :class="connectionStatusClass" :title="connectionStatusLabel"></span>
+            </div>
+          </Transition>
+          <!-- 头部 -->
+          <div class="chat-header">
+            <div class="chat-header-left">
+              <button v-if="isMobile" class="conv-toggle-btn" @click="convPanelOpen = !convPanelOpen" :title="$t('chat.conversations')">
+                <el-icon><ChatDotRound /></el-icon>
+              </button>
+              <div class="chat-stage-copy" v-if="currentAgent">
+                <div class="chat-stage-kicker">{{ $t('nav.chat') }}</div>
+                <!--
+                  Header reads as "who is this employee" — name + tagline.
+                  The runtime mode (ReAct / Plan-Execute) is technical jargon
+                  to end users and lives in the badge tooltip instead, so the
+                  header doesn't get polluted.
+                -->
+                <div
+                  class="agent-badge"
+                  :title="`${currentAgent.name}${currentAgentRuntimeMode ? ' · ' + currentAgentRuntimeMode : ''}`"
+                >
+                  <span class="agent-badge-icon" :style="{ color: agentIconColor(currentAgent.icon) }"><SkillIcon :value="currentAgent.icon" :size="22" :fallback="'🤖'" /></span>
+                  <div class="agent-badge-text">
+                    <span class="agent-badge-name">{{ currentAgent.name }}</span>
+                  </div>
+                  <span class="status-dot" :class="connectionStatusClass" :title="connectionStatusLabel"></span>
+                </div>
+              </div>
+              <div v-else class="no-agent-hint">{{ $t('chat.selectAgent') }}</div>
+            </div>
+            <div class="chat-header-right">
+              <!-- Model selector — Issue #81 v2 R3: always pass full providers + show-all-states
+                   so unhealthy rows render as dimmed entries with status chips and a Fix
+                   button instead of disappearing entirely. -->
+              <ModelSelector
+                :providers="providers"
+                :active-value="activeModelValue"
+                :active-label="activeModelLabel"
+                :saving="modelSaving"
+                :show-all-states="true"
+                @select="selectModel"
+                @navigate-fix="onModelSelectorFix"
+              />
+              <!-- Overflow menu -->
+              <div class="header-overflow-wrap">
+                <button ref="headerBtnRef" class="header-btn" @click="headerMenuOpen = !headerMenuOpen" :title="$t('common.more')">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                </button>
+                <DropdownMenu
+                  :open="headerMenuOpen"
+                  :anchor="headerBtnRef"
+                  :items="headerMenuItems"
+                  @select="onHeaderMenuSelect"
+                  @close="headerMenuOpen = false"
+                >
+                  <template #item-icon="{ item }">
+                    <el-icon v-if="item.key === 'config'"><Setting /></el-icon>
+                    <el-icon v-else-if="item.key === 'clear'"><Delete /></el-icon>
+                  </template>
+                </DropdownMenu>
+              </div>
+              <button
+                v-if="!panelVisible"
+                class="header-btn"
+                type="button"
+                title="展开右栏"
+                aria-label="展开右栏"
+                @click="showFilePreview"
+              ><el-icon><Fold /></el-icon></button>
             </div>
           </div>
-          <div v-else class="no-agent-hint">{{ $t('chat.selectAgent') }}</div>
-        </div>
-        <div class="chat-header-right">
-          <!-- Model selector — Issue #81 v2 R3: always pass full providers + show-all-states
-               so unhealthy rows render as dimmed entries with status chips and a Fix
-               button instead of disappearing entirely. -->
-          <ModelSelector
-            :providers="providers"
-            :active-value="activeModelValue"
-            :active-label="activeModelLabel"
-            :saving="modelSaving"
-            :show-all-states="true"
-            @select="selectModel"
-            @navigate-fix="onModelSelectorFix"
+
+          <!-- 使用组件化的 MessageList -->
+          <MessageList
+            ref="messageListRef"
+            :messages="messages"
+            :loading="isGenerating"
+            :assistant-icon="currentAgent?.icon || '🤖'"
+            :user-icon="userInitial"
+            :title="blockingPrompt ? modelPromptText.title : $t('app.title')"
+            :subtitle="blockingPrompt ? modelPromptText.desc : $t('chat.subtitle')"
+            :suggestions="blockingPrompt ? [] : suggestions"
+            @regenerate="handleRegenerate"
+            @suggestion-click="sendSuggestion"
+            @toggle-thinking="handleToggleThinking"
+            @approve="handleApprove"
+            @deny="handleDeny"
+            @open-file="handleOpenFile"
+          >
+            <!-- Issue #81 v2 R2: blocking-only popup. Recoverable cases use the
+                 non-blocking <RecoverableModelBanner> below instead. -->
+            <template v-if="blockingPrompt" #empty>
+              <div class="model-prompt">
+                <div class="model-prompt-title">{{ modelPromptText.title }}</div>
+                <div class="model-prompt-desc">{{ modelPromptText.desc }}</div>
+                <!-- <div class="model-prompt-actions">
+                  <button class="btn-primary" @click="handlePrimaryAction">
+                    {{ primaryActionLabel }}
+                  </button>
+                  <button
+                    v-if="bestSwitchTarget"
+                    class="btn-secondary"
+                    @click="switchToBestTarget"
+                  >
+                    {{ $t('chat.promptAction.switchToModel', { name: bestSwitchTarget.label }) }}
+                  </button>
+                </div> -->
+              </div>
+            </template>
+          </MessageList>
+
+          <!-- Issue #81: non-blocking banner — active provider is unhealthy but the backend fallback chain has a LIVE provider to take over. -->
+          <RecoverableModelBanner
+            v-if="recoverablePrompt && activeProvider && bestFallbackName"
+            :provider-name="activeProvider.name"
+            :fallback-name="bestFallbackName"
+            @dismiss="recoverableDismissed = true"
           />
-          <!-- Overflow menu -->
-          <div class="header-overflow-wrap">
-            <button ref="headerBtnRef" class="header-btn" @click="headerMenuOpen = !headerMenuOpen" :title="$t('common.more')">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-            </button>
-            <DropdownMenu
-              :open="headerMenuOpen"
-              :anchor="headerBtnRef"
-              :items="headerMenuItems"
-              @select="onHeaderMenuSelect"
-              @close="headerMenuOpen = false"
-            >
-              <template #item-icon="{ item }">
-                <el-icon v-if="item.key === 'config'"><Setting /></el-icon>
-                <el-icon v-else-if="item.key === 'clear'"><Delete /></el-icon>
-              </template>
-            </DropdownMenu>
+
+          <!-- Cron job in-flight placeholder — visible while T2 hasn't committed the assistant message yet. Populated by pollActivity → /cron-jobs/active-runs. -->
+          <div v-if="activeCronRuns.length > 0" class="cron-running-bar">
+            <div v-for="run in activeCronRuns" :key="run.runId" class="cron-running-item">
+              <span class="cron-running-spinner">🌀</span>
+              <span class="cron-running-text">
+                <strong>{{ run.jobName || $t('chat.cronRunning.fallbackName') }}</strong>
+                <span class="cron-running-meta">
+                  · {{ $t('chat.cronRunning.executing') }}
+                  <template v-if="run.startedAt"> · {{ elapsedLabel(run.startedAt) }}</template>
+                </span>
+              </span>
+            </div>
           </div>
+
+          <!-- Terminal-state announcement after a goal completed or exhausted
+               in this conversation. Auto-dismisses when the user clicks × or
+               starts a new goal. -->
+          <GoalSystemLine
+            v-if="goalTerminalForCurrent && currentConversationId"
+            :variant="goalTerminalForCurrent.status"
+            :title="goalSystemLineTitle"
+            :detail="goalSystemLineDetail"
+            class="goal-system-line-slot"
+            @click.stop="onGoalSystemLineDismiss"
+          />
+
+          <!-- Inline "set a goal?" invitation shown after the first assistant
+               reply when the conversation has no active goal and the user
+               hasn't dismissed it for this conv. -->
+          <GoalSetInlinePrompt
+            v-if="showGoalSetPrompt && false"
+            :conversation-id="currentConversationId"
+            :agent-id="String(selectedAgentId)"
+            :workspace-id="String(currentWorkspaceId || '1')"
+            :suggested-title="goalSuggestedTitle"
+            class="goal-set-prompt-slot"
+            @dismiss="onGoalPromptDismiss"
+          />
+
+          <!-- 流式处理 Loading 栏（消息和输入框之间） -->
+          <StreamLoadingBar
+            :is-loading="isGenerating && !blockingPrompt"
+            :tool-count="toolCallCount"
+            :completion-tokens="currentGeneratingTokens"
+            :prompt-tokens="currentPromptTokens"
+            :phase="streamPhase"
+            :phase-info="phaseInfo"
+            :running-tool-name="currentRunningToolName"
+            :has-queued="hasQueued"
+            :lifecycle-stage="lifecycleStage"
+            :compact-status="compactStatus"
+          />
+
+          <!-- Multimodal routing hint: shown when pending attachments require a
+               modality the primary model lacks. -->
+          <MultimodalRoutingHint
+            :attachments="pendingAttachments"
+            :capabilities="agentCapabilities"
+          />
+
+          <!-- 使用组件化的 ChatInput -->
+          <ChatInput
+            ref="chatInputRef"
+            v-model="inputText"
+            :loading="isGenerating && !hasPendingApproval"
+            :disabled="blockingPrompt || !currentAgent"
+            :placeholder="$t('chat.messagePlaceholder')"
+            :hint="currentRuntimeModel"
+            :attachments="pendingAttachments"
+            :uploading="uploadingAttachment"
+            :max-length="10240"
+            :pending-approval="activePendingApproval"
+            :stream-phase="streamPhase"
+            :queued-message="queuedMessage"
+            :queue-size="queueSize"
+            @submit="handleSendMessage"
+            @stop="handleStopStream"
+            @cancel-queued="handleCancelQueued"
+            @file-select="handleFileSelect"
+            @attachment-remove="removeAttachment"
+            @approve="handleApprove"
+            @deny="handleDeny"
+            :enable-talk-mode="!!selectedAgentId"
+            :thinking-enabled="thinkingEnabled"
+            :thinking-supported="currentModelSupportsThinking"
+            @toggle-thinking="thinkingEnabled = !thinkingEnabled"
+            @talk="showTalkMode = true"
+          />
         </div>
-      </div>
 
-      <!-- 使用组件化的 MessageList -->
-      <MessageList
-        ref="messageListRef"
-        :messages="messages"
-        :loading="isGenerating"
-        :assistant-icon="currentAgent?.icon || '🤖'"
-        :user-icon="userInitial"
-        :title="blockingPrompt ? modelPromptText.title : $t('app.title')"
-        :subtitle="blockingPrompt ? modelPromptText.desc : $t('chat.subtitle')"
-        :suggestions="blockingPrompt ? [] : suggestions"
-        @regenerate="handleRegenerate"
-        @suggestion-click="sendSuggestion"
-        @toggle-thinking="handleToggleThinking"
-        @approve="handleApprove"
-        @deny="handleDeny"
-      >
-        <!-- Issue #81 v2 R2: blocking-only popup. Recoverable cases use the
-             non-blocking <RecoverableModelBanner> below instead. -->
-        <template v-if="blockingPrompt" #empty>
-          <div class="model-prompt">
-            <div class="model-prompt-title">{{ modelPromptText.title }}</div>
-            <div class="model-prompt-desc">{{ modelPromptText.desc }}</div>
-            <!-- <div class="model-prompt-actions">
-              <button class="btn-primary" @click="handlePrimaryAction">
-                {{ primaryActionLabel }}
-              </button>
-              <button
-                v-if="bestSwitchTarget"
-                class="btn-secondary"
-                @click="switchToBestTarget"
-              >
-                {{ $t('chat.promptAction.switchToModel', { name: bestSwitchTarget.label }) }}
-              </button>
-            </div> -->
-          </div>
-        </template>
-      </MessageList>
-
-      <!-- Issue #81: non-blocking banner — active provider is unhealthy but the
-           backend fallback chain has a LIVE provider to take over. -->
-      <RecoverableModelBanner
-        v-if="recoverablePrompt && activeProvider && bestFallbackName"
-        :provider-name="activeProvider.name"
-        :fallback-name="bestFallbackName"
-        @dismiss="recoverableDismissed = true"
-      />
-
-      <!-- Cron job in-flight placeholder — visible while T2 hasn't committed
-           the assistant message yet. Populated by pollActivity → /cron-jobs/active-runs. -->
-      <div v-if="activeCronRuns.length > 0" class="cron-running-bar">
-        <div v-for="run in activeCronRuns" :key="run.runId" class="cron-running-item">
-          <span class="cron-running-spinner">🌀</span>
-          <span class="cron-running-text">
-            <strong>{{ run.jobName || $t('chat.cronRunning.fallbackName') }}</strong>
-            <span class="cron-running-meta">
-              · {{ $t('chat.cronRunning.executing') }}
-              <template v-if="run.startedAt"> · {{ elapsedLabel(run.startedAt) }}</template>
-            </span>
-          </span>
-        </div>
-      </div>
-
-      <!-- Terminal-state announcement after a goal completed or exhausted
-           in this conversation. Auto-dismisses when the user clicks × or
-           starts a new goal. -->
-      <GoalSystemLine
-        v-if="goalTerminalForCurrent && currentConversationId"
-        :variant="goalTerminalForCurrent.status"
-        :title="goalSystemLineTitle"
-        :detail="goalSystemLineDetail"
-        class="goal-system-line-slot"
-        @click.stop="onGoalSystemLineDismiss"
-      />
-
-      <!-- Inline "set a goal?" invitation shown after the first assistant
-           reply when the conversation has no active goal and the user
-           hasn't dismissed it for this conv. -->
-      <GoalSetInlinePrompt
-        v-if="showGoalSetPrompt && false"
-        :conversation-id="currentConversationId"
-        :agent-id="String(selectedAgentId)"
-        :workspace-id="String(currentWorkspaceId || '1')"
-        :suggested-title="goalSuggestedTitle"
-        class="goal-set-prompt-slot"
-        @dismiss="onGoalPromptDismiss"
-      />
-
-      <!-- 流式处理 Loading 栏（消息和输入框之间） -->
-      <StreamLoadingBar
-        :is-loading="isGenerating && !blockingPrompt"
-        :tool-count="toolCallCount"
-        :completion-tokens="currentGeneratingTokens"
-        :prompt-tokens="currentPromptTokens"
-        :phase="streamPhase"
-        :phase-info="phaseInfo"
-        :running-tool-name="currentRunningToolName"
-        :has-queued="hasQueued"
-        :lifecycle-stage="lifecycleStage"
-        :compact-status="compactStatus"
-      />
-
-      <!-- Multimodal routing hint: shown when pending attachments require a
-           modality the primary model lacks. -->
-      <MultimodalRoutingHint
-        :attachments="pendingAttachments"
-        :capabilities="agentCapabilities"
-      />
-
-      <!-- 使用组件化的 ChatInput -->
-      <ChatInput
-        ref="chatInputRef"
-        v-model="inputText"
-        :loading="isGenerating && !hasPendingApproval"
-        :disabled="blockingPrompt || !currentAgent"
-        :placeholder="$t('chat.messagePlaceholder')"
-        :hint="currentRuntimeModel"
-        :attachments="pendingAttachments"
-        :uploading="uploadingAttachment"
-        :max-length="10240"
-        :pending-approval="activePendingApproval"
-        :stream-phase="streamPhase"
-        :queued-message="queuedMessage"
-        :queue-size="queueSize"
-        @submit="handleSendMessage"
-        @stop="handleStopStream"
-        @cancel-queued="handleCancelQueued"
-        @file-select="handleFileSelect"
-        @attachment-remove="removeAttachment"
-        @approve="handleApprove"
-        @deny="handleDeny"
-        :enable-talk-mode="!!selectedAgentId"
-        :thinking-enabled="thinkingEnabled"
-        :thinking-supported="currentModelSupportsThinking"
-        @toggle-thinking="thinkingEnabled = !thinkingEnabled"
-        @talk="showTalkMode = true"
-      />
-    </div>
+        <FilePreviewPanel
+          :tabs="fileTabs"
+          :active-id="activeFileTabId"
+          :visible="panelVisible"
+          :fullscreen="panelFullscreen"
+          :generated-files="currentConversationGeneratedFiles"
+          @activate="activatePreviewTab"
+          @close="closePreviewTab"
+          @hide="hideFilePreview"
+          @retry="retryPreviewTab"
+          @download="downloadPreviewTab"
+          @toggle-fullscreen="togglePreviewFullscreen"
+          @open-generated="handleOpenGeneratedFile"
+        />
 
         <!-- Talk Mode 覆盖层 -->
         <TalkMode
@@ -258,7 +280,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { mcToast } from '@/composables/useMcToast'
-import { ChatDotRound, Delete, Setting, UploadFilled } from '@element-plus/icons-vue'
+import { ChatDotRound, Delete, Fold, Setting, UploadFilled } from '@element-plus/icons-vue'
 import { conversationApi, agentApi, modelApi, chatApi, cronJobApi, channelApi } from '@/api/index'
 import { copyToClipboard } from '@/utils/clipboard'
 import { useFileDrop } from '@/composables/useFileDrop'
@@ -280,6 +302,7 @@ import MultimodalRoutingHint from '@/components/chat/MultimodalRoutingHint.vue'
 import StreamLoadingBar from '@/components/chat/StreamLoadingBar.vue'
 import TalkMode from '@/components/chat/TalkMode.vue'
 import ModelSelector from '@/components/chat/ModelSelector.vue'
+import FilePreviewPanel from '@/components/chat/FilePreviewPanel.vue'
 import { useEChartsRenderer } from '@/composables/useEChartsRenderer'
 import { useKatexRenderer } from '@/composables/useKatexRenderer'
 import { useMermaidRenderer, handleMermaidDownload } from '@/composables/useMermaidRenderer'
@@ -287,6 +310,12 @@ import { useGoalStore } from '@/stores/useGoalStore'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import GoalSetInlinePrompt from '@/components/goal/GoalSetInlinePrompt.vue'
 import GoalSystemLine from '@/components/goal/GoalSystemLine.vue'
+import { useFilePreviewPanel } from '@/composables/useFilePreviewPanel'
+import { extractGeneratedFiles, type FileOpenRequest } from '@/utils/filePreview'
+
+// ============ 文件预览右栏 ============
+const filePreview = useFilePreviewPanel()
+const { fileTabs, activeFileTabId, panelVisible, panelFullscreen } = filePreview
 
 // ============ Talk Mode ============
 const showTalkMode = ref(false)
@@ -542,6 +571,44 @@ const echartsContainerRef = computed(() => messageListRef.value?.$el as HTMLElem
 const { startObserving: startECharts, dispose: disposeECharts } = useEChartsRenderer(echartsContainerRef)
 const { startObserving: startKatex, dispose: disposeKatex } = useKatexRenderer(echartsContainerRef)
 const { startObserving: startMermaid, dispose: disposeMermaid } = useMermaidRenderer(echartsContainerRef)
+
+function preserveMessageScroll() {
+  messageListRef.value?.prepareForLayoutChange()
+}
+
+function handleOpenFile(request: FileOpenRequest) {
+  // A dialog-style preview must not compete with TalkMode for keyboard focus.
+  if (showTalkMode.value) showTalkMode.value = false
+  preserveMessageScroll()
+  const result = filePreview.openFile({ ...request, conversationId: request.conversationId || currentConversationId.value })
+  if (!result.accepted && result.reason) mcToast.warning(result.reason)
+}
+
+function activatePreviewTab(id: string) {
+  activeFileTabId.value = id
+  panelVisible.value = true
+}
+function showFilePreview() { preserveMessageScroll(); panelVisible.value = true }
+function closePreviewTab(id: string) { preserveMessageScroll(); filePreview.closeTab(id) }
+function hideFilePreview() { preserveMessageScroll(); panelVisible.value = false; panelFullscreen.value = false }
+function retryPreviewTab(id: string) { filePreview.retry(id) }
+function downloadPreviewTab(id: string) { filePreview.download(id) }
+function togglePreviewFullscreen() { panelFullscreen.value = !panelFullscreen.value }
+
+const currentConversationGeneratedFiles = computed(() => {
+  if (!currentConversationId.value) return []
+  return extractGeneratedFiles(messages.value.filter(m => m.role === 'assistant'))
+})
+
+function handleOpenGeneratedFile(url: string) {
+  preserveMessageScroll()
+  const result = filePreview.openFile({
+    url,
+    source: 'generated-link',
+    conversationId: currentConversationId.value,
+  })
+  if (!result.accepted && result.reason) mcToast.warning(result.reason)
+}
 
 // Last-attempt draft, restored into the input box when the SSE error event
 // arrives async (sendChatMessage resolves on connect, the error fires later,
@@ -1058,6 +1125,7 @@ onBeforeUnmount(() => {
   resetForNewConversation()
   // 释放所有附件的 ObjectURL，防止内存泄漏
   revokeAllPreviewUrls()
+  filePreview.resetForConversation()
 })
 
 watch(() => route.query, () => {
@@ -1079,6 +1147,7 @@ const goalStore = useGoalStore()
 const workspaceStoreForGoal = useWorkspaceStore()
 const currentWorkspaceId = computed(() => workspaceStoreForGoal.currentWorkspaceId ?? '1')
 watch(currentConversationId, async (cid) => {
+  filePreview.switchConversation()
   if (cid) {
     await goalStore.loadActiveForConversation(cid)
   }

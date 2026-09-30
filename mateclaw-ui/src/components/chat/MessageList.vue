@@ -77,6 +77,7 @@
             @toggle-completed-timeline="handleCompletedTimelineToggle"
             @approve="(pendingId) => $emit('approve', pendingId)"
             @deny="(pendingId) => $emit('deny', pendingId)"
+            @open-file="(request) => $emit('open-file', request)"
           />
         </template>
       </template>
@@ -103,6 +104,7 @@ import MessageBubble from './MessageBubble.vue'
 import CompressionSummary from './CompressionSummary.vue'
 import { useStickToBottom } from '@/composables/chat/useStickToBottom'
 import type { Message } from '@/types'
+import type { FileOpenRequest } from '@/utils/filePreview'
 
 interface Props {
   /** 消息列表 */
@@ -147,7 +149,14 @@ const emit = defineEmits<{
   approve: [pendingId: string]
   deny: [pendingId: string]
   'load-more': []
+  'open-file': [request: FileOpenRequest]
 }>()
+
+function prepareForLayoutChange() {
+  holdScrollPosition()
+}
+
+defineExpose({ prepareForLayoutChange })
 
 // 判断消息是否为压缩摘要
 const isCompressionSummary = (msg: Message) => {

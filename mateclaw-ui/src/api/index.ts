@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { handleAuthFailure, updateTokenFromHeader } from '@/utils/auth'
+import { canonicalFileUrl } from '@/utils/filePreview'
 
 // Axios 实例
 export const http = axios.create({
@@ -79,6 +80,88 @@ export async function fetchAuthenticatedBlob(fileUrl: string): Promise<Blob> {
   const response = await fetch(fileUrl, { headers })
   if (!response.ok) throw new Error(`Fetch failed: ${response.status}`)
   return response.blob()
+}
+
+export class FileFetchError extends Error {
+  constructor(public readonly code: 'HTTP' | 'FILE_TOO_LARGE', public readonly status?: number) {
+    super(code === 'FILE_TOO_LARGE' ? 'File is too large to preview' : `Fetch failed: ${status}`)
+  }
+}
+
+export interface FetchFileOptions {
+  signal?: AbortSignal
+  maxBytes?: number
+}
+
+export interface FetchedFileResource {
+  blob: Blob
+  contentType: string
+  contentLength?: number
+  dispositionFileName?: string
+  status: number
+}
+
+function dispositionFileName(header: string | null): string | undefined {
+  if (!header) return undefined
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header)?.[1]
+  if (utf8) {
+    try { return decodeURIComponent(utf8) } catch { /* use fallback */ }
+  }
+  const plain = /filename\s*=\s*(?:"([^"]+)"|([^;\s]+))/i.exec(header)
+  return plain?.[1] || plain?.[2]
+}
+
+/** Authenticated file fetch that preserves response metadata and enforces a streamed size limit. */
+export async function fetchFileResource(fileUrl: string, options: FetchFileOptions = {}): Promise<FetchedFileResource> {
+  const canonicalUrl = canonicalFileUrl(fileUrl)
+  if (!canonicalUrl) throw new FileFetchError('HTTP', 400)
+  const token = localStorage.getItem('token')
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+  const workspaceId = localStorage.getItem('mc-workspace-id')
+  if (workspaceId) headers['X-Workspace-Id'] = workspaceId
+  const locale = localStorage.getItem('mateclaw_locale')
+  if (locale) headers['Accept-Language'] = locale
+  const response = await fetch(canonicalUrl, { headers, signal: options.signal })
+  if (!response.ok) throw new FileFetchError('HTTP', response.status)
+  const contentLengthHeader = response.headers.get('content-length')
+  const contentLength = contentLengthHeader && /^\d+$/.test(contentLengthHeader) ? Number(contentLengthHeader) : undefined
+  if (options.maxBytes && contentLength && contentLength > options.maxBytes) {
+    await response.body?.cancel()
+    throw new FileFetchError('FILE_TOO_LARGE')
+  }
+  let blob: Blob
+  if (options.maxBytes && response.body) {
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let total = 0
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (value) {
+          total += value.byteLength
+          if (total > options.maxBytes) {
+            await reader.cancel()
+            throw new FileFetchError('FILE_TOO_LARGE')
+          }
+          chunks.push(value)
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+    blob = new Blob(chunks, { type: response.headers.get('content-type') || '' })
+  } else {
+    blob = await response.blob()
+  }
+  return {
+    blob,
+    contentType: response.headers.get('content-type') || blob.type || '',
+    contentLength,
+    dispositionFileName: dispositionFileName(response.headers.get('content-disposition')),
+    status: response.status,
+  }
 }
 
 // ==================== Auth ====================

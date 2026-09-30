@@ -524,7 +524,7 @@ function onMenuSelect(item: DropdownMenuItem) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 14px 12px;
+  padding: 14px;
   border-bottom: 1px solid var(--mc-border-light);
 }
 

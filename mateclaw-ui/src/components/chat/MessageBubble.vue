@@ -6,6 +6,7 @@
     :data-status="status"
     @mouseenter="hovered = true"
     @mouseleave="hovered = false"
+    @click="handleBubbleClick"
   >
     <!-- 头像 -->
     <div class="msg-avatar" :class="`${role}-avatar`">
@@ -374,7 +375,7 @@
             :key="attachment.storedName"
             class="message-attachment"
             type="button"
-            @click="downloadFile(attachment)"
+            @click="openAttachment(attachment)"
           >
             <el-icon class="message-attachment__icon"><Document /></el-icon>
             <span class="message-attachment__name">{{ attachment.name }}</span>
@@ -466,6 +467,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useMarkdownRenderer } from '@/composables/useMarkdownRenderer'
 import { useAuthenticatedAttachment } from '@/composables/useAuthenticatedAttachment'
+import { isGeneratedFileUrl, type FileOpenRequest } from '@/utils/filePreview'
 import { useToolLabel } from '@/composables/useToolLabel'
 import { http, chatApi } from '@/api'
 import { copyToClipboard } from '@/utils/clipboard'
@@ -485,7 +487,7 @@ import type { ChatErrorInfo } from '@/types/chatError'
 const { renderMarkdown } = useMarkdownRenderer()
 const { t, locale } = useI18n()
 const { getToolLabel } = useToolLabel()
-const { blobUrls, loadAllImages, loadAllVideos, loadAllAudios, loadAllModels, downloadFile, openImage, getDisplayUrl, revokeAll } = useAuthenticatedAttachment()
+const { blobUrls, loadAllImages, loadAllVideos, loadAllAudios, loadAllModels, openImage, getDisplayUrl, revokeAll } = useAuthenticatedAttachment()
 
 interface Props {
   message: Message
@@ -508,6 +510,7 @@ const emit = defineEmits<{
   'toggle-completed-timeline': [expanded: boolean]
   approve: [pendingId: string]
   deny: [pendingId: string]
+  'open-file': [request: FileOpenRequest]
 }>()
 
 // --- 基础计算 ---
@@ -817,6 +820,38 @@ const fileAttachments = computed(() => attachments.value.filter(a =>
     && !a.contentType?.startsWith('audio/')
     && !a.contentType?.startsWith('model/')
 ))
+
+function openAttachment(attachment: ChatAttachment) {
+  emit('open-file', {
+    url: attachment.url,
+    name: attachment.name,
+    contentType: attachment.contentType,
+    size: attachment.size,
+    source: 'attachment',
+    conversationId: props.message.conversationId,
+    messageId: props.message.id,
+  })
+}
+
+/**
+ * Markdown is injected via v-html and re-created while an answer streams, so
+ * one listener on the bubble is safer than binding each generated anchor.
+ */
+function handleBubbleClick(event: MouseEvent) {
+  if (role.value !== 'assistant') return
+  const anchor = (event.target as HTMLElement | null)?.closest<HTMLAnchorElement>('a[href]')
+  if (!anchor || !anchor.closest('.msg-content, .seg-content')) return
+  if (anchor.closest('.thinking-section, .seg-thinking, .content-segment--superseded')) return
+  if (!isGeneratedFileUrl(anchor.href)) return
+  event.preventDefault()
+  emit('open-file', {
+    url: anchor.href,
+    name: anchor.textContent?.trim() || undefined,
+    source: 'generated-link',
+    conversationId: props.message.conversationId,
+    messageId: props.message.id,
+  })
+}
 
 // 增量加载图片/视频/音频附件的鉴权 blob URL（watch 覆盖首次 + 后续变化）
 watch(imageAttachments, (atts) => {
