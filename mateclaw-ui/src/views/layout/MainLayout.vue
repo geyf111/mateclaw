@@ -120,19 +120,38 @@
             </div>
           </div> -->
 
-          <div class="user-info">
-            <div class="user-avatar">{{ userInitial }}</div>
-            <div class="user-detail">
-              <div class="user-name">{{ username }}</div>
-              <div class="user-role">{{ roleLabel }}</div>
+          <el-dropdown trigger="hover" placement="top" :hide-after="200" popper-class="user-menu-popover">
+            <div class="user-info user-info--hoverable">
+              <div class="user-avatar">{{ userInitial }}</div>
+              <div class="user-detail">
+                <div class="user-name">{{ username }}</div>
+                <div class="user-role">{{ roleLabel }}</div>
+              </div>
             </div>
-            <!-- <button class="change-password-btn" @click="showChangePassword = true" :title="t('auth.changePassword')">
-              <el-icon :size="16"><Lock /></el-icon>
-            </button> -->
-            <button class="logout-btn" @click="logout" :title="t('nav.logout')">
-              <el-icon :size="16"><SwitchButton /></el-icon>
-            </button>
-          </div>
+            <template #dropdown>
+              <div class="user-menu">
+                <div class="user-menu-item">
+                  <el-icon :size="16"><Search /></el-icon>
+                  <span class="user-menu-label">{{ t('nav.webSearch') }}</span>
+                  <el-switch v-model="webSearchEnabled" size="small" />
+                </div>
+                <div class="user-menu-item">
+                  <el-icon :size="16"><Coin /></el-icon>
+                  <span class="user-menu-label">{{ t('nav.pointsBalance') }}</span>
+                  <span class="user-menu-points">{{ pointsBalance }}</span>
+                  <el-button :icon="Refresh" size="small" circle @click.stop="refreshPoints" />
+                </div>
+                <div class="user-menu-item" @click="checkForUpdates">
+                  <el-icon :size="16"><Top /></el-icon>
+                  <span class="user-menu-label">{{ t('nav.checkUpdate') }}</span>
+                </div>
+                <div class="user-menu-item user-menu-item--danger" @click="logout">
+                  <el-icon :size="16"><SwitchButton /></el-icon>
+                  <span class="user-menu-label">{{ t('nav.logout') }}</span>
+                </div>
+              </div>
+            </template>
+          </el-dropdown>
 
           <!-- <div class="shortcuts-hint" :title="shortcutsHintText">
             <kbd>Ctrl+K</kbd>
@@ -187,6 +206,7 @@
     <DoctorDrawer :visible="showDoctor" @close="showDoctor = false" @status="onHealthStatus" />
 
     <ChangePasswordDialog v-model:visible="showChangePassword" />
+    <UpdateDownloader />
   </div>
 </template>
 
@@ -208,14 +228,20 @@ import McTooltip from '@/components/common/McTooltip.vue'
 import { useNotificationCenter } from '@/composables/useNotificationCenter'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { applyLocale, currentLocale, type AppLocale } from '@/i18n'
-import { SwitchButton, Lock } from '@element-plus/icons-vue'
+import { SwitchButton, Lock, Search, Refresh, Coin, Top } from '@element-plus/icons-vue'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { mcToast } from '@/composables/useMcToast'
+import { mcConfirm } from '@/components/common/useConfirm'
+import { useMateClaw } from '@/composables/useMateClaw'
+import { useUpdateFlow } from '@/composables/useUpdateFlow'
+import UpdateDownloader from '@/components/common/UpdateDownloader.vue'
 import { clearAllTimers } from '@/utils/clearAllTimers'
 
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
+const { isElectron } = useMateClaw()
+const { start: startUpdateFlow } = useUpdateFlow()
 const themeStore = useThemeStore()
 const workspaceStore = useWorkspaceStore()
 const sidebarCollapsed = ref(localStorage.getItem('mc-sidebar-collapsed') === 'true')
@@ -519,7 +545,27 @@ function isNavItemActive(item: { path: string; label: string }) {
 
 const showChangePassword = ref(false)
 
-function logout() {
+const webSearchEnabled = ref(false)
+const pointsBalance = ref(0)
+
+function refreshPoints() {}
+
+function checkForUpdates() {
+  if (!isElectron) {
+    mcToast.info(t('nav.updateOnlyInClient'))
+    return
+  }
+  startUpdateFlow()
+}
+
+async function logout() {
+  const ok = await mcConfirm({
+    title: t('nav.logout'),
+    message: t('nav.logoutConfirm'),
+    tone: 'danger',
+  })
+  if (!ok) return
+
   clearAllTimers()
   mcToast.dismissAll()
   localStorage.removeItem('token')
@@ -987,6 +1033,23 @@ watch(() => sidebarCollapsed.value, (collapsed) => {
   border-radius: 14px;
   background: var(--mc-bg-muted);
   border: 1px solid var(--mc-border-light);
+  outline: none;
+}
+
+.user-info--hoverable {
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.user-info--hoverable:hover {
+  background: var(--mc-bg-sunken);
+  border-color: var(--mc-border);
+}
+
+.user-info__arrow {
+  color: var(--mc-text-tertiary);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
 }
 
 .user-avatar {
@@ -1315,4 +1378,62 @@ watch(() => sidebarCollapsed.value, (collapsed) => {
     padding: 8px;
   }
 }
+</style>
+
+<style>
+.user-menu-popover {
+  min-width: 212px;
+  padding: 4px !important;
+  border-radius: 14px !important;
+  border: 1px solid var(--mc-border) !important;
+  background: var(--mc-sidebar-floating-bg) !important;
+  box-shadow: var(--mc-shadow-medium) !important;
+  backdrop-filter: blur(18px);
+}
+
+.user-menu-popover .el-popper__arrow {
+  display: none;
+}
+
+.user-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--mc-text-secondary);
+  font-size: 13px;
+  transition: background 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.user-menu-item:hover {
+  background: var(--mc-bg-sunken);
+  color: var(--mc-text-primary);
+}
+
+.user-menu-item--danger:hover {
+  background: var(--mc-danger-bg);
+  color: var(--mc-danger);
+}
+
+.user-menu-label {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.user-menu-points {
+  font-weight: 600;
+  color: var(--mc-primary);
+  font-size: 13px;
+}
+
+.sidebar-footer .el-dropdown { display: block; }
 </style>

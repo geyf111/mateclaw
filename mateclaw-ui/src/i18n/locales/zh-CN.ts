@@ -413,6 +413,11 @@ export default {
     triggers: '触发器',
     settings: '设置',
     logout: '退出登录',
+    logoutConfirm: '是否确认退出登录？',
+    webSearch: '联网搜索',
+    pointsBalance: '积分余额',
+    checkUpdate: '检查更新',
+    updateOnlyInClient: '请在桌面客户端中使用此功能',
     themeLight: '浅色',
     themeDark: '深色',
     memory: '记忆',
@@ -425,6 +430,14 @@ export default {
     shortcutAgents: '员工',
     shortcutNew: '新建',
     shortcutsHint: 'Ctrl+K {agents} | Ctrl+N {newAction}',
+  },
+  updater: {
+    alreadyLatest: '当前已是最新版本',
+    downloading: '最新版本下载中…',
+    downloadCompleteHint: '已下载完成',
+    restartToUpgrade: '重启升级',
+    checkFailed: '检查更新失败',
+    onlyInClient: '请在桌面客户端中使用此功能',
   },
   // Issue #81: provider-level hint / status text shared across chat popup and ModelSelector.
   provider: {
