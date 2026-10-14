@@ -53,7 +53,7 @@ function ensureHost(): void {
     style.textContent = `
 .mc-toast-host {
   position: fixed;
-  top: 18px;
+  top: 50px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 3000;

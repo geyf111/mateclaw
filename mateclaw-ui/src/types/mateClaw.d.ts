@@ -24,7 +24,15 @@ export interface MateClawAPI {
   /** 获取当前应用版本号 */
   getAppVersion: () => Promise<string>
   /** 当前平台 */
-  platform: NodeJS.Platform
+  platform: NodeJS.Platform,
+  /** 显示关于对话框 */
+  showAbout: () => void
+  /** 检查更新（菜单触发） */
+  checkUpdates: () => void
+  /** 打开 GitHub 仓库 */
+  openGitHub: () => void
+  /** 反馈问题 */
+  reportIssue: () => void
 }
 
 declare global {

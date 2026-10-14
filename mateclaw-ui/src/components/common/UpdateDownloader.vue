@@ -89,7 +89,7 @@ function install() {
 <style scoped>
 .update-downloader {
   position: fixed;
-  top: 18px;
+  top: 50px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 2500;
