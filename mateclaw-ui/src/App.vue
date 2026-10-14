@@ -1,8 +1,8 @@
 <template>
   <el-config-provider :locale="elementLocale">
-    <div class="app-root" :class="{ 'electron-titlebar-offset': !isElectron }">
-      <TitleBar v-if="!isElectron" />
-      <router-view :style="{ height: !isElectron ? 'calc(100vh - 32px)' : '100vh' }" />
+    <div class="app-root" :class="{ 'electron-titlebar-offset': isElectron }">
+      <TitleBar v-if="isElectron" />
+      <router-view :style="{ height: isElectron ? 'calc(100vh - 32px)' : '100vh' }" />
     </div>
     <McConfirmHost />
   </el-config-provider>
