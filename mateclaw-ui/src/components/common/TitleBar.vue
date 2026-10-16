@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useMateClaw } from '@/composables/useMateClaw'
 import { useI18n } from 'vue-i18n'
 
@@ -7,42 +7,98 @@ const { api } = useMateClaw()
 const { t } = useI18n()
 
 const showHelpMenu = ref(false)
+const highlightedHelpIndex = ref(-1)
+const helpMenuRef = ref<HTMLElement | null>(null)
 
 const helpMenuItems = [
-  { label: '关于 GLClaw', action: 'about' as const },
-  { label: '检查更新...', action: 'checkUpdates' as const },
-  { type: 'separator' as const },
-  { label: 'GitHub 仓库', action: 'github' as const },
-  { label: '反馈问题', action: 'reportIssue' as const },
+  { label: '查看更新日志', action: 'versionHistory' as const },
+  { label: '关于', action: 'about' as const },
+  // { type: 'separator' as const },
 ]
 
-function handleHelpAction(item: typeof helpMenuItems[number]) {
+function closeHelpMenu() {
   showHelpMenu.value = false
-  if (!api || item.type === 'separator') return
+  highlightedHelpIndex.value = -1
+}
+
+function handleHelpAction(item: typeof helpMenuItems[number]) {
+  closeHelpMenu()
+  // if (!api || item.type === 'separator') return
+  if (!api) return
 
   switch (item.action) {
     case 'about':
       api.showAbout()
       break
-    case 'checkUpdates':
-      api.checkUpdates()
-      break
-    case 'github':
-      api.openGitHub()
-      break
-    case 'reportIssue':
-      api.reportIssue()
+    case 'versionHistory':
+      api.showVersionHistory()
       break
   }
 }
 
 function toggleHelpMenu() {
   showHelpMenu.value = !showHelpMenu.value
+  highlightedHelpIndex.value = -1
 }
 
 function handleBlur() {
-  setTimeout(() => { showHelpMenu.value = false }, 150)
+  setTimeout(() => { closeHelpMenu() }, 150)
 }
+
+function handleKeydown(e: KeyboardEvent) {
+  if (e.altKey && e.key.toLowerCase() === 'h') {
+    e.preventDefault()
+    if (showHelpMenu.value) {
+      closeHelpMenu()
+    } else {
+      showHelpMenu.value = true
+      highlightedHelpIndex.value = 0
+    }
+    return
+  }
+
+  if (!showHelpMenu.value) return
+
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    closeHelpMenu()
+    return
+  }
+
+  if (e.key === 'Enter' && highlightedHelpIndex.value >= 0) {
+    e.preventDefault()
+    handleHelpAction(helpMenuItems[highlightedHelpIndex.value])
+    return
+  }
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    highlightedHelpIndex.value = (highlightedHelpIndex.value + 1) % helpMenuItems.length
+    return
+  }
+
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    highlightedHelpIndex.value = (highlightedHelpIndex.value - 1 + helpMenuItems.length) % helpMenuItems.length
+    return
+  }
+}
+
+function handleClickOutside(e: MouseEvent) {
+  if (helpMenuRef.value && !helpMenuRef.value.contains(e.target as Node)) {
+    closeHelpMenu()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('click', handleClickOutside)
+})
 </script>
 
 <template>
@@ -52,22 +108,22 @@ function handleBlur() {
       <span class="app-title">{{ t('app.title') }}</span>
     </div>
     <div class="title-bar-right">
-      <div class="help-menu-container">
+      <div ref="helpMenuRef" class="help-menu-container">
         <button
           class="title-bar-btn help-btn"
+          :class="{ 'title-bar-btn--active': showHelpMenu }"
           @click.stop="toggleHelpMenu"
           @blur="handleBlur"
           title="帮助"
         >
-          <span>帮助</span>
+          <span>帮助(H)</span>
         </button>
         <Transition name="menu-fade">
           <div v-if="showHelpMenu" class="help-dropdown">
             <template v-for="(item, idx) in helpMenuItems" :key="idx">
-              <div v-if="item.type === 'separator'" class="dropdown-separator" />
               <button
-                v-else
                 class="dropdown-item"
+                :class="{ 'dropdown-item--highlighted': idx === highlightedHelpIndex }"
                 @click.stop="handleHelpAction(item)"
               >
                 {{ item.label }}
@@ -120,7 +176,6 @@ function handleBlur() {
 .title-bar-right {
   display: flex;
   align-items: center;
-  -webkit-app-region: no-drag;
   padding: 0 138px 0 8px;
 }
 
@@ -138,7 +193,8 @@ function handleBlur() {
   transition: background 0.15s;
 }
 
-.title-bar-btn:hover {
+.title-bar-btn:hover,
+.title-bar-btn--active {
   background: var(--mc-sidebar-hover, rgba(0, 0, 0, 0.08));
 }
 
@@ -149,7 +205,7 @@ function handleBlur() {
 .help-dropdown {
   position: absolute;
   top: 100%;
-  right: 0;
+  left: 0;
   margin-top: 4px;
   min-width: 160px;
   background: var(--mc-panel-top, #fff);
@@ -173,7 +229,8 @@ function handleBlur() {
   transition: background 0.1s;
 }
 
-.dropdown-item:hover {
+.dropdown-item:hover,
+.dropdown-item--highlighted {
   background: var(--mc-sidebar-hover, #f0f0f0);
 }
 

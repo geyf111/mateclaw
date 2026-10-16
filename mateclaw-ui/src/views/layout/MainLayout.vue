@@ -120,7 +120,7 @@
             </div>
           </div> -->
 
-          <el-dropdown trigger="hover" placement="top" :hide-after="200" popper-class="user-menu-popover">
+          <el-dropdown trigger="click" placement="top" :hide-after="200" popper-class="user-menu-popover">
             <div class="user-info user-info--hoverable">
               <div class="user-avatar">{{ userInitial }}</div>
               <div class="user-detail">

@@ -27,12 +27,8 @@ export interface MateClawAPI {
   platform: NodeJS.Platform,
   /** 显示关于对话框 */
   showAbout: () => void
-  /** 检查更新（菜单触发） */
-  checkUpdates: () => void
-  /** 打开 GitHub 仓库 */
-  openGitHub: () => void
-  /** 反馈问题 */
-  reportIssue: () => void
+  /** 跳转更新日志页面 */
+  showVersionHistory: () => void
 }
 
 declare global {
