@@ -1020,7 +1020,8 @@ export default {
       skip: '从空白开始',
       applied: '员工已上岗',
     },
-    search: '搜索员工...',
+    search: '搜索助手...',
+    searchGroup: '搜索助手团...',
     tabs: {
       all: '全部',
       react: 'ReAct',

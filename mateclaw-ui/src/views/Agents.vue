@@ -33,7 +33,7 @@
                 >{{ liveRunning }}</span>
               </button>
             </div> -->
-            <button class="btn-primary" @click="openCreateModal">
+            <button v-if="currentTab === 'agents'" class="btn-primary" @click="openCreateModal">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
@@ -43,100 +43,213 @@
           </div>
         </div>
 
-        <!-- Roster: the team -->
-        <template v-if="view === 'roster'">
-        <div class="agents-toolbar mc-surface-card">
-          <div class="filter-bar">
-            <div class="search-box">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              <input v-model="searchText" :placeholder="t('agents.search')" class="search-input" />
-            </div>
-            <div class="filter-tabs">
-              <button v-for="tab in filterTabs" :key="tab.value" class="filter-tab"
-                :class="{ active: activeFilter === tab.value }" @click="activeFilter = tab.value">
-                {{ t(tab.key) }}
-              </button>
-            </div>
-          </div>
+        <div class="agents-tab-bar">
+          <button class="agents-tab" :class="{ active: currentTab === 'agents' }" @click="currentTab = 'agents'">助手</button>
+          <button class="agents-tab" :class="{ active: currentTab === 'groups' }" @click="currentTab = 'groups'">助手团</button>
         </div>
 
-        <!-- Agent card grid -->
-        <div class="agent-grid" v-if="filteredAgents.length > 0">
-          <div
-            v-for="agent in filteredAgents"
-            :key="agent.id"
-            class="agent-card mc-surface-card"
-            :class="{ 'agent-card--disabled': !agent.enabled }"
-          >
-            <!--
-              Employee-card layout: avatar, name, one-line tagline, primary
-              chat action, and a hover-revealed overflow row. Anything that
-              isn't identity-or-action lives behind the overflow row to keep
-              the card readable at a glance.
-            -->
-            <div class="agent-card__top">
-              <span
-                class="agent-card__avatar"
-                :class="{ 'agent-card__avatar--off': !agent.enabled }"
-                :style="{ color: agentIconColor(agent.icon) }"
+        <template v-if="currentTab === 'agents'">
+          <!-- Roster: the team -->
+          <template v-if="view === 'roster'">
+            <div class="agents-toolbar mc-surface-card">
+              <div class="filter-bar">
+                <div class="search-box">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  </svg>
+                  <input v-model="searchText" :placeholder="t('agents.search')" class="search-input" />
+                </div>
+                <div class="filter-tabs">
+                  <button v-for="tab in filterTabs" :key="tab.value" class="filter-tab"
+                    :class="{ active: activeFilter === tab.value }" @click="activeFilter = tab.value">
+                    {{ t(tab.key) }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Agent card grid -->
+            <div class="agent-grid" v-if="filteredAgents.length > 0">
+              <div
+                v-for="agent in filteredAgents"
+                :key="agent.id"
+                class="agent-card mc-surface-card"
+                :class="{ 'agent-card--disabled': !agent.enabled }"
               >
-                <SkillIcon :value="agent.icon" :size="40" :fallback="'🧑‍💼'" />
-              </span>
-              <div class="agent-card__identity">
-                <h3 class="agent-card__name">{{ agent.name }}</h3>
-                <p class="agent-card__tagline">
-                  {{ agentTagline(agent) || t('agents.messages.noTagline') }}
-                </p>
+                <!--
+                  Employee-card layout: avatar, name, one-line tagline, primary
+                  chat action, and a hover-revealed overflow row. Anything that
+                  isn't identity-or-action lives behind the overflow row to keep
+                  the card readable at a glance.
+                -->
+                <div class="agent-card__top">
+                  <span
+                    class="agent-card__avatar"
+                    :class="{ 'agent-card__avatar--off': !agent.enabled }"
+                    :style="{ color: agentIconColor(agent.icon) }"
+                  >
+                    <SkillIcon :value="agent.icon" :size="40" :fallback="'🧑‍💼'" />
+                  </span>
+                  <div class="agent-card__identity">
+                    <h3 class="agent-card__name">{{ agent.name }}</h3>
+                    <p class="agent-card__tagline">
+                      {{ agentTagline(agent) || t('agents.messages.noTagline') }}
+                    </p>
+                  </div>
+                </div>
+
+                <div class="agent-card__action-row">
+                  <button class="agent-card__primary" @click="goToChat(agent)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    {{ t('agents.actions.chat') }}
+                  </button>
+                  <div class="agent-card__overflow">
+                    <label class="toggle-switch toggle-switch--sm" :title="t('agents.fields.enabled')">
+                      <input type="checkbox" :checked="agent.enabled" @change="toggleAgent(agent)" />
+                      <span class="toggle-slider"></span>
+                    </label>
+                    <!-- <button class="action-btn" :title="t('agents.tabs.context')" @click="goToAgentContextFor(agent)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                      </svg>
+                    </button> -->
+                    <button class="action-btn" :title="t('agents.actions.edit')" @click="openEditModal(agent)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                      </svg>
+                    </button>
+                    <button class="action-btn danger" :title="t('agents.actions.delete')" @click="deleteAgent(agent)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div class="agent-card__action-row">
-              <button class="agent-card__primary" @click="goToChat(agent)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-                {{ t('agents.actions.chat') }}
-              </button>
-              <div class="agent-card__overflow">
-                <label class="toggle-switch toggle-switch--sm" :title="t('agents.fields.enabled')">
-                  <input type="checkbox" :checked="agent.enabled" @change="toggleAgent(agent)" />
-                  <span class="toggle-slider"></span>
-                </label>
-                <!-- <button class="action-btn" :title="t('agents.tabs.context')" @click="goToAgentContextFor(agent)">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-                  </svg>
-                </button> -->
-                <button class="action-btn" :title="t('agents.actions.edit')" @click="openEditModal(agent)">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                  </svg>
-                </button>
-                <button class="action-btn danger" :title="t('agents.actions.delete')" @click="deleteAgent(agent)">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-                  </svg>
-                </button>
-              </div>
+            <!-- Empty state -->
+            <div v-else class="empty-state mc-surface-card">
+              <div class="empty-icon">🤖</div>
+              <h3>{{ t('agents.emptyTitle') }}</h3>
+              <p>{{ t('agents.emptyDesc') }}</p>
+              <button class="btn-primary" @click="openCreateModal">{{ t('agents.newAgent') }}</button>
             </div>
-          </div>
-        </div>
+          </template>
 
-        <!-- Empty state -->
-        <div v-else class="empty-state mc-surface-card">
-          <div class="empty-icon">🤖</div>
-          <h3>{{ t('agents.emptyTitle') }}</h3>
-          <p>{{ t('agents.emptyDesc') }}</p>
-          <button class="btn-primary" @click="openCreateModal">{{ t('agents.newAgent') }}</button>
-        </div>
+          <!-- Live: what the team is doing right now -->
+          <LivePanel v-else />
         </template>
 
-        <!-- Live: what the team is doing right now -->
-        <LivePanel v-else />
+        <template v-if="currentTab === 'groups'">
+          <div class="agents-toolbar mc-surface-card">
+            <div class="filter-bar">
+              <div class="search-box">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input v-model="groupSearchText" :placeholder="t('agents.searchGroup')" class="search-input" />
+              </div>
+            </div>
+          </div>
+
+          <div class="agent-grid" v-if="filteredGroups.length > 0">
+            <div v-for="group in filteredGroups" :key="group.id" class="agent-card mc-surface-card">
+              <div class="agent-card__top">
+                <span
+                  class="agent-card__avatar"
+                  :style="{ color: agentIconColor('') }"
+                >
+                  <SkillIcon :value="''" :size="40" :fallback="'👥'" />
+                </span>
+                <div class="agent-card__identity">
+                  <h3 class="agent-card__name">{{ group.name }}</h3>
+                  <p class="agent-card__tagline">{{ group.description }}</p>
+                </div>
+              </div>
+              <div class="agent-card__action-row">
+                <button class="agent-card__primary" @click="goToGroupChat(group)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  {{ t('agents.actions.chat') }}
+                </button>
+                <button class="agent-card__primary" title="详情" @click="openGroupDetail(group)">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  </svg>
+                  详情
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="empty-state mc-surface-card">
+            <div class="empty-icon">👥</div>
+            <h3>暂无助手团</h3>
+          </div>
+        </template>
+
+        <div v-if="showGroupDetail && detailGroup" class="modal-overlay" @click.self="closeGroupDetail">
+          <div class="modal group-detail-modal">
+            <div class="modal-header">
+              <h2>{{ detailGroup.name }}</h2>
+              <button class="modal-close" @click="closeGroupDetail">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <div class="group-detail-header">
+                <span class="group-detail-avatar" :style="{ color: agentIconColor('') }">
+                  <SkillIcon :value="''" :size="48" :fallback="'👥'" />
+                </span>
+                <div class="group-detail-meta">
+                  <p class="group-detail-desc">{{ detailGroup.description }}</p>
+                  <div v-if="detailGroup.tags" class="group-detail-tags">
+                    <span v-for="tag in detailGroup.tags.split(',').filter(Boolean)" :key="tag" class="tag-chip">{{ tag.trim() }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="group-detail-section">
+                <h4 class="group-detail-section-title">提示词</h4>
+                <div v-for="(prompt, pIdx) in detailGroup.prompts" :key="pIdx" class="group-detail-prompt-item">
+                  <p class="group-detail-prompt">{{ prompt }}</p>
+                  <button
+                    class="group-detail-chat-btn"
+                    type="button"
+                    title="开始对话"
+                    aria-label="开始对话"
+                    @click="closeGroupDetail(); goToGroupChat(detailGroup)"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="group-detail-section">
+                <h4 class="group-detail-section-title">团队成员（{{ detailGroup.members.length }}）</h4>
+                <div class="group-detail-members">
+                  <div v-for="(member, idx) in detailGroup.members" :key="idx" class="group-detail-member">
+                    <span class="group-detail-member-avatar">{{ member.avatar }}</span>
+                    <div class="group-detail-member-info">
+                      <span class="group-detail-member-name">{{ member.position }}</span>
+                      <span class="group-detail-member-role" :class="{ 'role-lead': member.role === '主理人' }">{{ member.role }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -612,6 +725,168 @@ const { resolveSkillName } = useSkillName()
 const agents = ref<Agent[]>([])
 const searchText = ref('')
 const activeFilter = ref('all')
+
+const currentTab = ref<'agents' | 'groups'>('agents')
+
+interface AgentGroup {
+  id: number
+  name: string
+  description: string
+  tags: string
+  prompts: string[]
+  members: { avatar: string; position: string; role: '主理人' | '成员' }[]
+}
+const agentGroups = ref<AgentGroup[]>([
+  { id: 1,
+    name: '客服团队',
+    description: '处理用户咨询、投诉与反馈的专业客服助手团',
+    tags: '客服,售后,投诉',
+    prompts: [
+      '你是一个专业的客服团队成员，负责处理用户咨询、投诉与反馈。请始终保持礼貌、耐心和专业。',
+      '在处理投诉时，先安抚用户情绪，再分析问题原因，最后给出解决方案。'
+    ],
+    members: [
+      {
+        avatar: '👩‍💼',
+        position: '客服主管',
+        role: '主理人'
+      },
+      { avatar: '👨‍💻',
+        position: '高级客服',
+        role: '成员'
+      },
+      { avatar: '👩‍🎓',
+        position: '投诉专员',
+        role: '成员'
+      },
+      { avatar: '👨‍🔧',
+        position: '售后顾问',
+        role: '成员'
+      },
+      {
+        avatar: '👩',
+        position: '质检员',
+        role: '成员'
+      }
+    ]
+  },
+  { id: 2,
+    name: '开发协作组',
+    description: '代码审查、架构讨论与技术方案评估',
+    tags: '开发,架构,Code Review',
+    prompts: ['你是一个开发协作组成员，负责代码审查、架构讨论与技术方案评估。请基于最佳实践给出专业建议。'],
+    members: [
+      {
+        avatar: '🧑‍💻',
+        position: '架构师',
+        role: '主理人'
+      },
+      { avatar: '👨‍💻',
+        position: '高级开发',
+        role: '成员'
+      },
+      { avatar: '👩‍💻',
+        position: '代码审查员',
+        role: '成员'
+      }
+    ]
+  },
+  { id: 3,
+    name: '内容创作组',
+    description: '文案撰写、翻译与多媒体内容生成',
+    tags: '文案,翻译,内容',
+    prompts: [
+      '你是一个内容创作组成员，负责文案撰写、翻译与多媒体内容生成。请确保内容准确、生动且符合品牌调性。',
+      '翻译时注意文化差异，确保译文自然流畅。',
+      '多媒体内容需符合平台规范，注意版权问题。'
+    ],
+    members: [
+      {
+        avatar: '✍️',
+        position: '主编',
+        role: '主理人'
+      },
+      {
+        avatar: '🌐',
+        position: '翻译专家',
+        role: '成员'
+      },
+      {
+        avatar: '🎨',
+        position: '多媒体编辑',
+        role: '成员'
+      },
+      {
+        avatar: '📈',
+        position: 'SEO优化师',
+        role: '成员'
+      }
+    ]
+  },
+  { id: 4,
+    name: '数据分析组',
+    description: '报表生成、数据清洗与商业洞察输出', tags: '数据,分析,报表',
+    prompts: [
+      '你是一个数据分析组成员，负责报表生成、数据清洗与商业洞察输出。请确保分析结果准确、可视化清晰。'
+    ],
+    members: [
+      {
+        avatar: '📊',
+        position: '数据总监',
+        role: '主理人'
+      },
+      { avatar: '📉',
+        position: 'BI工程师',
+        role: '成员'
+      },
+      { avatar: '🔄', position: 'ETL专员', role: '成员' }
+    ]
+  },
+  { id: 5,
+    name: '测试小组',
+    description: '自动化测试用例编写与回归测试执行', tags: '测试,自动化,QA',
+    prompts: [
+      '你是一个测试小组成员，负责自动化测试用例编写与回归测试执行。请确保测试覆盖率达标，及时反馈缺陷。',
+      '优先覆盖核心业务流程，边缘场景可适当降低优先级。'
+    ],
+    members: [
+      {
+        avatar: '🧪',
+        position: '测试主管',
+        role: '主理人'
+      },
+      { avatar: '🤖', position: '自动化测试工程师', role: '成员' }
+    ]
+  },
+])
+
+const groupSearchText = ref('')
+
+const filteredGroups = computed(() => {
+  if (!groupSearchText.value) return agentGroups.value
+  const q = groupSearchText.value.toLowerCase()
+  return agentGroups.value.filter(g =>
+    g.name.toLowerCase().includes(q) ||
+    g.description.toLowerCase().includes(q)
+  )
+})
+
+function goToGroupChat(group: AgentGroup) {
+  mcToast.info(`进入「${group.name}」群聊功能开发中`)
+}
+
+const showGroupDetail = ref(false)
+const detailGroup = ref<AgentGroup | null>(null)
+
+function openGroupDetail(group: AgentGroup) {
+  detailGroup.value = group
+  showGroupDetail.value = true
+}
+
+function closeGroupDetail() {
+  showGroupDetail.value = false
+  detailGroup.value = null
+}
 const showModal = ref(false)
 const editingAgent = ref<Agent | null>(null)
 const modalTab = ref<'basic' | 'skills' | 'knowledge' | 'mcp' | 'tools' | 'providers'>('basic')
@@ -1268,6 +1543,95 @@ html.dark .seg-count.warn {
 .btn-primary:disabled { background: var(--mc-border); cursor: not-allowed; }
 .btn-secondary { padding: 8px 16px; background: var(--mc-bg-elevated); color: var(--mc-text-primary); border: 1px solid var(--mc-border); border-radius: 12px; font-size: 14px; cursor: pointer; }
 .btn-secondary:hover { background: var(--mc-bg-sunken); }
+
+.agents-tab-bar {
+  display: flex; gap: 4px; padding: 4px;
+  background: var(--mc-bg-sunken);
+  border: 1px solid var(--mc-border-light);
+  border-radius: 12px; margin-bottom: 18px;
+  width: fit-content;
+}
+.agents-tab {
+  padding: 8px 24px; border: none; background: transparent;
+  border-radius: 10px; font-size: 14px; font-weight: 500;
+  font-family: inherit; color: var(--mc-text-secondary);
+  cursor: pointer; transition: all 0.2s ease;
+}
+.agents-tab:hover { color: var(--mc-text-primary); }
+.agents-tab.active {
+  background: var(--mc-bg-elevated); color: var(--mc-text-primary);
+  font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.group-detail-modal { max-width: 560px; }
+.group-detail-header {
+  display: flex; gap: 16px; align-items: flex-start;
+  margin-bottom: 20px; padding-bottom: 20px;
+  border-bottom: 1px solid var(--mc-border-light);
+}
+.group-detail-avatar {
+  width: 72px; height: 72px; display: flex; align-items: center;
+  justify-content: center; background: var(--mc-primary-bg);
+  border-radius: 18px; flex-shrink: 0; font-size: 40px;
+}
+.group-detail-meta { flex: 1; min-width: 0; }
+.group-detail-desc { font-size: 14px; color: var(--mc-text-secondary); margin: 0 0 10px; line-height: 1.6; }
+.group-detail-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.group-detail-section { margin-bottom: 20px; }
+.group-detail-section-title {
+  font-size: 13px; font-weight: 600; color: var(--mc-text-primary);
+  margin: 0 0 10px;
+}
+.group-detail-prompt-item {
+  display: flex; align-items: stretch;
+  overflow: hidden;
+  background: var(--mc-bg-muted);
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+.group-detail-prompt-item:last-child { margin-bottom: 0; }
+.group-detail-prompt {
+  flex: 1; min-width: 0;
+  padding: 10px 16px;
+  font-size: 14px; color: var(--mc-text-secondary); line-height: 1.45;
+  margin: 0; white-space: pre-wrap;
+}
+.group-detail-chat-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; padding: 0; border: 0;
+  background: color-mix(in srgb, var(--mc-bg-elevated) 45%, transparent);
+  color: var(--mc-text-secondary); cursor: pointer; transition: all 0.15s;
+  flex-shrink: 0;
+}
+.group-detail-chat-btn:hover {
+  color: var(--mc-primary); background: var(--mc-primary-bg);
+}
+.group-detail-chat-btn:focus-visible { outline: 2px solid var(--mc-primary); outline-offset: -2px; }
+.group-detail-members {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.group-detail-member {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; background: var(--mc-bg-muted);
+  border-radius: 8px; border: 1px solid var(--mc-border-light);
+}
+.group-detail-member-avatar { font-size: 22px; flex-shrink: 0; }
+.group-detail-member-info {
+  min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+}
+.group-detail-member-name {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; color: var(--mc-text-primary); font-weight: 500;
+}
+.group-detail-member-role {
+  font-size: 11px; border-radius: 999px;
+  background: var(--mc-bg-sunken); color: var(--mc-text-tertiary);
+}
+.group-detail-member-role.role-lead {
+  background: var(--mc-primary-bg); color: var(--mc-primary);
+  font-weight: 600;
+}
 
 .agents-toolbar { padding: 18px; margin-bottom: 18px; }
 .filter-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }

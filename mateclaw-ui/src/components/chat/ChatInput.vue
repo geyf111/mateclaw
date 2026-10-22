@@ -184,9 +184,12 @@
     <!-- 底部信息 -->
     <div class="input-footer">
       <span class="input-hint">{{ hint }}</span>
-      <span v-if="maxLength" class="input-length">
-        {{ inputValue.length }}/{{ maxLength }}
-      </span>
+      <div class="input-footer-right">
+        <ContextUsagePopover :context-usage="contextUsage" />
+        <span v-if="maxLength" class="input-length">
+          {{ inputValue.length }}/{{ maxLength }}
+        </span>
+      </div>
     </div>
 
     <!-- 隐藏的文件输入 -->
@@ -207,6 +210,7 @@ import { useI18n } from 'vue-i18n'
 import { CloseBold, MagicStick, Microphone, Paperclip, Promotion, Select, Timer, WarningFilled } from '@element-plus/icons-vue'
 import { useToolLabel } from '@/composables/useToolLabel'
 import type { ChatAttachment, PendingApprovalMeta, StreamPhase, QueuedMessage } from '@/types'
+import ContextUsagePopover, { type ContextUsageData } from './ContextUsagePopover.vue'
 
 interface Props {
   /** 输入值 */
@@ -246,6 +250,8 @@ interface Props {
    * 不响应点击，tooltip 提示当前模型不支持深度思考。默认 true 以保持向后兼容。
    */
   thinkingSupported?: boolean
+  /** 上下文用量数据：各分类 token 数及最大上下文窗口 */
+  contextUsage?: ContextUsageData | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -265,6 +271,7 @@ const props = withDefaults(defineProps<Props>(), {
   enableTalkMode: false,
   thinkingEnabled: false,
   thinkingSupported: true,
+  contextUsage: null,
 })
 
 const emit = defineEmits<{
@@ -662,6 +669,12 @@ defineExpose({
 .input-hint {
   font-size: 12px;
   color: var(--mc-text-tertiary, #94a3b8);
+}
+
+.input-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .input-length {

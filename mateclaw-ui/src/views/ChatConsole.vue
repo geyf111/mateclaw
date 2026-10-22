@@ -242,6 +242,7 @@
             :enable-talk-mode="!!selectedAgentId"
             :thinking-enabled="thinkingEnabled"
             :thinking-supported="currentModelSupportsThinking"
+            :context-usage="contextUsage"
             @toggle-thinking="thinkingEnabled = !thinkingEnabled"
             @talk="showTalkMode = true"
           />
@@ -298,6 +299,7 @@ import ConversationSidebar from '@/components/chat/ConversationSidebar.vue'
 import DropdownMenu, { type DropdownMenuItem } from '@/components/common/DropdownMenu.vue'
 import { agentIconColor } from '@/utils/agentIconColor'
 import ChatInput from '@/components/chat/ChatInput.vue'
+import type { ContextUsageData } from '@/components/chat/ContextUsagePopover.vue'
 import MultimodalRoutingHint from '@/components/chat/MultimodalRoutingHint.vue'
 import StreamLoadingBar from '@/components/chat/StreamLoadingBar.vue'
 import TalkMode from '@/components/chat/TalkMode.vue'
@@ -563,6 +565,16 @@ async function collectFilesFromEntries(dirEntries: FileSystemDirectoryEntry[]): 
 
 const messageListRef = ref<InstanceType<typeof MessageList> | null>(null)
 const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null)
+
+// TODO: 临时假数据，后续接入后端真实上下文用量分类统计
+const contextUsage: ContextUsageData = {
+  systemPrompt: 12082,
+  toolResults: 3500,
+  conversationHistory: 80000,
+  knowledgeRetrieval: 2000,
+  mcpAndSkills: 1500,
+  maxTokens: 192000,
+}
 
 // Post-render augmentations (ECharts, KaTeX, Mermaid) all watch the same
 // MessageList container — placeholders emitted by useMarkdownRenderer get
