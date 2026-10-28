@@ -239,12 +239,11 @@
             @attachment-remove="removeAttachment"
             @approve="handleApprove"
             @deny="handleDeny"
-            :enable-talk-mode="!!selectedAgentId"
+            :enable-voice-input="!!selectedAgentId"
             :thinking-enabled="thinkingEnabled"
             :thinking-supported="currentModelSupportsThinking"
             :context-usage="contextUsage"
             @toggle-thinking="thinkingEnabled = !thinkingEnabled"
-            @talk="showTalkMode = true"
           />
         </div>
 

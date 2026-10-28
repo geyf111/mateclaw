@@ -112,7 +112,7 @@
         v-model="inputValue"
         class="chat-textarea"
         :placeholder="inputPlaceholder"
-        :disabled="disabled"
+        :disabled="disabled || isVoiceRecording"
         :maxlength="maxLength"
         rows="1"
         @keydown.enter.exact.prevent="handleEnter"
@@ -150,17 +150,19 @@
           <el-icon><MagicStick /></el-icon>
         </button>
 
-        <!-- Talk Mode 按钮 -->
-        <!-- <button
-          v-if="enableTalkMode"
+        <!-- 语音输入按钮（Vosk 离线识别） -->
+        <button
+          v-if="enableVoiceInput"
           type="button"
           class="action-btn talk-btn"
+          :class="{ active: isVoiceRecording, loading: isVoiceLoading }"
           :disabled="disabled || loading"
-          @click="emit('talk')"
-          :title="t('talk.title')"
+          :title="voiceButtonTitle"
+          @click="toggleVoiceInput"
         >
-          <el-icon><Microphone /></el-icon>
-        </button> -->
+          <span v-if="isVoiceLoading" class="voice-spinner"></span>
+          <el-icon v-else><Microphone /></el-icon>
+        </button>
 
         <!-- 发送/停止/中断按钮 -->
         <button
@@ -178,7 +180,7 @@
           <el-icon v-else><Promotion /></el-icon>
         </button>
       </div>
-    </div>
+      </div>
     </div>
 
     <!-- 底部信息 -->
@@ -209,6 +211,7 @@ import { ref, computed, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { CloseBold, MagicStick, Microphone, Paperclip, Promotion, Select, Timer, WarningFilled } from '@element-plus/icons-vue'
 import { useToolLabel } from '@/composables/useToolLabel'
+import { useVoskRecognition } from '@/composables/useVoskRecognition'
 import type { ChatAttachment, PendingApprovalMeta, StreamPhase, QueuedMessage } from '@/types'
 import ContextUsagePopover, { type ContextUsageData } from './ContextUsagePopover.vue'
 
@@ -241,8 +244,8 @@ interface Props {
   queuedMessage?: QueuedMessage | null
   /** 排队消息总数 */
   queueSize?: number
-  /** 是否启用 Talk Mode 按钮 */
-  enableTalkMode?: boolean
+  /** 是否启用语音输入按钮（Vosk 离线识别） */
+  enableVoiceInput?: boolean
   /** 深度思考开关状态 */
   thinkingEnabled?: boolean
   /**
@@ -268,7 +271,7 @@ const props = withDefaults(defineProps<Props>(), {
   streamPhase: 'idle',
   queuedMessage: null,
   queueSize: 0,
-  enableTalkMode: false,
+  enableVoiceInput: false,
   thinkingEnabled: false,
   thinkingSupported: true,
   contextUsage: null,
@@ -283,12 +286,43 @@ const emit = defineEmits<{
   'attachment-remove': [storedName: string]
   approve: [pendingId: string]
   deny: [pendingId: string]
-  talk: []
   'toggle-thinking': []
 }>()
 
 const { t } = useI18n()
 const { getToolLabel } = useToolLabel()
+
+let voiceBaseText = ''
+
+const vosk = useVoskRecognition({
+  onResult: (text, isFinal) => {
+    if (isFinal) {
+      // 最终结果：覆盖录音期间的临时文字
+      emit('update:modelValue', (voiceBaseText + ' ' + text).trim())
+    } else {
+      // 部分结果：实时写入输入框
+      emit('update:modelValue', (voiceBaseText + ' ' + text).trim())
+    }
+  },
+})
+
+const isVoiceRecording = computed(() => vosk.isRecording.value)
+const isVoiceLoading = computed(() => vosk.isLoading.value)
+
+const voiceButtonTitle = computed(() => {
+  if (vosk.isLoading.value) return t('talk.loadingModel') || '正在加载语音模型...'
+  if (vosk.isRecording.value) return t('talk.stopRecording') || '点击停止录音'
+  return t('talk.title')
+})
+
+function toggleVoiceInput() {
+  if (vosk.isRecording.value) {
+    vosk.stop()
+  } else {
+    voiceBaseText = (props.modelValue ?? '').trim()
+    vosk.start()
+  }
+}
 
 // 内部状态
 const containerRef = ref<HTMLElement | null>(null)
@@ -633,6 +667,35 @@ defineExpose({
 .talk-btn:hover:not(:disabled) {
   color: var(--mc-primary, #D97757);
   background: var(--mc-primary-light, rgba(217, 119, 87, 0.08));
+}
+
+.talk-btn.active {
+  background: var(--el-color-danger-light-9, #fef0f0);
+  color: var(--el-color-danger, #f56c6c);
+  animation: voice-pulse 1.5s infinite;
+}
+
+.talk-btn.loading {
+  cursor: wait;
+}
+
+@keyframes voice-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(245, 108, 108, 0); }
+}
+
+.voice-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--el-text-color-placeholder, #c0c4cc);
+  border-top-color: var(--el-color-primary, #409eff);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .send-btn {

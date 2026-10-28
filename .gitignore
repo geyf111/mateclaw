@@ -42,7 +42,6 @@ target/
 *.ear
 *.zip
 *.tar
-*.tar.gz
 
 ### logs ####
 /logs/

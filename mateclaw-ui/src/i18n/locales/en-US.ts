@@ -3485,6 +3485,8 @@ export default {
     connectionError: 'Connection error — tap the button to retry',
     playbackError: 'Audio playback failed',
     tooShort: 'Recording too short — hold the button while speaking',
+    loadingModel: 'Loading speech model...',
+    stopRecording: 'Click to stop recording',
   },
   browser: {
     timeline: {

@@ -3580,6 +3580,8 @@ export default {
     connectionError: '连接错误，点击按钮重试',
     playbackError: '音频播放失败',
     tooShort: '录音过短，请按住按钮多说几秒',
+    loadingModel: '正在加载语音模型...',
+    stopRecording: '点击停止录音',
   },
   browser: {
     timeline: {
