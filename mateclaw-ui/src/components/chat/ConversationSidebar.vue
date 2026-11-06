@@ -34,11 +34,14 @@
       <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
     </button>
 
+    <ProjectSwitcher :collapsed="collapsed" v-if="!isElectron" />
+
     <div class="agent-selector">
       <AgentPickerDialog
         block
         :model-value="selectedAgentId"
         :agents="agents"
+        :teams="teams"
         :compact="collapsed && !isMobile"
         :placeholder="t('chat.selectAgent')"
         @change="onAgentChange"
@@ -46,13 +49,28 @@
     </div>
 
     <div
-      v-if="(!collapsed || isMobile) && agentFilterOptions.length > 1"
+      v-if="(!collapsed || isMobile) && agentFilterOptions.length > 0"
       class="conv-filter"
     >
-      <select v-model="convAgentFilter" class="conv-filter-select">
-        <option value="">{{ t('chat.allAgents') }}</option>
-        <option v-for="opt in agentFilterOptions" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
-      </select>
+      <el-select
+        v-model="convAgentFilter"
+        class="conv-filter-select"
+        :placeholder="t('chat.allAgents')"
+        clearable
+      >
+        <el-option-group
+          v-for="group in agentFilterOptions"
+          :key="group.label"
+          :label="group.label"
+        >
+          <el-option
+            v-for="opt in group.options"
+            :key="opt.id"
+            :value="opt.id"
+            :label="opt.name"
+          />
+        </el-option-group>
+      </el-select>
     </div>
 
     <div class="conversation-list">
@@ -87,7 +105,10 @@
               />
             </label>
             <div class="conv-icon">
-              <img :src="channelIconUrl(conv.source)" width="14" height="14" alt="" />
+              <template v-if="convAgentIcon(conv)">
+                <SkillIcon :value="convAgentIcon(conv)" :size="18" fallback="🤖" />
+              </template>
+              <img v-else :src="channelIconUrl(conv.source)" width="14" height="14" alt="" />
               <span
                 v-if="conv.streamStatus === 'running'"
                 class="conv-running-dot"
@@ -194,11 +215,17 @@ import AgentPickerDialog from '@/components/common/AgentPickerDialog.vue'
 import DropdownMenu, { type DropdownMenuItem } from '@/components/common/DropdownMenu.vue'
 import McTooltip from '@/components/common/McTooltip.vue'
 import { conversationApi } from '@/api/index'
+import SkillIcon from '@/components/common/SkillIcon.vue'
+import { getDisplayIcon } from '@/composables/usePixelarticons'
 import { channelIconUrl } from '@/utils/channelSource'
 import { mcToast } from '@/composables/useMcToast'
 import { mcConfirm } from '@/components/common/useConfirm'
 import type { Conversation, Agent } from '@/types'
 import { useGoalStore } from '@/stores/useGoalStore'
+import ProjectSwitcher from '@/components/project/ProjectSwitcher.vue'
+import { useMateClaw } from '@/composables/useMateClaw'
+
+const { isElectron } = useMateClaw()
 
 const goalStore = useGoalStore()
 /** Sidebar marker: a 6 px dot next to the conv title when that conv
@@ -209,10 +236,35 @@ function convGoalStatus(cid: string): string | null {
   return g?.status ?? null
 }
 
+const agentMap = computed(() => {
+  const map = new Map<string, Agent>()
+  for (const a of props.agents) {
+    if (a.id != null) map.set(String(a.id), a)
+  }
+  return map
+})
+
+const teamMap = computed(() => {
+  const map = new Map<string, any>()
+  for (const t of props.teams || []) {
+    if (t.id != null) map.set(String(t.id), t)
+  }
+  return map
+})
+
+function convAgentIcon(conv: Conversation): string {
+  const agent = agentMap.value.get(String(conv.agentId))
+  if (agent) return getDisplayIcon(agent)
+  const team = teamMap.value.get(String(conv.agentId))
+  if (team) return getDisplayIcon(team)
+  return ''
+}
+
 const props = defineProps<{
   conversations: Conversation[]
   currentConversationId: string
   agents: Agent[]
+  teams?: any[]
   selectedAgentId: string | number
   collapsed: boolean
   mobileOpen: boolean
@@ -241,13 +293,25 @@ const convAgentFilter = ref('')
 // Distinct agents present in the conversation list — drives the filter
 // dropdown. Hidden when fewer than two agents have conversations.
 const agentFilterOptions = computed(() => {
-  const seen = new Map<string, string>()
+  const agentList: { id: string; name: string }[] = []
+  const teamList: { id: string; name: string }[] = []
+  const seen = new Set<string>()
   for (const conv of props.conversations) {
     if (conv.agentId == null || conv.agentId === '') continue
     const id = String(conv.agentId)
-    if (!seen.has(id)) seen.set(id, conv.agentName || id)
+    if (seen.has(id)) continue
+    seen.add(id)
+    const entry = { id, name: conv.agentName || id }
+    if (teamMap.value.has(id)) {
+      teamList.push(entry)
+    } else {
+      agentList.push(entry)
+    }
   }
-  return [...seen.entries()].map(([id, name]) => ({ id, name }))
+  const groups: { label: string; options: { id: string; name: string }[] }[] = []
+  if (teamList.length > 0) groups.push({ label: t('chat.teamLabel'), options: teamList })
+  if (agentList.length > 0) groups.push({ label: t('chat.agentLabel'), options: agentList })
+  return groups
 })
 
 // ==================== Grouping ====================
@@ -614,17 +678,6 @@ function onMenuSelect(item: DropdownMenuItem) {
 .conv-filter-select {
   width: 100%;
   font-size: 12px;
-  color: var(--mc-text-secondary);
-  background: var(--mc-bg-elevated);
-  border: 1px solid var(--mc-border);
-  border-radius: 8px;
-  padding: 6px 8px;
-  cursor: pointer;
-  outline: none;
-}
-
-.conv-filter-select:focus {
-  border-color: var(--mc-primary);
 }
 
 .conversation-list {

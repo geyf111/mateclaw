@@ -3,6 +3,8 @@ import { ref, computed } from 'vue'
 import { projectApi } from '@/api/index'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import router from '@/router'
+import { useCredit } from '@/composables/useCredit'
+import { useMateClaw } from '@/composables/useMateClaw'
 export interface Project {
   id: string | number
   name: string
@@ -43,6 +45,7 @@ export const useProjectStore = defineStore('project', () => {
   async function switchProject(id: string | number) {
     if (String(id) === String(currentProjectId.value)) return
     await setCurrentProject(id)
+    useCredit().fetchCreditAccount()
   }
 
   async function setCurrentProject(id: string | number) {
@@ -53,7 +56,8 @@ export const useProjectStore = defineStore('project', () => {
       const workspaceId: string | null = res?.data?.workspaceId || res?.workspaceId || null
       if (workspaceId) {
         await useWorkspaceStore().switchWorkspace(workspaceId)
-        if (router.currentRoute.value.name !== 'Dashboard') {
+        const { isElectron } = useMateClaw()
+        if (isElectron && router.currentRoute.value.name !== 'Dashboard') {
           router.push({ name: 'Dashboard' })
         }
       }

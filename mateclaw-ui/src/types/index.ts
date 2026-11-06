@@ -42,7 +42,11 @@ export interface Agent {
   maxIterations: number
   enabled: boolean
   icon?: string
+  iconType?: string
+  customIcon?: string
   tags?: string
+  webSearchAllowed?: boolean
+  webSearchEnabled?: boolean
   createTime?: string
   updateTime?: string
 }
@@ -88,6 +92,8 @@ export interface Message {
   // Token 统计
   promptTokens?: number
   completionTokens?: number
+  // 积分消耗
+  creditCost?: number
   // Runtime model attribution (assistant messages): the model that actually produced this reply
   runtimeModel?: string
   runtimeProvider?: string
@@ -261,6 +267,50 @@ export interface MessageMetadata {
    * natively. The chat bubble renders a "primary 🔀 sidecar" badge from this.
    */
   routing?: RoutingMeta
+  /** 来源引用列表（done.sources 或历史消息 metadata.sources） */
+  sources?: SourceRef[]
+  /** 上下文用量快照（done.contextUsage 或历史消息 metadata.contextUsage） */
+  contextUsage?: ContextUsageData
+}
+
+/** 来源引用结构（对应 done.sources / metadata.sources） */
+export interface SourceRef {
+  id: number
+  index: number
+  type: 'web' | 'mcp' | 'knowledge'
+  title: string
+  url?: string | null
+  snippet?: string | null
+  source?: string | null
+  date?: string | null
+  mcpId?: string | null
+  mcpName?: string | null
+  toolName?: string | null
+  toolCallId?: string | null
+  fileName?: string | null
+  knowledgeId?: string | null
+  chunkId?: string | null
+}
+
+/** 上下文用量数据（对应 done.contextUsage / metadata.contextUsage） */
+export interface ContextUsageData {
+  contextWindow: number
+  totalTokens: number
+  usedTokens: number
+  ratio: number
+  hardLimit: number
+  compacted: boolean
+  source: string
+  components: {
+    systemPrompt: number
+    toolSchema: number
+    history: number
+    toolResults: number
+    compressedSummary?: number
+    currentUser?: number
+    knowledgeBase: number | null
+    other?: number
+  }
 }
 
 export interface RoutingMeta {
@@ -756,6 +806,8 @@ export interface ModelConfig {
   isDefault: boolean
   createTime?: string
   updateTime?: string
+  inputRate?: number
+  outputRate?: number
 }
 
 export interface SystemSettings {
@@ -809,6 +861,8 @@ export interface ProviderModelInfo {
    * toggle should gate on.
    */
   supportsThinking?: boolean
+  inputRate?: number
+  outputRate?: number
 }
 
 /**

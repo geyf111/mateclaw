@@ -8,7 +8,7 @@
       class="mc-agent-picker__trigger"
       :class="{
         'is-compact': compact,
-        'is-empty': !selectedAgent && !isUnknown,
+        'is-empty': !selectedEntity && !isUnknown,
         'is-unknown': isUnknown,
         'is-disabled': disabled,
       }"
@@ -18,15 +18,15 @@
     >
       <SkillIcon
         class="mc-agent-picker__trigger-icon"
-        :style="{ color: agentIconColor(selectedAgent?.icon) }"
-        :value="selectedAgent?.icon"
+        :style="{ color: agentIconColor(getDisplayIcon(selectedEntity)) }"
+        :value="getDisplayIcon(selectedEntity)"
         :size="compact ? 24 : 22"
-        fallback="🤖"
+        :fallback="selectedTeam ? '👥' : '🤖'"
       />
       <template v-if="!compact">
         <span class="mc-agent-picker__trigger-name">{{ triggerLabel }}</span>
         <span
-          v-if="clearable && (selectedAgent || isUnknown) && !disabled"
+          v-if="clearable && (selectedEntity || isUnknown) && !disabled"
           class="mc-agent-picker__clear"
           role="button"
           :aria-label="t('common.clear')"
@@ -52,7 +52,18 @@
         <div v-if="open" class="mc-agent-picker__overlay" @click.self="close">
           <div class="mc-agent-picker__panel" role="dialog" aria-modal="true">
             <div class="mc-agent-picker__head">
-              <h2 class="mc-agent-picker__title">{{ t('agentContext.selectAgent') }}</h2>
+              <div class="mc-agent-picker__tabs">
+                <button
+                  class="mc-agent-picker__tab"
+                  :class="{ active: activeTab === 'agents' }"
+                  @click="activeTab = 'agents'"
+                >{{ t('agentContext.selectAgentTab') }}</button>
+                <button
+                  class="mc-agent-picker__tab"
+                  :class="{ active: activeTab === 'teams' }"
+                  @click="activeTab = 'teams'"
+                >{{ t('agentContext.selectTeamTab') }}</button>
+              </div>
               <button class="mc-agent-picker__close" :aria-label="t('common.close')" @click="close">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="18" y1="6" x2="6" y2="18" />
@@ -79,7 +90,7 @@
               />
             </div>
 
-            <div class="mc-agent-picker__body">
+            <div v-if="activeTab === 'agents'" class="mc-agent-picker__body">
               <button
                 v-if="clearable && !query.trim()"
                 type="button"
@@ -107,12 +118,12 @@
                 type="button"
                 class="mc-agent-picker__item"
                 :class="{ active: isSelected(agent) }"
-                @click="select(agent)"
+                @click="selectAgent(agent)"
               >
                 <SkillIcon
                   class="mc-agent-picker__item-icon"
-                  :style="{ color: agentIconColor(agent.icon) }"
-                  :value="agent.icon"
+                  :style="{ color: agentIconColor(getDisplayIcon(agent)) }"
+                  :value="getDisplayIcon(agent)"
                   :size="28"
                   fallback="🤖"
                 />
@@ -134,6 +145,65 @@
                 {{ query.trim() ? t('common.noResults') : t('common.noOptions') }}
               </div>
             </div>
+
+            <div v-if="activeTab === 'teams'" class="mc-agent-picker__body">
+              <button
+                v-if="clearable && !query.trim()"
+                type="button"
+                class="mc-agent-picker__item mc-agent-picker__item--none"
+                :class="{ active: !selectedTeam && !isTeamUnknown }"
+                @click="clear"
+              >
+                <span class="mc-agent-picker__none-icon">∅</span>
+                <div class="mc-agent-picker__item-info">
+                  <span class="mc-agent-picker__item-name">{{ t('common.none') }}</span>
+                </div>
+                <svg
+                  v-if="!selectedTeam && !isTeamUnknown"
+                  class="mc-agent-picker__check"
+                  width="16" height="16" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2.5"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </button>
+
+              <button
+                v-for="team in filteredTeams"
+                :key="team.id"
+                type="button"
+                class="mc-agent-picker__item"
+                :class="{ active: isTeamSelected(team) }"
+                @click="selectTeam(team)"
+              >
+                <SkillIcon
+                  class="mc-agent-picker__item-icon"
+                  :style="{ color: agentIconColor(getDisplayIcon(team)) }"
+                  :value="getDisplayIcon(team)"
+                  :size="28"
+                  fallback="👥"
+                />
+                <div class="mc-agent-picker__item-info">
+                  <span class="mc-agent-picker__item-name">{{ team.name }}</span>
+                  <span v-if="team.description" class="mc-agent-picker__item-desc">{{ team.description }}</span>
+                  <div v-if="teamTags(team).length" class="mc-agent-picker__item-tags">
+                    <span v-for="tag in teamTags(team)" :key="tag" class="mc-agent-picker__item-tag">{{ tag }}</span>
+                  </div>
+                </div>
+                <svg
+                  v-if="isTeamSelected(team)"
+                  class="mc-agent-picker__check"
+                  width="16" height="16" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2.5"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </button>
+
+              <div v-if="filteredTeams.length === 0" class="mc-agent-picker__empty">
+                {{ query.trim() ? t('common.noResults') : t('common.noOptions') }}
+              </div>
+            </div>
           </div>
         </div>
       </Transition>
@@ -145,6 +215,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SkillIcon from '@/components/common/SkillIcon.vue'
+import { getDisplayIcon } from '@/composables/usePixelarticons'
 import { agentIconColor } from '@/utils/agentIconColor'
 
 /** Minimal structural shape so this picker works with the full `Agent`
@@ -153,9 +224,23 @@ export interface PickableAgent {
   id: string | number
   name: string
   icon?: string | null
+  iconType?: string | null
+  customIcon?: string | null
   description?: string
   agentType?: string
   title?: string
+}
+
+/** Minimal shape for a team / agent group option. */
+export interface PickableTeam {
+  id: string | number
+  name: string
+  icon?: string | null
+  iconType?: string | null
+  customIcon?: string | null
+  description?: string
+  leadName?: string
+  tags?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -163,6 +248,8 @@ const props = withDefaults(defineProps<{
   modelValue: string | number | null
   /** Agents to choose from. */
   agents: PickableAgent[]
+  /** Teams / agent groups to choose from. When provided, tabs appear in the dialog. */
+  teams?: PickableTeam[]
   /** Trigger label shown when no agent is selected. Defaults to agentContext.selectAgent. */
   placeholder?: string
   /** Render trigger in disabled state (no dialog). */
@@ -181,11 +268,12 @@ const props = withDefaults(defineProps<{
   compact: false,
   block: false,
   clearable: false,
+  teams: () => [],
 })
 
 const emit = defineEmits<{
   'update:modelValue': [value: string | number | null]
-  change: [value: string | number | null, agent: PickableAgent | null]
+  change: [value: string | number | null, agent: PickableAgent | PickableTeam | null]
 }>()
 
 const { t } = useI18n()
@@ -193,6 +281,7 @@ const { t } = useI18n()
 const open = ref(false)
 const query = ref('')
 const searchRef = ref<HTMLInputElement | null>(null)
+const activeTab = ref<'agents' | 'teams'>('agents')
 
 const hasValue = computed(() =>
   props.modelValue !== '' && props.modelValue !== null && props.modelValue !== undefined,
@@ -203,18 +292,35 @@ const selectedAgent = computed<PickableAgent | null>(() => {
   return props.agents.find(a => String(a.id) === String(props.modelValue)) || null
 })
 
+const selectedTeam = computed<PickableTeam | null>(() => {
+  if (!hasValue.value) return null
+  return props.teams.find(t => String(t.id) === String(props.modelValue)) || null
+})
+
 /** modelValue is set but resolves to no known agent — the referenced
  *  employee was likely renamed or removed. */
-const isUnknown = computed(() => hasValue.value && !selectedAgent.value)
+const isUnknown = computed(() => hasValue.value && !selectedAgent.value && !selectedTeam.value)
+
+const isTeamUnknown = computed(() => hasValue.value && activeTab.value === 'teams' && !selectedTeam.value)
+
+/** Resolve the currently selected entity for the trigger display, checking
+ *  both agents and teams. */
+const selectedEntity = computed<PickableAgent | PickableTeam | null>(() => {
+  if (!hasValue.value) return null
+  return selectedTeam.value || selectedAgent.value
+})
 
 const triggerLabel = computed(() => {
-  if (selectedAgent.value) return selectedAgent.value.name
+  if (selectedEntity.value) return selectedEntity.value.name
   if (isUnknown.value) return props.unknownLabel || String(props.modelValue)
   return props.placeholder || t('agentContext.selectAgent')
 })
 
 /** Show the search box once the list is long enough to warrant scanning. */
-const searchable = computed(() => props.agents.length > 6)
+const searchable = computed(() => {
+  if (activeTab.value === 'teams') return props.teams.length > 6
+  return props.agents.length > 6
+})
 
 const filteredAgents = computed<PickableAgent[]>(() => {
   const q = query.value.trim().toLowerCase()
@@ -224,16 +330,38 @@ const filteredAgents = computed<PickableAgent[]>(() => {
   )
 })
 
+const filteredTeams = computed<PickableTeam[]>(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return props.teams
+  return props.teams.filter(t =>
+    `${t.name} ${t.description || ''} ${t.leadName || ''}`.toLowerCase().includes(q),
+  )
+})
+
 function subtitle(agent: PickableAgent): string {
   return agent.description || agent.title || agent.agentType || ''
+}
+
+function teamTags(team: PickableTeam): string[] {
+  if (!team.tags) return []
+  return team.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
 }
 
 function isSelected(agent: PickableAgent): boolean {
   return String(agent.id) === String(props.modelValue)
 }
 
+function isTeamSelected(team: PickableTeam): boolean {
+  return String(team.id) === String(props.modelValue)
+}
+
 function openDialog() {
   if (props.disabled) return
+  if (selectedTeam.value) {
+    activeTab.value = 'teams'
+  } else {
+    activeTab.value = 'agents'
+  }
   open.value = true
 }
 
@@ -241,9 +369,15 @@ function close() {
   open.value = false
 }
 
-function select(agent: PickableAgent) {
+function selectAgent(agent: PickableAgent) {
   emit('update:modelValue', agent.id)
   emit('change', agent.id, agent)
+  close()
+}
+
+function selectTeam(team: PickableTeam) {
+  emit('update:modelValue', team.id)
+  emit('change', team.id, team)
   close()
 }
 
@@ -393,16 +527,9 @@ onBeforeUnmount(() => {
 .mc-agent-picker__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  padding: 16px 20px 12px;
+  padding: 12px 16px 0;
   border-bottom: 1px solid var(--mc-border-light);
-}
-.mc-agent-picker__title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--mc-text-primary);
 }
 .mc-agent-picker__close {
   display: flex;
@@ -417,8 +544,33 @@ onBeforeUnmount(() => {
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.18s ease, color 0.18s ease;
+  margin-bottom: 4px;
 }
 .mc-agent-picker__close:hover { background: var(--mc-bg-sunken); color: var(--mc-text-primary); }
+
+.mc-agent-picker__tabs {
+  display: flex;
+  gap: 0;
+  flex: 1;
+}
+.mc-agent-picker__tab {
+  flex: 1;
+  padding: 8px 0 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mc-text-tertiary);
+  cursor: pointer;
+  text-align: center;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.mc-agent-picker__tab:hover { color: var(--mc-text-primary); }
+.mc-agent-picker__tab.active {
+  color: var(--mc-primary);
+  border-bottom-color: var(--mc-primary);
+}
 
 .mc-agent-picker__search {
   display: flex;
@@ -500,6 +652,22 @@ onBeforeUnmount(() => {
   color: var(--mc-text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mc-agent-picker__item-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.mc-agent-picker__item-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--mc-primary);
+  background: color-mix(in srgb, var(--mc-primary) 12%, transparent);
+  border-radius: 4px;
   white-space: nowrap;
 }
 .mc-agent-picker__check { flex-shrink: 0; color: var(--mc-primary); }

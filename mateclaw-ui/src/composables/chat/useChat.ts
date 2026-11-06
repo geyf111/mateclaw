@@ -9,12 +9,13 @@
  * - Non-interruptible phases: message is queued and auto-resumed when the current step ends.
  * - During approval: message is queued, approval flow is not interrupted.
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useMessages } from './useMessages'
 import { useStream } from './useStream'
 import { useMessageQueue } from './useMessageQueue'
 import { useGoalStore } from '@/stores/useGoalStore'
-import type { Message, MessageContentPart, MessageSegment, StreamPhase, HeartbeatData, QueuedMessage, PhaseEventData, DelegationNode, DelegationToolEntry, PlanMeta } from '@/types'
+import type { ContextUsageData } from '@/components/chat/ContextUsagePopover.vue'
+import type { Message, MessageContentPart, MessageSegment, StreamPhase, HeartbeatData, QueuedMessage, PhaseEventData, DelegationNode, DelegationToolEntry, PlanMeta, SourceRef } from '@/types'
 import { classifyBackendError, type ChatErrorInfo } from '@/types/chatError'
 import { http } from '@/api'
 
@@ -110,6 +111,12 @@ export interface UseChatReturn {
    */
   compactStatus: import('vue').Ref<CompactStatusEvent | null>
   /**
+   * Context usage snapshot from the most recent turn's {@code done} event.
+   * Updated after each completed/stopped turn. {@code null} until the first
+   * turn finishes and on conversation reset.
+   */
+  contextUsage: import('vue').Ref<ContextUsageData | null>
+  /**
    * Fine-grained pre-token lifecycle stage. Drives the loading bar copy in the
    * window between "send pressed" and "first delta arrived". `null` once a
    * delta is observed (StreamLoadingBar then falls back to `phase`-derived text).
@@ -186,6 +193,12 @@ export function useChat(options: UseChatOptions): UseChatReturn {
    * immediately, so the user gets a chance to see the result.
    */
   const compactStatus = ref<CompactStatusEvent | null>(null)
+
+  /**
+   * Context usage snapshot updated from the {@code done} SSE event after each
+   * completed or stopped turn. Reset to {@code null} on conversation reset.
+   */
+  const contextUsage = ref<ContextUsageData | null>(null)
 
   /** All segments of the current assistant message (for segmented display) */
   const currentSegments = ref<MessageSegment[]>([])
@@ -368,6 +381,29 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       // Do not clear currentAssistantId here — the 'done' event handles cleanup
     },
   })
+
+  /**
+   * When messages change (history load / DB refresh after stream), extract
+   * contextUsage from the latest assistant message's metadata.
+   * This covers the case where the user navigates to a historical
+   * conversation without sending a new message.
+   */
+  watch(
+    () => messages.value,
+    () => {
+      for (let i = messages.value.length - 1; i >= 0; i--) {
+        const msg = messages.value[i]
+        if (msg.role === 'assistant') {
+          const metadata = parseMetadata((msg as any).metadata)
+          if (metadata?.contextUsage) {
+            contextUsage.value = metadata.contextUsage as ContextUsageData
+            return
+          }
+        }
+      }
+    },
+    { immediate: true }
+  )
 
   // Message queue
   const messageQueue = useMessageQueue()
@@ -623,6 +659,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         if (data.completionTokens !== undefined) msg.completionTokens = data.completionTokens
         if (data.runtimeModel) msg.runtimeModel = data.runtimeModel
         if (data.runtimeProvider) msg.runtimeProvider = data.runtimeProvider
+        if (data.creditCost !== undefined) msg.creditCost = data.creditCost
         // Replace the local temp ID with the backend-persisted ID so reconcile can match by ID
         if (data.assistantMessageId) {
           msg.id = data.assistantMessageId
@@ -642,6 +679,21 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             ;(msg as any).metadata = { ...(metadata || {}), segments: persistedSegments }
           }
         }
+
+        // Write sources & contextUsage into message metadata so history reloads carry them
+        const doneMetadata = parseMetadata((msg as any).metadata)
+        let metadataChanged = false
+        if (Array.isArray(data.sources) && data.sources.length > 0) {
+          doneMetadata.sources = data.sources as SourceRef[]
+          metadataChanged = true
+        }
+        if (data.contextUsage) {
+          doneMetadata.contextUsage = { ...data.contextUsage }
+          metadataChanged = true
+        }
+        if (metadataChanged) {
+          ;(msg as any).metadata = doneMetadata
+        }
         messages.value[msgIndex] = { ...msg }
       }
       currentAssistantId.value = null
@@ -653,6 +705,10 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       phaseInfo.value = null
       compactStatus.value = null
       lifecycleStage.value = null
+      // Capture context usage snapshot from the done event (backend-hosted estimate)
+      if (data.contextUsage) {
+        contextUsage.value = { ...data.contextUsage } as ContextUsageData
+      }
       expirePendingApprovals(data.status === 'stopped' ? 'stopped' : 'completed')
     }
 
@@ -735,6 +791,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     streamPhase.value = 'idle'
     phaseInfo.value = null
     compactStatus.value = null
+    contextUsage.value = null
     lifecycleStage.value = null
     // Clear queue on error to avoid stale state
     messageQueue.clear()
@@ -2093,6 +2150,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     streamPhase.value = 'idle'
     phaseInfo.value = null
     compactStatus.value = null
+    contextUsage.value = null
     lifecycleStage.value = null
     error.value = null
     messageQueue.clear()
@@ -2113,6 +2171,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     queueSize: messageQueue.queueSize,
     heartbeat,
     compactStatus,
+    contextUsage,
     lifecycleStage,
     sendMessage,
     stopGeneration,

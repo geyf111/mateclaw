@@ -3,8 +3,14 @@ import { handleAuthFailure, updateTokenFromHeader } from '@/utils/auth'
 import { canonicalFileUrl } from '@/utils/filePreview'
 
 // Axios 实例
+const isElectron = typeof window !== 'undefined' && window.mateClawAPI
+const isDev = import.meta.env.DEV
 export const http = axios.create({
-  baseURL: '/api/v1',
+  /** 
+   * 客户端或者开发环境，使用 /api/v1 基础 URL
+   ** bs生产环境，使用 /bsclaw/api/v1 基础 URL
+  */
+  baseURL: (isElectron || isDev) ? '/api/v1' : '/bsclaw/api/v1',
   timeout: 30000,
 })
 
@@ -172,6 +178,7 @@ export const authApi = {
   changePassword: (id: string | number, oldPassword: string, newPassword: string) =>
     http.put(`/auth/users/${id}/password`, null, { params: { oldPassword, newPassword } }),
   getCaptcha: () => http.get('/auth/captcha'),
+  noPassLogin: (data: { platformToken: string }) => http.post('/auth/platform-login', data),
 }
 
 // ==================== Agent ====================
@@ -195,6 +202,8 @@ export const agentApi = {
   getPresets: () => http.get('/agents/presets'),
   /** 创建平台配置的助手 */
   createPreset: (id: string) => http.post(`/agents/presets/${id}/apply`),
+  /** 更新助手联网搜索开关 */
+  setWebSearch: (id: string | number, enabled: boolean) => http.put(`/agents/${id}/web-search`, { enabled }),
 }
 
 // ==================== Templates ====================
@@ -241,6 +250,22 @@ export const chatApi = {
 }
 
 // ==================== Conversation ====================
+
+/** 产物 VO，来自 GET /api/v1/conversations/{conversationId}/artifacts */
+export interface ArtifactVO {
+  id: string
+  name: string
+  category: string
+  mimeType: string
+  size: string
+  downloadUrl: string
+  storagePath: string | null
+  messageId: string | null
+  toolCallId: string | null
+  source: string
+  createdAt: string
+}
+
 export const conversationApi = {
   list: () => http.get('/conversations'),
   /**
@@ -270,6 +295,9 @@ export const conversationApi = {
    */
   setModel: (conversationId: string, modelProvider: string, modelName: string) =>
     http.put(`/conversations/${conversationId}/model`, { modelProvider, modelName }),
+  /** 获取会话产物列表 */
+  getArtifacts: (conversationId: string) =>
+    http.get(`/conversations/${conversationId}/artifacts`),
   batchDelete: (conversationIds: string[]) =>
     http.post('/conversations/batch-delete', { conversationIds }),
 }
@@ -994,6 +1022,13 @@ export const workspaceTeamApi = {
     http.delete(`/workspaces/${id}/members/${memberId}`),
 }
 
+// ==================== Agent Team（助手团） ====================
+export const teamApi = {
+  /** @param params.source 平台模式传 'platform'；@param params.keyword 可选名称模糊搜索 */
+  list: (params?: { source?: string; keyword?: string }) => http.get('/teams', { params }),
+  get: (id: string | number) => http.get(`/teams/${id}`),
+}
+
 // ==================== Agent Binding ====================
 export const agentBindingApi = {
   listSkills: (agentId: string | number) => http.get(`/agents/${agentId}/skills`),
@@ -1393,4 +1428,19 @@ export const goalApi = {
   abandon: (id: string) => http.post<Goal>(`/goals/${id}/abandon`),
   addCriterion: (id: string, criterion: string) =>
     http.post<Goal>(`/goals/${id}/criteria`, { criterion }),
+}
+
+// ==================== Credit ====================
+export interface CreditAccount {
+  enabled: boolean
+  available: boolean
+  remainCredit: number
+  usedCredit: number
+  totalCredit: number
+  message?: string
+  fetchedAt: string
+}
+
+export const creditApi = {
+  getAccount: () => http.get<CreditAccount>('/credit/account'),
 }

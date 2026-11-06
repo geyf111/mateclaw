@@ -77,7 +77,17 @@
                 @click="onItemClick(group.provider, item.value)"
               >
                 <span class="model-dropdown-item__name">{{ item.name }}</span>
-                <svg v-if="item.value === activeValue" class="model-dropdown-item__check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <div class="model-dropdown-item__rate-container">
+                  <el-tooltip
+                    placement="top"
+                    effect="dark"
+                    popper-class="model-rate-tooltip"
+                    :content="`${$t('chat.inputRate')}: ×${formatRate(item.inputRate)}  |  ${$t('chat.outputRate')}: ×${formatRate(item.outputRate)}`"
+                  >
+                    <span class="model-dropdown-item__rate">&times;{{ formatRate(item.outputRate) }}</span>
+                  </el-tooltip>
+                  <svg v-if="item.value === activeValue" class="model-dropdown-item__check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
               </div>
             </template>
 
@@ -112,10 +122,17 @@ import type { ProviderInfo } from '@/types'
 
 const { t } = useI18n()
 
+function formatRate(rate?: number): string {
+  if (rate == null) return '-'
+  return parseFloat(rate.toFixed(2)).toString()
+}
+
 interface ModelItem {
   value: string
   name: string
   id: string
+  inputRate?: number
+  outputRate?: number
 }
 
 interface ModelGroup {
@@ -215,6 +232,8 @@ const groups = computed<ModelGroup[]>(() => {
         value: `${provider.id}::${m.id}`,
         name: m.name || m.id,
         id: m.id,
+        inputRate: m.inputRate,
+        outputRate: m.outputRate,
       })),
     }
 
@@ -556,6 +575,22 @@ watch(open, async (isOpen) => {
   white-space: nowrap;
 }
 
+.model-dropdown-item__rate-container {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.model-dropdown-item__rate {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--mc-text-tertiary);
+  background: var(--mc-bg-sunken);
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
 .model-dropdown-item__check {
   flex-shrink: 0;
   color: var(--mc-primary);
@@ -612,5 +647,9 @@ watch(open, async (isOpen) => {
     min-width: 240px;
     max-width: calc(100vw - 40px);
   }
+}
+
+.el-popper.model-rate-tooltip {
+  z-index: 5000 !important;
 }
 </style>

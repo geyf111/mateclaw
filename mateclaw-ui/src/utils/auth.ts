@@ -20,12 +20,13 @@ export function handleAuthFailure() {
   localStorage.removeItem('workspace-id')
   localStorage.removeItem('mc-project-id')
   // 已经在登录页则不再跳转，避免死循环
-  if (window.location.pathname === '/login') {
+  const loginPath = import.meta.env.BASE_URL + 'login'
+  if (window.location.pathname === loginPath) {
     return
   }
   if (!isRedirecting) {
     isRedirecting = true
-    window.location.href = '/login'
+    window.location.href = loginPath
   }
 }
 

@@ -51,6 +51,7 @@ export function encodePixelartIcon(name: string): string {
 export type ParsedIcon =
   | { kind: 'pixelart'; name: string; svg: string | null }
   | { kind: 'url'; url: string }
+  | { kind: 'base64'; data: string }
   | { kind: 'emoji'; value: string }
   | { kind: 'empty' }
 
@@ -69,6 +70,20 @@ export function plainTextIcon(value: string | null | undefined, fallback = '🤖
  * {@code kind: 'empty'} for null/blank so callers can branch on a
  * single discriminator.
  */
+/**
+ * Resolve the actual display icon from an item that may carry the newer
+ * {@code iconType} / {@code customIcon} shape. When {@code iconType} is
+ * {@code 'custom'} the base64 data lives in {@code customIcon}; otherwise
+ * the legacy {@code icon} field is used as-is.
+ */
+export function getDisplayIcon(
+  item: { icon?: string | null; iconType?: string | null; customIcon?: string | null } | null | undefined,
+): string {
+  if (!item) return ''
+  if (item.iconType === 'custom' && item.customIcon) return item.customIcon
+  return item.icon || ''
+}
+
 export function parseIconValue(value: string | null | undefined): ParsedIcon {
   if (!value || !value.trim()) return { kind: 'empty' }
   const v = value.trim()
@@ -79,12 +94,23 @@ export function parseIconValue(value: string | null | undefined): ParsedIcon {
   if (v.startsWith('http://') || v.startsWith('https://')) {
     return { kind: 'url', url: v }
   }
+  // Data URI (e.g. data:image/png;base64,iVBOR...). Treated as a URL
+  // so the browser handles decoding natively via <img>.
+  if (v.startsWith('data:')) {
+    return { kind: 'url', url: v }
+  }
   // Site-absolute path (e.g. /skill-assets/<skill>/assets/<file>.png served
   // by the WebMvcConfig resource handler) — treat as a URL the browser will
   // resolve against the current host, so deployments don't need to hardcode
   // their public origin in SKILL.md.
   if (v.startsWith('/')) {
     return { kind: 'url', url: v }
+  }
+  // Custom uploaded image (raw base64 string without data: prefix).
+  // Heuristic: only base64 characters, and long enough to be image data.
+  const base64Pattern = /^[A-Za-z0-9+/=]+$/
+  if (base64Pattern.test(v) && v.length > 50) {
+    return { kind: 'base64', data: v }
   }
   // Anything else falls through as an emoji / text glyph. We don't
   // validate "is this really an emoji" — letting the user pick any

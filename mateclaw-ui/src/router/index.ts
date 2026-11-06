@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { Capability } from '@/composables/capabilities'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+import { useMateClaw } from '@/composables/useMateClaw'
 
 // Augment vue-router's RouteMeta so each route can declare its capability gate.
 declare module 'vue-router' {
@@ -326,6 +327,11 @@ const router = createRouter({
       component: () => import('@/views/Login.vue'),
     },
     {
+      path: '/noPassLogin',
+      name: 'NoPassLogin',
+      component: () => import('@/views/NoPassLogin.vue'),
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/chat',
     },
@@ -339,10 +345,17 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   if (import.meta.env.VITE_SKIP_AUTH === 'true') return true
   const token = localStorage.getItem('token')
+  const { isElectron } = useMateClaw()
 
+  if (to.name === 'NoPassLogin' && !isElectron) return true
   if (to.name === 'Login' && token) return { path: '/' }
   if (to.name !== 'Login' && !token) return { name: 'Login' }
   if (to.name === 'Login' || to.name === 'Forbidden') return true
+
+  // BS 端只允许 Chat 页面，其他路由一律重定向
+  if (!isElectron && to.name !== 'Chat') {
+    return { name: 'Chat' }
+  }
 
   const store = useWorkspaceStore()
   if (!store.accessLoaded) {

@@ -4,7 +4,7 @@
       v-if="tabs.length || visible"
       ref="panelRef"
       class="file-preview-panel"
-      :class="{ 'is-hidden': !visible, 'is-overlay': isOverlay, 'is-compact': compactViewport, 'is-mobile': isMobile }"
+      :class="{ 'is-hidden': !visible, 'is-overlay': isOverlay, 'is-compact': compactViewport, 'is-mobile': isMobile, 'is-electron': isElectron }"
       :role="isOverlay ? 'dialog' : undefined"
       :aria-modal="isOverlay || undefined"
       aria-label="文件预览"
@@ -25,7 +25,7 @@
             <div class="file-preview-panel__artifact-dropdown-title">产物</div>
             <ul class="file-preview-panel__artifact-dropdown-list">
               <li v-for="file in generatedFiles" :key="file.id">
-                <button type="button" @click="openArtifact(file.url)">
+                <button type="button" @click="openArtifact(file)" @contextmenu="onArtifactContextMenu($event, file)">
                   <Icon :icon="fileIconId(file.name)" width="18" class="file-preview-panel__artifact-icon" />
                   {{ file.name }}
                 </button>
@@ -80,7 +80,7 @@
         <div v-show="artifactsOpen" class="file-preview-panel__artifacts-body">
           <ul v-if="generatedFiles && generatedFiles.length" class="file-preview-panel__artifacts-list" role="list">
             <li v-for="file in generatedFiles" :key="file.id" class="file-preview-panel__artifact-item" role="listitem">
-              <button type="button" :title="file.url" @click="$emit('open-generated', file.url)">
+              <button type="button" :title="file.name" @click="openArtifact(file)" @contextmenu="onArtifactContextMenu($event, file)">
                 <Icon :icon="fileIconId(file.name)" width="18" class="file-preview-panel__artifact-icon" />
                 <span class="file-preview-panel__artifact-name">{{ file.name }}</span>
               </button>
@@ -111,13 +111,21 @@
         </div>
       </main>
 
-      <footer v-if="activeTab" class="file-preview-panel__footer">
-        <span :title="activeTab.contentType">{{ displayFileSize(activeTab.size) }} · {{ activeTab.contentType || '未知类型' }}</span>
-        <div>
-          <button v-if="activeTab.mode !== 'pdf' && activeTab.mode !== 'html' && activeTab.text" type="button" @click="copyAll(activeTab.text)">复制全文</button>
-          <button type="button" @click="$emit('download', activeTab.id)">下载</button>
+      <!-- 产物右键菜单 -->
+      <Teleport to="body">
+        <div
+          v-if="contextMenu.open"
+          class="file-preview-panel__context-menu"
+          :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+          @click.stop
+        >
+          <button type="button" @click="contextMenu.file && openArtifact(contextMenu.file); closeContextMenu()">打开</button>
+          <template v-if="isElectron && contextMenu.file?.storagePath">
+            <button type="button" @click="$emit('open-folder', contextMenu.file!); closeContextMenu()">打开文件夹</button>
+            <button type="button" @click="$emit('save-as', contextMenu.file!); closeContextMenu()">另存为</button>
+          </template>
         </div>
-      </footer>
+      </Teleport>
     </aside>
   </Teleport>
 </template>
@@ -137,6 +145,7 @@ import { handleMermaidDownload, useMermaidRenderer } from '@/composables/useMerm
 import DOMPurify from 'dompurify'
 import CodePreviewer from './CodePreviewer.vue'
 import { copyToClipboard } from '@/utils/clipboard'
+import { useMateClaw } from '@/composables/useMateClaw'
 import { displayFileSize, type FileTab, type FileTabStatus, type GeneratedFileEntry } from '@/utils/filePreview'
 
 const props = defineProps<{
@@ -153,9 +162,12 @@ const emit = defineEmits<{
   retry: [id: string]
   download: [id: string]
   'toggle-fullscreen': []
-  'open-generated': [url: string]
+  'open-generated': [file: GeneratedFileEntry]
+  'open-folder': [file: GeneratedFileEntry]
+  'save-as': [file: GeneratedFileEntry]
 }>()
 const { t } = useI18n()
+const { isElectron } = useMateClaw()
 const isMobile = useIsMobile()
 const compactViewport = useMediaQuery(BREAKPOINTS.compact)
 const panelRef = ref<HTMLElement | null>(null)
@@ -163,6 +175,33 @@ const markdownRoot = ref<HTMLElement | null>(null)
 const artifactsOpen = ref(true)
 const dropdownOpen = ref(false)
 let dropdownTimer: ReturnType<typeof setTimeout> | null = null
+
+// ---- 右键菜单 ----
+const contextMenu = ref<{ open: boolean; file: GeneratedFileEntry | null; x: number; y: number }>({
+  open: false,
+  file: null,
+  x: 0,
+  y: 0,
+})
+
+function onArtifactContextMenu(event: MouseEvent, file: GeneratedFileEntry) {
+  event.preventDefault()
+  contextMenu.value = { open: true, file, x: event.clientX, y: event.clientY }
+  setTimeout(() => {
+    window.addEventListener('click', closeContextMenu, { once: true })
+    window.addEventListener('keydown', onContextMenuKeydown)
+  })
+}
+
+function closeContextMenu() {
+  contextMenu.value = { open: false, file: null, x: 0, y: 0 }
+  window.removeEventListener('keydown', onContextMenuKeydown)
+}
+
+function onContextMenuKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') closeContextMenu()
+}
+
 function showDropdown() {
   if (!activeTab.value) {
     return
@@ -173,7 +212,7 @@ function showDropdown() {
   dropdownOpen.value = true
 }
 function hideDropdown() { dropdownTimer = setTimeout(() => dropdownOpen.value = false, 150) }
-function openArtifact(url: string) { dropdownOpen.value = false; emit('open-generated', url) }
+function openArtifact(file: GeneratedFileEntry) { dropdownOpen.value = false; emit('open-generated', file) }
 function fileIconId(name: string) {
   const svgName = getIconForFile(name)
   if (!svgName) return 'vscode-icons:default-file'
@@ -238,7 +277,7 @@ watch(() => activeTab.value?.id, async () => {
   charts.scanAndMount(); katex.scanAndMount(); mermaid.scanAndMount()
 })
 onMounted(() => { charts.startObserving(); katex.startObserving(); mermaid.startObserving() })
-onBeforeUnmount(() => { lockBody(false); charts.dispose(); katex.dispose(); mermaid.dispose() })
+onBeforeUnmount(() => { lockBody(false); charts.dispose(); katex.dispose(); mermaid.dispose(); window.removeEventListener('keydown', onContextMenuKeydown) })
 </script>
 
 <style scoped>
@@ -246,7 +285,8 @@ onBeforeUnmount(() => { lockBody(false); charts.dispose(); katex.dispose(); merm
 .file-preview-panel.is-hidden { display: none; }
 .file-preview-panel.is-overlay { position: fixed; inset: 0; z-index: 1200; width: auto; border: 0; background: var(--mc-bg-elevated, #fff); }
 .file-preview-panel.is-overlay.is-compact:not(.is-mobile) { left: auto; width: min(560px, 72vw); box-shadow: -12px 0 36px rgba(0,0,0,.16); }
-.file-preview-panel__header, .file-preview-panel__footer { display:flex; align-items:center; flex-shrink:0; border-bottom:1px solid var(--mc-border, #e2e8f0); }
+.file-preview-panel.is-overlay.is-electron { padding-top: 32px; }
+.file-preview-panel__header { display:flex; align-items:center; flex-shrink:0; border-bottom:1px solid var(--mc-border, #e2e8f0); }
 .file-preview-panel__header { min-height: 72px; }
 .file-preview-panel__header-icon { margin-left: 8px; transform: rotate(90deg) scaleX(-1); }
 .file-preview-panel__header-icon-wrap { position: relative; }
@@ -264,10 +304,10 @@ onBeforeUnmount(() => { lockBody(false); charts.dispose(); katex.dispose(); merm
 .file-preview-panel__tab-close { flex:0 0 auto; font-size:17px; line-height:1; opacity:.65; }
 .file-preview-panel__actions { display:flex; gap:4px; padding:0 8px; }
 /* .file-preview-panel button { font:inherit; } */
-.file-preview-panel__actions button, .file-preview-panel__footer button, .file-preview-panel__state-actions button, .file-preview-panel__header-icon { border:0; border-radius:6px; padding:6px 9px; background:transparent; color:var(--mc-text-secondary, #64748b); cursor:pointer; }
+.file-preview-panel__actions button, .file-preview-panel__state-actions button, .file-preview-panel__header-icon { border:0; border-radius:6px; padding:6px 9px; background:transparent; color:var(--mc-text-secondary, #64748b); cursor:pointer; }
 .file-preview-panel__actions button, .file-preview-panel__header-icon { display:flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; line-height:1; }
 .file-preview-panel__actions :deep(.el-icon), .file-preview-panel__header-icon :deep(.el-icon) { display:flex; align-items:center; justify-content:center; }
-.file-preview-panel__actions button:hover, .file-preview-panel__footer button:hover, .file-preview-panel__state-actions button:hover, .file-preview-panel__header-icon:hover { background:var(--mc-primary-bg, #fff1eb); color:var(--mc-primary, #d97757); }
+.file-preview-panel__actions button:hover, .file-preview-panel__state-actions button:hover, .file-preview-panel__header-icon:hover { background:var(--mc-primary-bg, #fff1eb); color:var(--mc-primary, #d97757); }
 .file-preview-panel__content { flex:1; min-height:0; overflow:auto; }
 .file-preview-panel__document { min-height:100%; padding:18px 20px; box-sizing:border-box; display:flex; flex-direction:column; }
 .file-preview-panel__source { margin:0; white-space:pre; tab-size:2; font:13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow:auto; }
@@ -281,9 +321,6 @@ onBeforeUnmount(() => { lockBody(false); charts.dispose(); katex.dispose(); merm
 .file-preview-panel__state-actions { display:flex; gap:8px; }
 .file-preview-panel__spinner { width:22px; height:22px; border:2px solid var(--mc-border, #ddd); border-top-color:var(--mc-primary, #d97757); border-radius:50%; animation:file-preview-spin .8s linear infinite; }
 @keyframes file-preview-spin { to { transform:rotate(360deg); } }
-.file-preview-panel__footer { justify-content:space-between; gap:8px; min-height:44px; padding:0 12px; border-top:1px solid var(--mc-border, #e2e8f0); border-bottom:0; color:var(--mc-text-tertiary, #94a3b8); font-size:12px; }
-.file-preview-panel__footer > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.file-preview-panel__footer > div { display:flex; flex-shrink:0; }
 :global(body.mc-file-preview-lock) { overflow:hidden; }
 .file-preview-panel__artifacts-view { display: flex; flex-direction: column; }
 .file-preview-panel__artifacts-header { flex-shrink: 0; }
@@ -298,5 +335,36 @@ onBeforeUnmount(() => { lockBody(false); charts.dispose(); katex.dispose(); merm
 .file-preview-panel__artifact-item button { display: flex; align-items: center; width: 100%; border: 0; background: transparent; color: var(--mc-text-primary, #1e293b); font: inherit; font-size: 13px; padding: 7px 16px 7px 20px; cursor: pointer; text-align: left; }
 .file-preview-panel__artifact-item button:hover { background: var(--mc-primary-bg, #fff1eb); color: var(--mc-primary, #d97757); }
 .file-preview-panel__artifact-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 768px) { .file-preview-panel__header { min-height:56px; } .file-preview-panel__document { padding:14px; } .file-preview-panel__footer { padding-bottom:max(0px, env(safe-area-inset-bottom)); } }
+
+/* 右键菜单 */
+.file-preview-panel__context-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 140px;
+  background: var(--mc-bg-elevated, #fff);
+  border: 1px solid var(--mc-border, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.14);
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+.file-preview-panel__context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--mc-text-primary, #1e293b);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+.file-preview-panel__context-menu button:hover {
+  background: var(--mc-primary-bg, #fff1eb);
+  color: var(--mc-primary, #d97757);
+}
+
+@media (max-width: 768px) { .file-preview-panel__header { min-height:56px; } .file-preview-panel__document { padding:14px; } }
 </style>

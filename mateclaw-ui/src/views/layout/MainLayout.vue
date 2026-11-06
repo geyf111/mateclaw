@@ -6,7 +6,7 @@
     </Transition>
 
     <!-- 左侧导航栏 -->
-    <aside class="sidebar" :class="{ collapsed: sidebarCollapsed && !isMobile, 'mobile-open': mobileMenuOpen }">
+    <aside class="sidebar" :class="{ collapsed: sidebarCollapsed && !isMobile, 'mobile-open': mobileMenuOpen }" v-if="isElectron">
       <!-- Logo -->
       <div class="sidebar-logo">
         <div class="logo-icon">
@@ -130,16 +130,16 @@
             </div>
             <template #dropdown>
               <div class="user-menu">
-                <div class="user-menu-item">
-                  <el-icon :size="16"><Search /></el-icon>
-                  <span class="user-menu-label">{{ t('nav.webSearch') }}</span>
-                  <el-switch v-model="webSearchEnabled" size="small" />
-                </div>
-                <div class="user-menu-item">
+                <div v-if="creditEnabled" class="user-menu-item">
                   <el-icon :size="16"><Coin /></el-icon>
                   <span class="user-menu-label">{{ t('nav.pointsBalance') }}</span>
-                  <span class="user-menu-points">{{ pointsBalance }}</span>
-                  <el-button :icon="Refresh" size="small" circle @click.stop="refreshPoints" />
+                  <template v-if="creditAvailable">
+                    <span class="user-menu-points">{{ Number(creditRemain.toFixed(2)) }}</span>
+                  </template>
+                  <template v-else>
+                    <span class="user-menu-points user-menu-points--unavailable">{{ creditMessage }}</span>
+                  </template>
+                  <el-button :icon="Refresh" size="small" circle @click.stop="refreshCredit" />
                 </div>
                 <div class="user-menu-item" @click="checkForUpdates">
                   <el-icon :size="16"><Top /></el-icon>
@@ -228,7 +228,8 @@ import McTooltip from '@/components/common/McTooltip.vue'
 import { useNotificationCenter } from '@/composables/useNotificationCenter'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { applyLocale, currentLocale, type AppLocale } from '@/i18n'
-import { SwitchButton, Lock, Search, Refresh, Coin, Top } from '@element-plus/icons-vue'
+import { SwitchButton, Lock, Refresh, Coin, Top } from '@element-plus/icons-vue'
+import { useCredit } from '@/composables/useCredit'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { mcToast } from '@/composables/useMcToast'
 import { mcConfirm } from '@/components/common/useConfirm'
@@ -340,26 +341,29 @@ onMounted(async () => {
   window.addEventListener('keydown', onGlobalKeydown)
 
   // Check onboarding status
-  if (!localStorage.getItem('mc-onboarding-done')) {
-    try {
-      const res: any = await setupApi.onboardingStatus()
-      if (res?.data && !res.data.hasDefaultModel) {
-        return
-        // showOnboarding.value = true
-      }
-    } catch {
-      // If endpoint doesn't exist yet, skip onboarding
-    }
-  }
+  // if (!localStorage.getItem('mc-onboarding-done')) {
+  //   try {
+  //     const res: any = await setupApi.onboardingStatus()
+  //     if (res?.data && !res.data.hasDefaultModel) {
+  //       return
+  //       // showOnboarding.value = true
+  //     }
+  //   } catch {
+  //     // If endpoint doesn't exist yet, skip onboarding
+  //   }
+  // }
 
   // Fetch initial health status for sidebar indicator
   fetchHealthStatus()
   // Sidebar attention counts (live / security) are driven by
   // useNotificationCenter — it polls when admins are mounted.
+
+  startPolling(45000)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
+  stopPolling()
 })
 
 const username = computed(() => localStorage.getItem('username') || 'User')
@@ -545,10 +549,15 @@ function isNavItemActive(item: { path: string; label: string }) {
 
 const showChangePassword = ref(false)
 
-const webSearchEnabled = ref(false)
-const pointsBalance = ref(0)
+const { creditAccount, isEnabled: creditEnabled, isAvailable: creditAvailable, remainCredit: creditRemain, fetchCreditAccount, startPolling, stopPolling } = useCredit()
 
-function refreshPoints() {}
+const creditUsed = computed(() => creditAccount.value?.usedCredit ?? 0)
+const creditTotal = computed(() => creditAccount.value?.totalCredit ?? 0)
+const creditMessage = computed(() => creditAccount.value?.message ?? '')
+
+function refreshCredit() {
+  fetchCreditAccount()
+}
 
 function checkForUpdates() {
   if (!isElectron) {
@@ -1433,6 +1442,20 @@ watch(() => sidebarCollapsed.value, (collapsed) => {
   font-weight: 600;
   color: var(--mc-primary);
   font-size: 13px;
+}
+
+.user-menu-points--unavailable {
+  color: var(--el-color-warning);
+  font-size: 12px;
+}
+
+.user-menu-updated {
+  font-size: 10px;
+  color: var(--mc-text-secondary);
+  margin-left: 0;
+  display: block;
+  width: 100%;
+  text-align: right;
 }
 
 .sidebar-footer .el-dropdown { display: block; }

@@ -72,12 +72,15 @@
             :assistant-icon="assistantIcon"
             :user-icon="userIcon"
             :show-cursor="showCursorForMessage(msg)"
+            :generated-files="generatedFiles"
             @regenerate="(tailDeleted) => $emit('regenerate', msg, tailDeleted)"
             @toggle-thinking="(expanded) => $emit('toggle-thinking', msg, expanded)"
             @toggle-completed-timeline="handleCompletedTimelineToggle"
             @approve="(pendingId) => $emit('approve', pendingId)"
             @deny="(pendingId) => $emit('deny', pendingId)"
             @open-file="(request) => $emit('open-file', request)"
+            @open-artifacts="$emit('open-artifacts')"
+            @open-sources="(sources) => $emit('open-sources', sources)"
           />
         </template>
       </template>
@@ -127,6 +130,7 @@ interface Props {
   hasMore?: boolean
   /** 是否正在加载更早消息 */
   loadingOlder?: boolean
+  generatedFiles?: { id: string; name: string }[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -139,6 +143,7 @@ const props = withDefaults(defineProps<Props>(), {
   autoScroll: true,
   hasMore: false,
   loadingOlder: false,
+  generatedFiles: () => [],
 })
 
 const emit = defineEmits<{
@@ -150,6 +155,8 @@ const emit = defineEmits<{
   deny: [pendingId: string]
   'load-more': []
   'open-file': [request: FileOpenRequest]
+  'open-artifacts': []
+  'open-sources': [sources: any[]]
 }>()
 
 function prepareForLayoutChange() {

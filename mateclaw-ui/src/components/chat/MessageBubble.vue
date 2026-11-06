@@ -9,7 +9,7 @@
     @click="handleBubbleClick"
   >
     <!-- 头像 -->
-    <div class="msg-avatar" :class="`${role}-avatar`">
+    <div v-if="role !== 'system'" class="msg-avatar" :class="`${role}-avatar`">
       <slot name="avatar">
         <!-- When the assistant has an active goal, wrap the logo in
              GoalAvatarRing so the progress ring + breathing halo + hover
@@ -22,7 +22,13 @@
           :conversation-id="message.conversationId"
           :show-followup-mark="isFollowupTurn"
         >
-          <img src="/logo/mateclaw_logo_s.png" alt="" class="avatar-logo" />
+          <SkillIcon
+            v-if="props.assistantIcon !== '🤖' && props.assistantIcon"
+            :value="props.assistantIcon"
+            :size="28"
+            fallback="🤖"
+          />
+          <img v-else src="/logo/mateclaw_logo_s.png" alt="" class="avatar-logo" />
         </GoalAvatarRing>
         <span v-else>{{ avatarIcon }}</span>
       </slot>
@@ -31,6 +37,19 @@
     <!-- 消息体 -->
     <div class="msg-body" :class="`${role}-body`">
       <div class="msg-bubble" :class="`${role}-bubble`">
+        <!-- 团队任务结算提示（system + metadata.type=team_announce） -->
+        <div v-if="isTeamAnnounce" class="team-announce-banner">
+          <button class="team-announce-banner__toggle" type="button" @click="teamAnnounceExpanded = !teamAnnounceExpanded">
+            <el-icon class="team-announce-banner__icon"><Select /></el-icon>
+            <span class="team-announce-banner__text">{{ teamAnnounceText }}</span>
+            <span v-if="teamAnnounceSub" class="team-announce-banner__sub">{{ teamAnnounceSub }}</span>
+            <el-icon class="team-announce-banner__arrow" :class="{ 'is-open': teamAnnounceExpanded }"><ArrowDown /></el-icon>
+          </button>
+          <Transition name="thinking-slide">
+            <div v-if="teamAnnounceExpanded" class="team-announce-content markdown-body" v-html="teamAnnounceContent"></div>
+          </Transition>
+        </div>
+
         <!-- Plan-step panel — always rendered at the top of the bubble whenever
              this turn has a plan, in both the segmented and fallback render
              paths, so plan-mode progress is never buried in a collapsed panel. -->
@@ -384,6 +403,26 @@
         </div>
       </div>
 
+      <!-- 产物按钮：最后一条 assistant 消息时显示 -->
+      <div
+        v-if="isLast && role === 'assistant' && generatedFiles && generatedFiles.length > 0"
+        class="artifacts-quick-bar"
+        @click="$emit('open-artifacts')"
+      >
+        <span>查看所有产物（{{ generatedFiles.length }}）</span>
+        <el-icon class="artifacts-quick-bar__arrow"><ArrowRight /></el-icon>
+      </div>
+
+      <!-- 来源按钮：assistant 消息有 sources 时显示 -->
+      <div
+        v-if="role === 'assistant' && messageSources.length > 0"
+        class="artifacts-quick-bar sources-quick-bar"
+        @click="handleOpenSources"
+      >
+        <span>参考来源（{{ messageSources.length }}）</span>
+        <el-icon class="artifacts-quick-bar__arrow"><ArrowRight /></el-icon>
+      </div>
+
       <!-- 消息操作栏：始终占位，hover 时显示 -->
         <div
           class="msg-actions"
@@ -427,6 +466,16 @@
           >
             <el-icon><RefreshRight /></el-icon>
           </button>
+          <!-- Credit cost (assistant only) -->
+          <span
+            v-if="role === 'assistant' && creditCostDisplay"
+            class="action-credit"
+            :title="creditCostTitle"
+          >
+            共消耗
+            <el-icon class="action-credit__icon"><Coin /></el-icon>
+            {{ creditCostDisplay }}
+          </span>
           <!-- Reply model attribution (assistant only) -->
           <span
             v-if="role === 'assistant' && replyModel"
@@ -452,7 +501,9 @@ import { useI18n } from 'vue-i18n'
 import { mcToast } from '@/composables/useMcToast'
 import {
   ArrowDown,
+  ArrowRight,
   CloseBold,
+  Coin,
   CopyDocument,
   Document,
   InfoFilled,
@@ -476,12 +527,13 @@ import BrowserTimeline from './BrowserTimeline.vue'
 import ToolCallSegment from './ToolCallSegment.vue'
 import ThinkingSegment from './ThinkingSegment.vue'
 import ContentSegment from './ContentSegment.vue'
+import SkillIcon from '@/components/common/SkillIcon.vue'
 import GoalAvatarRing from '@/components/goal/GoalAvatarRing.vue'
 import { useGoalStore } from '@/stores/useGoalStore'
 import PlanStepsPanel from './PlanStepsPanel.vue'
 import UserMessageContent from './UserMessageContent.vue'
 import type { BrowserAction } from './BrowserTimeline.vue'
-import type { Message, MessageSegment, ChatAttachment, ToolCallMeta, PlanMeta } from '@/types'
+import type { Message, MessageSegment, ChatAttachment, ToolCallMeta, PlanMeta, SourceRef } from '@/types'
 import type { ChatErrorInfo } from '@/types/chatError'
 
 const { renderMarkdown } = useMarkdownRenderer()
@@ -495,6 +547,7 @@ interface Props {
   assistantIcon?: string
   userIcon?: string
   showCursor?: boolean
+  generatedFiles?: { id: string; name: string }[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -511,10 +564,38 @@ const emit = defineEmits<{
   approve: [pendingId: string]
   deny: [pendingId: string]
   'open-file': [request: FileOpenRequest]
+  'open-artifacts': []
+  'open-sources': [sources: SourceRef[]]
 }>()
 
 // --- 基础计算 ---
 const role = computed(() => props.message.role)
+
+const isTeamAnnounce = computed(() => {
+  return role.value === 'system' && parsedMetadata.value?.type === 'team_announce'
+})
+
+const teamAnnounceExpanded = ref(false)
+
+const teamAnnounceSub = computed(() => {
+  if (!isTeamAnnounce.value) return ''
+  const count = parsedMetadata.value?.taskCount
+  if (count != null) {
+    return t('chat.teamAnnounceSub', { count })
+  }
+  return ''
+})
+
+const teamAnnounceText = computed(() => {
+  if (!isTeamAnnounce.value) return ''
+  return t('chat.teamAnnounce')
+})
+
+const teamAnnounceContent = computed(() => {
+  if (!isTeamAnnounce.value) return ''
+  const text = props.message.content || ''
+  return renderMarkdown(text)
+})
 const status = computed(() => props.message.status)
 const isGenerating = computed(() => status.value === 'generating' || status.value === 'awaiting_approval')
 const hovered = ref(false)
@@ -647,6 +728,7 @@ const isApprovalPlaceholder = (text: string) => {
 }
 
 const displayContent = computed(() => {
+  if (role.value === 'system') return ''
   const textPart = props.message.contentParts?.find(p => p.type === 'text')
   const text = textPart?.text || props.message.content || ''
   if (isGenerating.value && !text) return ''
@@ -665,8 +747,41 @@ const parseErrorText = computed(() => {
 
 const renderedContent = computed(() => {
   if (!displayContent.value) return ''
-  return renderMarkdown(displayContent.value)
+  const html = renderMarkdown(displayContent.value)
+  return injectSourceBadges(html, messageSources.value)
 })
+
+// --- 来源引用 ---
+const messageSources = computed<SourceRef[]>(() => {
+  return parsedMetadata.value?.sources || []
+})
+
+function injectSourceBadges(html: string, sources: SourceRef[]): string {
+  if (!sources.length) return html
+  return html.replace(/\[(\d+)\]/g, (match, n) => {
+    const idx = Number(n)
+    const source = sources.find(s => s.index === idx)
+    if (!source) return match
+    const escapeAttr = (val: string | null | undefined) => (val || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/&/g, '&amp;')
+    return `<span class="source-badge" data-source-index="${idx}" data-source-type="${source.type}" data-source-title="${escapeAttr(source.title)}" data-source-snippet="${escapeAttr(source.snippet)}" data-source-domain="${escapeAttr(source.source)}" data-source-url="${escapeAttr(source.url)}" data-source-mcp-name="${escapeAttr(source.mcpName)}" data-source-tool-name="${escapeAttr(source.toolName)}" data-source-file-name="${escapeAttr(source.fileName)}" data-source-date="${escapeAttr(source.date)}">[${idx}]</span>`
+  })
+}
+
+function handleOpenSources() {
+  if (messageSources.value.length > 0) {
+    emit('open-sources', messageSources.value)
+  }
+}
+
+function handleSourceClick(sourceEl: HTMLElement) {
+  const type = sourceEl.dataset.sourceType
+  const url = sourceEl.dataset.sourceUrl
+  if (type === 'web' && url) {
+    window.open(url, '_blank')
+    return
+  }
+  handleOpenSources()
+}
 
 const showLoadingIndicator = computed(() => {
   return isGenerating.value && !displayContent.value
@@ -675,6 +790,7 @@ const showLoadingIndicator = computed(() => {
 
 // --- 操作栏 ---
 const showActions = computed(() => {
+  if (role.value === 'system') return false
   if (isGenerating.value) return false
   return hovered.value && (displayContent.value || status.value === 'stopped' || status.value === 'interrupted' || status.value === 'failed')
 })
@@ -839,6 +955,15 @@ function openAttachment(attachment: ChatAttachment) {
  */
 function handleBubbleClick(event: MouseEvent) {
   if (role.value !== 'assistant') return
+
+  // Handle source badge clicks
+  const sourceBadge = (event.target as HTMLElement | null)?.closest<HTMLElement>('.source-badge')
+  if (sourceBadge && sourceBadge.closest('.msg-content, .seg-content')) {
+    event.preventDefault()
+    handleSourceClick(sourceBadge)
+    return
+  }
+
   const anchor = (event.target as HTMLElement | null)?.closest<HTMLAnchorElement>('a[href]')
   if (!anchor || !anchor.closest('.msg-content, .seg-content')) return
   if (anchor.closest('.thinking-section, .seg-thinking, .content-segment--superseded')) return
@@ -907,6 +1032,16 @@ const formattedTime = computed(() => {
     hour: '2-digit',
     minute: '2-digit',
   })
+})
+
+// Credit cost display (assistant messages): how many credits were consumed this turn.
+const creditCostDisplay = computed(() => {
+  const cost = props.message.creditCost
+  if (cost == null) return ''
+  return cost.toFixed(2)
+})
+const creditCostTitle = computed(() => {
+  return creditCostDisplay.value ? t('chat.creditCost', { cost: creditCostDisplay.value }) : ''
 })
 
 // Reply model attribution: shows which model produced the assistant message.
@@ -1438,6 +1573,70 @@ watch(isGenerating, (generating) => {
   opacity: 0.72;
 }
 
+/* ==================== 团队任务结算提示 ==================== */
+.team-announce-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.team-announce-banner__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--mc-bg-muted, #f9f7f5);
+  color: var(--mc-text-secondary, #64748b);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+  line-height: 1.4;
+}
+
+.team-announce-banner__toggle:hover {
+  background: var(--mc-primary-bg, rgba(217, 109, 70, 0.08));
+}
+
+.team-announce-banner__icon {
+  color: var(--mc-success, #10b981);
+  flex-shrink: 0;
+  font-size: 15px;
+}
+
+.team-announce-banner__text {
+  font-weight: 600;
+  color: var(--mc-text-primary, #334155);
+}
+
+.team-announce-banner__sub {
+  font-size: 12px;
+  color: var(--mc-text-tertiary, #94a3b8);
+}
+
+.team-announce-banner__arrow {
+  color: var(--mc-text-tertiary, #94a3b8);
+  font-size: 13px;
+  transition: transform 0.2s ease;
+}
+
+.team-announce-banner__arrow.is-open {
+  transform: rotate(180deg);
+}
+
+.team-announce-content {
+  padding: 10px 14px 6px;
+  margin-top: 4px;
+  color: var(--mc-text-secondary, #64748b);
+  font-size: 13px;
+  line-height: 1.65;
+  border-left: 2px solid var(--mc-success, rgba(16, 185, 129, 0.3));
+  margin-left: 0;
+}
+
 .message-wrapper {
   display: flex;
   gap: 12px;
@@ -1457,6 +1656,12 @@ watch(isGenerating, (generating) => {
 
 .message-wrapper.assistant {
   margin-right: auto;
+}
+
+.message-wrapper.system {
+  justify-content: center;
+  max-width: 100%;
+  margin-bottom: 12px;
 }
 
 /* 头像 */
@@ -1894,6 +2099,26 @@ watch(isGenerating, (generating) => {
   color: var(--mc-text-tertiary, #94a3b8);
   margin-left: 4px;
   user-select: none;
+}
+
+.action-credit {
+  font-size: 11px;
+  color: var(--mc-text-secondary, #64748b);
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--mc-fill-2, rgba(100, 116, 139, 0.08));
+  font-family: var(--mc-mono-font, ui-monospace, "SF Mono", Menlo, monospace);
+  user-select: text;
+  white-space: nowrap;
+  display: inline-flex;
+  /* align-items: center; */
+  gap: 6px;
+}
+
+.action-credit__icon {
+  font-size: 12px;
+  /* color: var(--mc-primary, #d96d46); */
 }
 
 .action-model {
@@ -2658,5 +2883,67 @@ watch(isGenerating, (generating) => {
   .error-card {
     max-width: 100%;
   }
+}
+.artifacts-quick-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  background: var(--mc-primary-bg, #fff1eb);
+  border: 1px solid var(--mc-primary, #d97757);
+  border-radius: 8px;
+  color: var(--mc-primary, #d97757);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  width: fit-content;
+}
+.artifacts-quick-bar:hover {
+  background: var(--mc-primary, #d97757);
+  color: #fff;
+}
+.artifacts-quick-bar__arrow {
+  font-size: 12px;
+  margin-left: 2px;
+}
+
+.sources-quick-bar {
+  background: var(--mc-info-bg, #eef2ff);
+  border-color: var(--mc-info, #667eea);
+  color: var(--mc-info, #667eea);
+}
+
+.sources-quick-bar:hover {
+  background: var(--mc-info, #667eea);
+  color: #fff;
+}
+</style>
+
+<style>
+/* Source badge rendered via v-html — must be unscoped */
+.source-badge {
+  display: inline;
+  color: var(--mc-info, #667eea);
+  font-size: 0.75em;
+  font-weight: 600;
+  vertical-align: super;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  padding: 0 1px;
+  border-radius: 2px;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.source-badge:hover {
+  background: var(--mc-info, #667eea);
+  color: #fff;
+  text-decoration: none;
 }
 </style>

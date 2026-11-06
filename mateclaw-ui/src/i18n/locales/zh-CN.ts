@@ -66,6 +66,7 @@ export default {
       urlHint: '使用线上图片作为图标（PNG / SVG / JPG）。',
       urlPlaceholder: 'https://example.com/icon.svg',
       pixelartCount: '共 {n} 个像素图标，由 pixelarticons 提供（MIT）',
+      customImage: '自定义图片',
       pickerOpen: '打开图标选择器',
       reprojectionWarning: '提示：若 SKILL.md frontmatter 已声明 icon，下次解析会覆盖此处的修改 — 在正文里改才永久。',
     },
@@ -157,6 +158,7 @@ export default {
     copied: '已复制',
     regenerate: '重新生成',
     replyModel: '本条回复模型: {model}',
+    creditCost: '共消耗 {cost} 积分',
     routing: {
       kind: {
         image: '图片',
@@ -206,6 +208,8 @@ export default {
     // RFC-074 PR-2: empty-state inside the model dropdown
     noProvidersConfigured: '还没有可用的模型',
     goConfigure: '去配置',
+    inputRate: '输入倍率',
+    outputRate: '输出倍率',
     // Issue #81: liveness-aware popup state machine.
     prompt: {
       noActive: {
@@ -259,7 +263,9 @@ export default {
     dateEarlier: '更早',
     hasUnread: '有新内容',
     filterByAgent: '按员工筛选',
-    allAgents: '全部员工',
+    allAgents: '全部助手',
+    agentLabel: '助手',
+    teamLabel: '助手团',
     pin: '置顶',
     unpin: '取消置顶',
     rename: '重命名',
@@ -377,6 +383,8 @@ export default {
     approvalExecute: '执行？',
     // 时间格式
     timeJustNow: '刚刚',
+    teamAnnounce: '📋 任务结算',
+    teamAnnounceSub: '共 {count} 个子任务',
     timeMinutesAgo: '{n} 分钟前',
     timeHoursAgo: '{n} 小时前',
   },
@@ -415,7 +423,10 @@ export default {
     logout: '退出登录',
     logoutConfirm: '是否确认退出登录？',
     webSearch: '联网搜索',
+    webSearchHint: '响应时间变长，联网结果仅供参考',
     pointsBalance: '积分余额',
+    creditUpdated: '更新于 {time}',
+    creditInsufficient: '积分不足，请联系管理员分配',
     checkUpdate: '检查更新',
     updateOnlyInClient: '请在桌面客户端中使用此功能',
     themeLight: '浅色',
@@ -956,6 +967,8 @@ export default {
     title: '智能体上下文',
     desc: '管理智能体的提示文件和记忆',
     selectAgent: '选择员工',
+    selectAgentTab: '选择助手',
+    selectTeamTab: '选择助手团',
     noAgent: '请先选择一个智能体',
     files: '文件列表',
     coreFiles: '核心文件',

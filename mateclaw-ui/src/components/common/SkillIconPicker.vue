@@ -199,6 +199,10 @@ watch(() => props.visible, async (open) => {
     activeTab.value = 'url'
     urlDraft.value = parsed.url
     emojiDraft.value = ''
+  } else if (parsed.kind === 'base64') {
+    activeTab.value = 'pixelart'
+    emojiDraft.value = ''
+    urlDraft.value = ''
   } else if (parsed.kind === 'emoji') {
     activeTab.value = 'emoji'
     emojiDraft.value = parsed.value
@@ -222,7 +226,11 @@ const filteredNames = computed(() => {
 const draftSummary = computed(() => {
   const parsed = parseIconValue(draft.value)
   if (parsed.kind === 'pixelart') return `pi:${parsed.name}`
-  if (parsed.kind === 'url') return parsed.url
+  if (parsed.kind === 'url') {
+    if (parsed.url.startsWith('data:')) return t('common.iconPicker.customImage')
+    return parsed.url
+  }
+  if (parsed.kind === 'base64') return t('common.iconPicker.customImage')
   if (parsed.kind === 'emoji') return parsed.value
   return ''
 })

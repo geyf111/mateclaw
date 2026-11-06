@@ -66,6 +66,7 @@ export default {
       urlHint: 'Use a hosted image (PNG / SVG / JPG) as the icon.',
       urlPlaceholder: 'https://example.com/icon.svg',
       pixelartCount: '{n} pixelart icons by pixelarticons (MIT)',
+      customImage: 'Custom Image',
       pickerOpen: 'Open icon picker',
       reprojectionWarning: 'Heads up: if SKILL.md frontmatter declares `icon`, your override will be overwritten on next resolve — edit the body to make it permanent.',
     },
@@ -157,6 +158,7 @@ export default {
     copied: 'Copied',
     regenerate: 'Regenerate',
     replyModel: 'Reply model: {model}',
+    creditCost: 'Credit consumed: {cost}',
     routing: {
       kind: {
         image: 'image',
@@ -206,6 +208,8 @@ export default {
     // RFC-074 PR-2: empty-state inside the model dropdown
     noProvidersConfigured: 'No models available yet',
     goConfigure: 'Configure',
+    inputRate: 'Input Rate',
+    outputRate: 'Output Rate',
     // Issue #81: liveness-aware popup state machine.
     prompt: {
       noActive: {
@@ -260,6 +264,8 @@ export default {
     hasUnread: 'New activity',
     filterByAgent: 'Filter by employee',
     allAgents: 'All employees',
+    agentLabel: 'Agent',
+    teamLabel: 'Team',
     pin: 'Pin',
     unpin: 'Unpin',
     rename: 'Rename',
@@ -377,6 +383,8 @@ export default {
     approvalExecute: 'to execute?',
     // Time format
     timeJustNow: 'Just now',
+    teamAnnounce: '📋 Task Settlement',
+    teamAnnounceSub: '{count} sub-task(s)',
     timeMinutesAgo: '{n}m ago',
     timeHoursAgo: '{n}h ago',
   },
@@ -415,7 +423,10 @@ export default {
     logout: 'Logout',
     logoutConfirm: 'Are you sure you want to logout?',
     webSearch: 'Web Search',
+    webSearchHint: 'Response time may increase, web results are for reference only',
     pointsBalance: 'Points Balance',
+    creditUpdated: 'Updated at {time}',
+    creditInsufficient: 'Insufficient credit, please contact administrator',
     checkUpdate: 'Check for Updates',
     updateOnlyInClient: 'This feature is only available in the desktop client',
     memory: 'Memory',
@@ -1064,6 +1075,8 @@ export default {
     title: 'Agent Context',
     desc: 'Manage prompt files and memory for agents',
     selectAgent: 'Select Employee',
+    selectAgentTab: 'Select Agent',
+    selectTeamTab: 'Select Team',
     noAgent: 'Please select an agent first',
     files: 'Files',
     coreFiles: 'Core Files',

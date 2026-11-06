@@ -26,6 +26,13 @@
       :alt="title || ''"
       loading="lazy"
     />
+    <img
+      v-else-if="parsed.kind === 'base64'"
+      class="skill-icon__img"
+      :src="`data:image/png;base64,${parsed.data}`"
+      :alt="title || ''"
+      loading="lazy"
+    />
     <span
       v-else-if="parsed.kind === 'emoji'"
       class="skill-icon__glyph"

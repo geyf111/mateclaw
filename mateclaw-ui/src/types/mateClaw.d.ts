@@ -29,6 +29,10 @@ export interface MateClawAPI {
   showAbout: () => void
   /** 跳转更新日志页面 */
   showVersionHistory: () => void
+  /** 在文件管理器中打开并选中文件 */
+  showItemInFolder: (filePath: string) => Promise<void>
+  /** 打开另存为对话框并复制文件，返回用户选择的保存路径（取消则返回 null） */
+  showSaveDialog: (sourcePath: string, defaultName: string) => Promise<string | null>
 }
 
 declare global {

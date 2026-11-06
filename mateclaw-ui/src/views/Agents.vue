@@ -86,9 +86,9 @@
                   <span
                     class="agent-card__avatar"
                     :class="{ 'agent-card__avatar--off': !agent.enabled }"
-                    :style="{ color: agentIconColor(agent.icon) }"
+                    :style="{ color: agentIconColor(getDisplayIcon(agent)) }"
                   >
-                    <SkillIcon :value="agent.icon" :size="40" :fallback="'🧑‍💼'" />
+                    <SkillIcon :value="getDisplayIcon(agent)" :size="40" :fallback="'🧑‍💼'" />
                   </span>
                   <div class="agent-card__identity">
                     <h3 class="agent-card__name">{{ agent.name }}</h3>
@@ -158,17 +158,17 @@
           </div>
 
           <div class="agent-grid" v-if="filteredGroups.length > 0">
-            <div v-for="group in filteredGroups" :key="group.id" class="agent-card mc-surface-card">
+            <div v-for="group in filteredGroups" :key="group.team.id" class="agent-card mc-surface-card">
               <div class="agent-card__top">
                 <span
                   class="agent-card__avatar"
-                  :style="{ color: agentIconColor('') }"
+                  :style="{ color: agentIconColor(getDisplayIcon(group.team)) }"
                 >
-                  <SkillIcon :value="''" :size="40" :fallback="'👥'" />
+                  <SkillIcon :value="getDisplayIcon(group.team)" :size="40" :fallback="'👥'" />
                 </span>
                 <div class="agent-card__identity">
-                  <h3 class="agent-card__name">{{ group.name }}</h3>
-                  <p class="agent-card__tagline">{{ group.description }}</p>
+                  <h3 class="agent-card__name">{{ group.team.name }}</h3>
+                  <p class="agent-card__tagline">{{ group.team.description }}</p>
                 </div>
               </div>
               <div class="agent-card__action-row">
@@ -197,7 +197,7 @@
         <div v-if="showGroupDetail && detailGroup" class="modal-overlay" @click.self="closeGroupDetail">
           <div class="modal group-detail-modal">
             <div class="modal-header">
-              <h2>{{ detailGroup.name }}</h2>
+              <h2>{{ detailGroup.team.team.name }}</h2>
               <button class="modal-close" @click="closeGroupDetail">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -205,28 +205,30 @@
               </button>
             </div>
             <div class="modal-body">
+              <div v-if="loadingDetail" class="group-detail-loading">加载中...</div>
+              <template v-else>
               <div class="group-detail-header">
-                <span class="group-detail-avatar" :style="{ color: agentIconColor('') }">
-                  <SkillIcon :value="''" :size="48" :fallback="'👥'" />
+                <span class="group-detail-avatar" :style="{ color: agentIconColor(getDisplayIcon(detailGroup.team.team)) }">
+                  <SkillIcon :value="getDisplayIcon(detailGroup.team.team)" :size="48" :fallback="'👥'" />
                 </span>
                 <div class="group-detail-meta">
-                  <p class="group-detail-desc">{{ detailGroup.description }}</p>
-                  <div v-if="detailGroup.tags" class="group-detail-tags">
-                    <span v-for="tag in detailGroup.tags.split(',').filter(Boolean)" :key="tag" class="tag-chip">{{ tag.trim() }}</span>
+                  <p class="group-detail-desc">{{ detailGroup.team.team.description }}</p>
+                  <div v-if="detailGroup.team.team.tags" class="group-detail-tags">
+                    <span v-for="tag in detailGroup.team.team.tags.split(',').filter(Boolean)" :key="tag" class="tag-chip">{{ tag.trim() }}</span>
                   </div>
                 </div>
               </div>
 
               <div class="group-detail-section">
                 <h4 class="group-detail-section-title">提示词</h4>
-                <div v-for="(prompt, pIdx) in detailGroup.prompts" :key="pIdx" class="group-detail-prompt-item">
+                <div v-for="(prompt, pIdx) in detailGroup.team.team.conversationPrompts" :key="pIdx" class="group-detail-prompt-item">
                   <p class="group-detail-prompt">{{ prompt }}</p>
                   <button
                     class="group-detail-chat-btn"
                     type="button"
                     title="开始对话"
                     aria-label="开始对话"
-                    @click="closeGroupDetail(); goToGroupChat(detailGroup)"
+                    @click="goToGroupChat(detailGroup.team, prompt); closeGroupDetail()"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -239,14 +241,17 @@
                 <h4 class="group-detail-section-title">团队成员（{{ detailGroup.members.length }}）</h4>
                 <div class="group-detail-members">
                   <div v-for="(member, idx) in detailGroup.members" :key="idx" class="group-detail-member">
-                    <span class="group-detail-member-avatar">{{ member.avatar }}</span>
+                    <span class="group-detail-member-avatar">
+                      <SkillIcon :value="getDisplayIcon(member)" :size="24" :fallback="'👤'" />
+                    </span>
                     <div class="group-detail-member-info">
-                      <span class="group-detail-member-name">{{ member.position }}</span>
-                      <span class="group-detail-member-role" :class="{ 'role-lead': member.role === '主理人' }">{{ member.role }}</span>
+                      <span class="group-detail-member-name">{{ member.position || member.name }}</span>
+                      <span class="group-detail-member-role" :class="{ 'role-lead': member.role === 'lead' }">{{ member.role === 'lead' ? '主理人' : '成员' }}</span>
                     </div>
                   </div>
                 </div>
               </div>
+              </template>
             </div>
           </div>
         </div>
@@ -276,8 +281,8 @@
               :class="{ applying: applyingTemplate }"
               @click="!applyingTemplate && applyTemplate(tpl.id)"
             >
-              <div class="template-icon" :style="{ color: agentIconColor(tpl.icon) }">
-                <SkillIcon :value="tpl.icon" :size="28" :fallback="'🧑‍💼'" />
+              <div class="template-icon" :style="{ color: agentIconColor(getDisplayIcon(tpl)) }">
+                <SkillIcon :value="getDisplayIcon(tpl)" :size="28" :fallback="'🧑‍💼'" />
               </div>
               <div class="template-info">
                 <h4 class="template-name">{{ $i18n.locale === 'zh-CN' && tpl.nameZh ? tpl.nameZh : tpl.name }}</h4>
@@ -304,7 +309,7 @@
     <SkillIconPicker
       v-model:visible="iconPickerVisible"
       :model-value="form.icon"
-      @apply="(v: string) => (form.icon = v)"
+      @apply="onIconApply"
     />
 
     <!-- Create/Edit Modal -->
@@ -325,26 +330,26 @@
             <button class="modal-tab" :class="{ active: modalTab === 'basic' }" @click="modalTab = 'basic'">
               {{ t('agents.tabs.basic', 'Basic') }}
             </button>
-            <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'skills' }" @click="modalTab = 'skills'">
+            <!-- <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'skills' }" @click="modalTab = 'skills'">
               {{ t('agents.tabs.skills', 'Skills') }}
               <span v-if="selectedSkillIds.length" class="tab-badge">{{ selectedSkillIds.length }}</span>
-            </button>
+            </button> -->
             <!-- <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'tools' }" @click="modalTab = 'tools'">
               {{ t('agents.tabs.tools', 'Tools') }}
               <span v-if="selectedToolNames.length" class="tab-badge">{{ selectedToolNames.length }}</span>
             </button> -->
-            <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'providers' }" @click="modalTab = 'providers'">
+            <!-- <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'providers' }" @click="modalTab = 'providers'">
               {{ t('agents.tabs.providers', 'Providers') }}
               <span v-if="selectedProviderIds.length" class="tab-badge">{{ selectedProviderIds.length }}</span>
-            </button>
-            <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'knowledge' }" @click="modalTab = 'knowledge'">
+            </button> -->
+            <!-- <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'knowledge' }" @click="modalTab = 'knowledge'">
               知识库
               <span v-if="selectedKnowledgeBaseIds.length" class="tab-badge">{{ selectedKnowledgeBaseIds.length }}</span>
-            </button>
-            <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'mcp' }" @click="modalTab = 'mcp'">
+            </button> -->
+            <!-- <button v-if="editingAgent" class="modal-tab" :class="{ active: modalTab === 'mcp' }" @click="modalTab = 'mcp'">
               MCP
               <span v-if="selectedMCPIds.length" class="tab-badge">{{ selectedMCPIds.length }}</span>
-            </button>
+            </button> -->
           </div>
 
           <!-- Basic Tab -->
@@ -358,7 +363,7 @@
               <button type="button" class="icon-picker-trigger" @click="iconPickerVisible = true">
                 <SkillIcon :value="form.icon" :size="24" :fallback="'🤖'" />
                 <span class="icon-picker-trigger__label">
-                  {{ form.icon || t('common.iconPicker.none') }}
+                  {{ formIconLabel }}
                 </span>
                 <span class="icon-picker-trigger__action">{{ t('common.iconPicker.pickerOpen') }}</span>
               </button>
@@ -699,7 +704,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { mcToast } from '@/composables/useMcToast'
 import { mcConfirm } from '@/components/common/useConfirm'
-import { agentApi, agentBindingApi, modelApi, skillApi, toolApi, templateApi, liveApi } from '@/api/index'
+import { agentApi, agentBindingApi, modelApi, skillApi, toolApi, templateApi, liveApi, teamApi } from '@/api/index'
 import type { Agent } from '@/types/index'
 import SkillIcon from '@/components/common/SkillIcon.vue'
 import SkillIconPicker from '@/components/common/SkillIconPicker.vue'
@@ -715,6 +720,7 @@ import {
 } from '@/utils/agentPromptProfile'
 
 import { agentIconColor } from '@/utils/agentIconColor'
+import { getDisplayIcon, parseIconValue } from '@/composables/usePixelarticons'
 import { filterAgentBindingItems, filterAgentToolGroups } from '@/utils/agentBindingSearch'
 import { useSkillName } from '@/composables/useSkillName'
 
@@ -728,159 +734,79 @@ const activeFilter = ref('all')
 
 const currentTab = ref<'agents' | 'groups'>('agents')
 
-interface AgentGroup {
-  id: number
-  name: string
-  description: string
-  tags: string
-  prompts: string[]
-  members: { avatar: string; position: string; role: '主理人' | '成员' }[]
+interface TeamVO {
+  team: {
+    id: string
+    name: string
+    description: string
+    icon?: string
+    iconType?: string
+    customIcon?: string
+    tags: string
+    leadAgentId: string
+    configSource: string
+    enabled: boolean
+    conversationPrompts: string[]
+  }
+  leadName: string
+  leadIcon: string
+  memberCount: string
 }
-const agentGroups = ref<AgentGroup[]>([
-  { id: 1,
-    name: '客服团队',
-    description: '处理用户咨询、投诉与反馈的专业客服助手团',
-    tags: '客服,售后,投诉',
-    prompts: [
-      '你是一个专业的客服团队成员，负责处理用户咨询、投诉与反馈。请始终保持礼貌、耐心和专业。',
-      '在处理投诉时，先安抚用户情绪，再分析问题原因，最后给出解决方案。'
-    ],
-    members: [
-      {
-        avatar: '👩‍💼',
-        position: '客服主管',
-        role: '主理人'
-      },
-      { avatar: '👨‍💻',
-        position: '高级客服',
-        role: '成员'
-      },
-      { avatar: '👩‍🎓',
-        position: '投诉专员',
-        role: '成员'
-      },
-      { avatar: '👨‍🔧',
-        position: '售后顾问',
-        role: '成员'
-      },
-      {
-        avatar: '👩',
-        position: '质检员',
-        role: '成员'
-      }
-    ]
-  },
-  { id: 2,
-    name: '开发协作组',
-    description: '代码审查、架构讨论与技术方案评估',
-    tags: '开发,架构,Code Review',
-    prompts: ['你是一个开发协作组成员，负责代码审查、架构讨论与技术方案评估。请基于最佳实践给出专业建议。'],
-    members: [
-      {
-        avatar: '🧑‍💻',
-        position: '架构师',
-        role: '主理人'
-      },
-      { avatar: '👨‍💻',
-        position: '高级开发',
-        role: '成员'
-      },
-      { avatar: '👩‍💻',
-        position: '代码审查员',
-        role: '成员'
-      }
-    ]
-  },
-  { id: 3,
-    name: '内容创作组',
-    description: '文案撰写、翻译与多媒体内容生成',
-    tags: '文案,翻译,内容',
-    prompts: [
-      '你是一个内容创作组成员，负责文案撰写、翻译与多媒体内容生成。请确保内容准确、生动且符合品牌调性。',
-      '翻译时注意文化差异，确保译文自然流畅。',
-      '多媒体内容需符合平台规范，注意版权问题。'
-    ],
-    members: [
-      {
-        avatar: '✍️',
-        position: '主编',
-        role: '主理人'
-      },
-      {
-        avatar: '🌐',
-        position: '翻译专家',
-        role: '成员'
-      },
-      {
-        avatar: '🎨',
-        position: '多媒体编辑',
-        role: '成员'
-      },
-      {
-        avatar: '📈',
-        position: 'SEO优化师',
-        role: '成员'
-      }
-    ]
-  },
-  { id: 4,
-    name: '数据分析组',
-    description: '报表生成、数据清洗与商业洞察输出', tags: '数据,分析,报表',
-    prompts: [
-      '你是一个数据分析组成员，负责报表生成、数据清洗与商业洞察输出。请确保分析结果准确、可视化清晰。'
-    ],
-    members: [
-      {
-        avatar: '📊',
-        position: '数据总监',
-        role: '主理人'
-      },
-      { avatar: '📉',
-        position: 'BI工程师',
-        role: '成员'
-      },
-      { avatar: '🔄', position: 'ETL专员', role: '成员' }
-    ]
-  },
-  { id: 5,
-    name: '测试小组',
-    description: '自动化测试用例编写与回归测试执行', tags: '测试,自动化,QA',
-    prompts: [
-      '你是一个测试小组成员，负责自动化测试用例编写与回归测试执行。请确保测试覆盖率达标，及时反馈缺陷。',
-      '优先覆盖核心业务流程，边缘场景可适当降低优先级。'
-    ],
-    members: [
-      {
-        avatar: '🧪',
-        position: '测试主管',
-        role: '主理人'
-      },
-      { avatar: '🤖', position: '自动化测试工程师', role: '成员' }
-    ]
-  },
-])
 
+interface TeamDetailVO {
+  team: TeamVO
+  members: {
+    agentId: string
+    name: string
+    role: 'lead' | 'member'
+    icon: string
+    iconType?: string
+    customIcon?: string
+    position: string
+  }[]
+}
+
+const agentTeams = ref<TeamVO[]>([])
 const groupSearchText = ref('')
 
 const filteredGroups = computed(() => {
-  if (!groupSearchText.value) return agentGroups.value
+  if (!groupSearchText.value) return agentTeams.value
   const q = groupSearchText.value.toLowerCase()
-  return agentGroups.value.filter(g =>
-    g.name.toLowerCase().includes(q) ||
-    g.description.toLowerCase().includes(q)
+  return agentTeams.value.filter(g =>
+    g.team.name.toLowerCase().includes(q) ||
+    g.team.description.toLowerCase().includes(q)
   )
 })
 
-function goToGroupChat(group: AgentGroup) {
-  mcToast.info(`进入「${group.name}」群聊功能开发中`)
+async function loadTeams() {
+  try {
+    const res: any = await teamApi.list({ source: 'platform' })
+    agentTeams.value = res.data || []
+  } catch {
+    mcToast.error('加载助手团失败')
+  }
+}
+
+function goToGroupChat(group: TeamVO, prompt?: string) {
+  if (prompt) sessionStorage.setItem('chat_preset_prompt', prompt)
+  router.push({ path: '/chat', query: { agentId: String(group.team.id) } })
 }
 
 const showGroupDetail = ref(false)
-const detailGroup = ref<AgentGroup | null>(null)
+const detailGroup = ref<TeamDetailVO | null>(null)
+const loadingDetail = ref(false)
 
-function openGroupDetail(group: AgentGroup) {
-  detailGroup.value = group
-  showGroupDetail.value = true
+async function openGroupDetail(group: TeamVO) {
+  loadingDetail.value = true
+  try {
+    const res: any = await teamApi.get(group.team.id)
+    detailGroup.value = res.data
+    showGroupDetail.value = true
+  } catch {
+    mcToast.error('加载助手团详情失败')
+  } finally {
+    loadingDetail.value = false
+  }
 }
 
 function closeGroupDetail() {
@@ -1065,6 +991,8 @@ const defaultForm = (): Partial<Agent> & { name: string; defaultThinkingLevel: s
   // emoji into form.icon — otherwise the picker thinks the user picked
   // the robot emoji explicitly and reopens on the Emoji tab.
   icon: '',
+  iconType: '',
+  customIcon: '',
   tags: '',
   enabled: true,
   defaultThinkingLevel: null,
@@ -1072,6 +1000,31 @@ const defaultForm = (): Partial<Agent> & { name: string; defaultThinkingLevel: s
 
 const form = ref(defaultForm())
 const iconPickerVisible = ref(false)
+
+const formIconLabel = computed(() => {
+  if (form.value.iconType === 'custom' && form.value.customIcon) return t('common.iconPicker.customImage')
+  if (!form.value.icon) return t('common.iconPicker.none')
+  const parsed = parseIconValue(form.value.icon)
+  if (parsed.kind === 'base64') return t('common.iconPicker.customImage')
+  if (parsed.kind === 'url') {
+    if (parsed.url.startsWith('data:')) return t('common.iconPicker.customImage')
+    return parsed.url
+  }
+  if (parsed.kind === 'pixelart') return `pi:${parsed.name}`
+  return form.value.icon
+})
+
+function onIconApply(v: string) {
+  form.value.icon = v
+  const parsed = parseIconValue(v)
+  if (parsed.kind === 'base64') {
+    form.value.iconType = 'custom'
+    form.value.customIcon = v
+  } else {
+    form.value.iconType = ''
+    form.value.customIcon = ''
+  }
+}
 
 // Identity-triad fields displayed in the basic tab. Kept separate from
 // `form.systemPrompt` so the textarea state stays predictable while the
@@ -1137,6 +1090,7 @@ async function refreshLiveCounts() {
 onMounted(async () => {
   skillApi.syncSkills()
   loadAgents()
+  loadTeams()
   // 进入智能助手页面时主动同步模型状态
   await modelApi.syncModels()
   // RFC-03 G1: load models once for the per-Agent override dropdown.
@@ -1146,6 +1100,11 @@ onMounted(async () => {
     refreshLiveCounts()
     livePollTimer = setInterval(refreshLiveCounts, 10_000)
   }
+})
+
+watch(currentTab, (tab) => {
+  if (tab === 'agents') loadAgents()
+  else loadTeams()
 })
 
 onBeforeUnmount(() => {
@@ -1295,7 +1254,9 @@ async function openEditModal(agent: Agent) {
     systemPrompt: agent.systemPrompt || '',
     modelName: agent.modelName || '',
     maxIterations: agent.maxIterations,
-    icon: agent.icon || '',
+    icon: (agent as any).iconType === 'custom' ? ((agent as any).customIcon || '') : (agent.icon || ''),
+    iconType: (agent as any).iconType || '',
+    customIcon: (agent as any).customIcon || '',
     tags: agent.tags || '',
     enabled: agent.enabled,
     defaultThinkingLevel: (agent as any).defaultThinkingLevel || null,

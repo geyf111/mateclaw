@@ -1,7 +1,6 @@
 <template>
   <el-dropdown
     ref="dropdownRef"
-    v-if="contextUsage"
     trigger="click"
     placement="top"
     :popper-options="popperOptions"
@@ -48,12 +47,20 @@ import { ref, computed, nextTick } from 'vue'
 
 /** 上下文用量分类数据 */
 export interface ContextUsageData {
-  systemPrompt: number
-  toolResults: number
-  conversationHistory: number
-  knowledgeRetrieval: number
-  mcpAndSkills: number
-  maxTokens: number
+  contextWindow: number
+  totalTokens: number
+  usedTokens: number
+  ratio: number
+  hardLimit: number
+  compacted: boolean
+  source: string
+  components: {
+    systemPrompt: number
+    toolResults: number
+    history: number
+    knowledgeBase: number | null
+    toolSchema: number
+  }
 }
 
 interface ContextUsageItem {
@@ -68,58 +75,62 @@ const props = defineProps<{
   contextUsage?: ContextUsageData | null
 }>()
 
-const KEYS = ['systemPrompt', 'toolResults', 'conversationHistory', 'knowledgeRetrieval', 'mcpAndSkills'] as const
+const KEYS = ['systemPrompt', 'toolResults', 'history', 'knowledgeBase', 'toolSchema'] as const
 
 const COLORS: Record<string, string> = {
   systemPrompt: '#5470c6',
   toolResults: '#91cc75',
-  conversationHistory: '#fac858',
-  knowledgeRetrieval: '#ee6666',
-  mcpAndSkills: '#73c0de',
+  history: '#fac858',
+  knowledgeBase: '#ee6666',
+  toolSchema: '#73c0de',
 }
 
 const LABELS: Record<string, string> = {
   systemPrompt: '系统提示词',
   toolResults: '工具结果',
-  conversationHistory: '对话历史',
-  knowledgeRetrieval: '知识检索',
-  mcpAndSkills: 'MCP及技能',
+  history: '对话历史',
+  knowledgeBase: '知识检索',
+  toolSchema: 'MCP及技能',
 }
 
 const items = computed<ContextUsageItem[]>(() => {
   const usage = props.contextUsage
-  if (!usage) return []
-  return KEYS.map((k) => ({
-    key: k,
-    label: LABELS[k],
-    value: usage[k] || 0,
-    percentage: usage.maxTokens > 0 ? Math.round(((usage[k] || 0) / usage.maxTokens) * 1000) / 10 : 0,
-    color: COLORS[k],
-  }))
+  const total = usage?.contextWindow || 1
+  return KEYS.map((k) => {
+    const val = usage?.components[k] ?? 0
+    return {
+      key: k,
+      label: LABELS[k],
+      value: val,
+      percentage: total > 0 ? Math.round((val / total) * 1000) / 10 : 0,
+      color: COLORS[k],
+    }
+  })
 })
 
 const usedTotal = computed(() => {
   const usage = props.contextUsage
   if (!usage) return 0
-  return KEYS.reduce((sum, k) => sum + (usage[k] || 0), 0)
+  return KEYS.reduce((sum, k) => sum + (usage.components[k] ?? 0), 0)
 })
 
 const usedLabel = computed(() => {
-  const val = usedTotal.value
+  const val = props.contextUsage?.usedTokens ?? 0
   if (val >= 1000) return (val / 1000).toFixed(1) + 'K'
   return String(val)
 })
 
 const maxLabel = computed(() => {
-  const max = props.contextUsage?.maxTokens ?? 0
+  const max = props.contextUsage?.contextWindow ?? 0
+  if (max === 0) return '200K'
   if (max >= 1000) return (max / 1000).toFixed(1) + 'K'
   return String(max)
 })
 
 const usageTotal = computed(() => {
   const usage = props.contextUsage
-  if (!usage || !usage.maxTokens) return 0
-  return Math.round((usedTotal.value / usage.maxTokens) * 1000) / 10
+  if (!usage || !usage.contextWindow) return 0
+  return Math.round((usage.usedTokens / usage.contextWindow) * 1000) / 10
 })
 
 const popperOptions = {
@@ -148,7 +159,7 @@ async function getECharts() {
 
 async function initChart() {
   const el = chartRef.value
-  if (!el || !props.contextUsage) return
+  if (!el) return
 
   await nextTick()
   const echarts = await getECharts()

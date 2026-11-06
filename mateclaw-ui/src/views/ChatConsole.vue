@@ -12,6 +12,7 @@
           :conversations="conversations"
           :current-conversation-id="currentConversationId"
           :agents="agents"
+          :teams="teams"
           :selected-agent-id="selectedAgentId"
           :collapsed="convPanelCollapsed"
           :mobile-open="convPanelOpen"
@@ -47,21 +48,15 @@
               <button v-if="isMobile" class="conv-toggle-btn" @click="convPanelOpen = !convPanelOpen" :title="$t('chat.conversations')">
                 <el-icon><ChatDotRound /></el-icon>
               </button>
-              <div class="chat-stage-copy" v-if="currentAgent">
+              <div class="chat-stage-copy" v-if="currentAgent || selectedTeam">
                 <div class="chat-stage-kicker">{{ $t('nav.chat') }}</div>
-                <!--
-                  Header reads as "who is this employee" — name + tagline.
-                  The runtime mode (ReAct / Plan-Execute) is technical jargon
-                  to end users and lives in the badge tooltip instead, so the
-                  header doesn't get polluted.
-                -->
                 <div
                   class="agent-badge"
-                  :title="`${currentAgent.name}${currentAgentRuntimeMode ? ' · ' + currentAgentRuntimeMode : ''}`"
+                  :title="selectedTeam ? selectedTeam.name : (currentAgent ? `${currentAgent.name}${currentAgentRuntimeMode ? ' · ' + currentAgentRuntimeMode : ''}` : '')"
                 >
-                  <span class="agent-badge-icon" :style="{ color: agentIconColor(currentAgent.icon) }"><SkillIcon :value="currentAgent.icon" :size="22" :fallback="'🤖'" /></span>
+                  <span class="agent-badge-icon" :style="{ color: agentIconColor(getDisplayIcon(currentAgent || selectedTeam)) }"><SkillIcon :value="getDisplayIcon(currentAgent || selectedTeam)" :size="22" :fallback="selectedTeam ? '👥' : '🤖'" /></span>
                   <div class="agent-badge-text">
-                    <span class="agent-badge-name">{{ currentAgent.name }}</span>
+                    <span class="agent-badge-name">{{ selectedTeam ? selectedTeam.name : currentAgent?.name }}</span>
                   </div>
                   <span class="status-dot" :class="connectionStatusClass" :title="connectionStatusLabel"></span>
                 </div>
@@ -69,6 +64,17 @@
               <div v-else class="no-agent-hint">{{ $t('chat.selectAgent') }}</div>
             </div>
             <div class="chat-header-right">
+              <div v-if="showWebSearch" class="web-search-wrap">
+              <div class="web-search-toggle" :class="{ 'is-active': webSearchEnabled }">
+                <span class="web-search-label">{{ $t('nav.webSearch') }}</span>
+                <el-switch :model-value="webSearchEnabled" size="small" @change="onWebSearchToggle" />
+              </div>
+              <Transition name="fade">
+                <div v-if="webSearchEnabled" class="web-search-hint">
+                  {{ $t('nav.webSearchHint') }}
+                </div>
+              </Transition>
+            </div>
               <!-- Model selector — Issue #81 v2 R3: always pass full providers + show-all-states
                    so unhealthy rows render as dimmed entries with status chips and a Fix
                    button instead of disappearing entirely. -->
@@ -115,17 +121,20 @@
             ref="messageListRef"
             :messages="messages"
             :loading="isGenerating"
-            :assistant-icon="currentAgent?.icon || '🤖'"
+            :assistant-icon="getDisplayIcon(currentAgent || selectedTeam) || '🤖'"
             :user-icon="userInitial"
             :title="blockingPrompt ? modelPromptText.title : $t('app.title')"
             :subtitle="blockingPrompt ? modelPromptText.desc : $t('chat.subtitle')"
             :suggestions="blockingPrompt ? [] : suggestions"
+            :generated-files="currentConversationGeneratedFiles"
             @regenerate="handleRegenerate"
             @suggestion-click="sendSuggestion"
             @toggle-thinking="handleToggleThinking"
             @approve="handleApprove"
             @deny="handleDeny"
             @open-file="handleOpenFile"
+            @open-artifacts="showFilePreview"
+            @open-sources="handleOpenSources"
           >
             <!-- Issue #81 v2 R2: blocking-only popup. Recoverable cases use the
                  non-blocking <RecoverableModelBanner> below instead. -->
@@ -222,7 +231,7 @@
             ref="chatInputRef"
             v-model="inputText"
             :loading="isGenerating && !hasPendingApproval"
-            :disabled="blockingPrompt || !currentAgent"
+            :disabled="blockingPrompt || (!currentAgent && !selectedTeam)"
             :placeholder="$t('chat.messagePlaceholder')"
             :hint="currentRuntimeModel"
             :attachments="pendingAttachments"
@@ -260,6 +269,14 @@
           @download="downloadPreviewTab"
           @toggle-fullscreen="togglePreviewFullscreen"
           @open-generated="handleOpenGeneratedFile"
+          @open-folder="handleArtifactOpenFolder"
+          @save-as="handleArtifactSaveAs"
+        />
+
+        <SourceDrawer
+          :sources="sourceDrawerSources"
+          :visible="sourceDrawerVisible"
+          @hide="sourceDrawerVisible = false"
         />
 
         <!-- Talk Mode 覆盖层 -->
@@ -281,11 +298,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { mcToast } from '@/composables/useMcToast'
 import { ChatDotRound, Delete, Fold, Setting, UploadFilled } from '@element-plus/icons-vue'
-import { conversationApi, agentApi, modelApi, chatApi, cronJobApi, channelApi } from '@/api/index'
+import { conversationApi, agentApi, modelApi, chatApi, cronJobApi, channelApi, teamApi } from '@/api/index'
 import { copyToClipboard } from '@/utils/clipboard'
 import { useFileDrop } from '@/composables/useFileDrop'
 import { useIsMobile, useMediaQuery, BREAKPOINTS } from '@/composables/useBreakpoint'
 import { useChat } from '@/composables/chat/useChat'
+import { useCredit } from '@/composables/useCredit'
 import { reconstructErrorInfo } from '@/types/chatError'
 import { reconcileMessages, extractMessages } from '@/utils/messageReconcile'
 import type { Conversation, Agent, ModelConfig, ProviderInfo, ActiveModelsInfo, ChatAttachment, MessageContentPart, Message, ToolCallMeta, StreamPhase } from '@/types'
@@ -294,16 +312,17 @@ import type { Conversation, Agent, ModelConfig, ProviderInfo, ActiveModelsInfo, 
 import MessageList from '@/components/chat/MessageList.vue'
 import RecoverableModelBanner from '@/components/chat/RecoverableModelBanner.vue'
 import SkillIcon from '@/components/common/SkillIcon.vue'
+import { getDisplayIcon } from '@/composables/usePixelarticons'
 import ConversationSidebar from '@/components/chat/ConversationSidebar.vue'
 import DropdownMenu, { type DropdownMenuItem } from '@/components/common/DropdownMenu.vue'
 import { agentIconColor } from '@/utils/agentIconColor'
 import ChatInput from '@/components/chat/ChatInput.vue'
-import type { ContextUsageData } from '@/components/chat/ContextUsagePopover.vue'
 import MultimodalRoutingHint from '@/components/chat/MultimodalRoutingHint.vue'
 import StreamLoadingBar from '@/components/chat/StreamLoadingBar.vue'
 import TalkMode from '@/components/chat/TalkMode.vue'
 import ModelSelector from '@/components/chat/ModelSelector.vue'
 import FilePreviewPanel from '@/components/chat/FilePreviewPanel.vue'
+import SourceDrawer from '@/components/chat/SourceDrawer.vue'
 import { useEChartsRenderer } from '@/composables/useEChartsRenderer'
 import { useKatexRenderer } from '@/composables/useKatexRenderer'
 import { useMermaidRenderer, handleMermaidDownload } from '@/composables/useMermaidRenderer'
@@ -312,11 +331,22 @@ import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import GoalSetInlinePrompt from '@/components/goal/GoalSetInlinePrompt.vue'
 import GoalSystemLine from '@/components/goal/GoalSystemLine.vue'
 import { useFilePreviewPanel } from '@/composables/useFilePreviewPanel'
-import { extractGeneratedFiles, type FileOpenRequest } from '@/utils/filePreview'
+import { type ArtifactVO } from '@/api'
+import { type GeneratedFileEntry, type FileOpenRequest } from '@/utils/filePreview'
+import { useMateClaw } from '@/composables/useMateClaw'
 
 // ============ 文件预览右栏 ============
 const filePreview = useFilePreviewPanel()
 const { fileTabs, activeFileTabId, panelVisible, panelFullscreen } = filePreview
+
+// ============ 来源面板 ============
+const sourceDrawerVisible = ref(false)
+const sourceDrawerSources = ref<any[]>([])
+
+function handleOpenSources(sources: any[]) {
+  sourceDrawerSources.value = sources
+  sourceDrawerVisible.value = true
+}
 
 // ============ Talk Mode ============
 const showTalkMode = ref(false)
@@ -378,6 +408,7 @@ const route = useRoute()
 const { t } = useI18n()
 
 const agents = ref<Agent[]>([])
+const teams = ref<any[]>([])
 const conversations = ref<Conversation[]>([])
 const selectedAgentId = ref<string | number>('')
 const currentConversationId = ref<string>('')
@@ -422,6 +453,20 @@ watch(thinkingEnabled, (v) => localStorage.setItem('mateclaw_thinking', v ? 'on'
 // Dropdowns & menus
 const headerMenuOpen = ref(false)
 const headerBtnRef = ref<HTMLElement | null>(null)
+
+const webSearchEnabled = computed(() => !!(currentAgent.value as any)?.webSearchEnabled)
+const showWebSearch = computed(() => !!(currentAgent.value && !selectedTeam.value && (currentAgent.value as any)?.webSearchAllowed))
+
+async function onWebSearchToggle(val: boolean) {
+  const agent = currentAgent.value
+  if (!agent) return
+  try {
+    await agentApi.setWebSearch(agent.id, val)
+    ;(agent as any).webSearchEnabled = val
+  } catch (e: any) {
+    mcToast.error(e?.message || '操作失败')
+  }
+}
 
 const headerMenuItems = computed<DropdownMenuItem[]>(() => [
   // { key: 'config', label: t('chat.configModel') },
@@ -565,16 +610,6 @@ async function collectFilesFromEntries(dirEntries: FileSystemDirectoryEntry[]): 
 const messageListRef = ref<InstanceType<typeof MessageList> | null>(null)
 const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 
-// TODO: 临时假数据，后续接入后端真实上下文用量分类统计
-const contextUsage: ContextUsageData = {
-  systemPrompt: 12082,
-  toolResults: 3500,
-  conversationHistory: 80000,
-  knowledgeRetrieval: 2000,
-  mcpAndSkills: 1500,
-  maxTokens: 192000,
-}
-
 // Post-render augmentations (ECharts, KaTeX, Mermaid) all watch the same
 // MessageList container — placeholders emitted by useMarkdownRenderer get
 // upgraded in place after Vue paints the rendered Markdown HTML.
@@ -606,25 +641,92 @@ function retryPreviewTab(id: string) { filePreview.retry(id) }
 function downloadPreviewTab(id: string) { filePreview.download(id) }
 function togglePreviewFullscreen() { panelFullscreen.value = !panelFullscreen.value }
 
-const currentConversationGeneratedFiles = computed(() => {
-  if (!currentConversationId.value) return []
-  return extractGeneratedFiles(messages.value.filter(m => m.role === 'assistant'))
-})
+const currentConversationGeneratedFiles = ref<GeneratedFileEntry[]>([])
 
-function handleOpenGeneratedFile(url: string) {
+async function loadArtifacts(conversationId?: string) {
+  const cid = conversationId || currentConversationId.value
+  if (!cid) return
+  try {
+    const res = await conversationApi.getArtifacts(cid)
+    if (currentConversationId.value !== cid) return
+    const list: GeneratedFileEntry[] = ((res as { data?: ArtifactVO[] })?.data || []).map((a: ArtifactVO) => ({
+      id: a.id,
+      url: a.downloadUrl
+        ? (a.downloadUrl.startsWith('http') ? a.downloadUrl : a.downloadUrl)
+        : '',
+      name: a.name,
+      downloadUrl: a.downloadUrl
+        ? (a.downloadUrl.startsWith('http') ? a.downloadUrl : a.downloadUrl)
+        : undefined,
+      storagePath: a.storagePath,
+      mimeType: a.mimeType,
+      size: a.size,
+      category: a.category,
+    }))
+    currentConversationGeneratedFiles.value = list
+  } catch {
+    // 静默失败；后端可能尚未写入产物
+  }
+}
+
+function handleOpenGeneratedFile(file: GeneratedFileEntry | string) {
   preserveMessageScroll()
+  let url: string
+  let name: string | undefined
+  let contentType: string | undefined
+  let size: number | undefined
+  if (typeof file === 'string') {
+    url = file
+  } else {
+    url = file.downloadUrl || file.url
+    name = file.name
+    contentType = file.mimeType
+    size = file.size ? Number(file.size) : undefined
+  }
+  if (!url) return
   const result = filePreview.openFile({
     url,
     source: 'generated-link',
     conversationId: currentConversationId.value,
+    name,
+    contentType,
+    size,
   })
   if (!result.accepted && result.reason) mcToast.warning(result.reason)
+}
+
+function handleArtifactOpenFolder(file: GeneratedFileEntry) {
+  if (!file.storagePath || !window.mateClawAPI) return
+  window.mateClawAPI.showItemInFolder(file.storagePath).catch(() => {
+    mcToast.error('无法打开文件夹')
+  })
+}
+
+async function handleArtifactSaveAs(file: GeneratedFileEntry) {
+  if (file.storagePath && window.mateClawAPI) {
+    try {
+      await window.mateClawAPI.showSaveDialog(file.storagePath, file.name)
+      mcToast.success('文件已保存')
+    } catch {
+      mcToast.error('保存失败')
+    }
+    return
+  }
+  // Web 回退：直接下载
+  if (file.downloadUrl) {
+    const a = document.createElement('a')
+    a.href = file.downloadUrl
+    a.download = file.name
+    a.click()
+  }
 }
 
 // Last-attempt draft, restored into the input box when the SSE error event
 // arrives async (sendChatMessage resolves on connect, the error fires later,
 // so the catch in handleSendMessage cannot recover input by itself).
 const pendingSendDraft = ref<{ input: string; attachments: any[] } | null>(null)
+
+const { creditInsufficient, fetchCreditAccount } = useCredit()
 
 // 使用 useChat composable
 const {
@@ -638,6 +740,7 @@ const {
   heartbeat,
   compactStatus,
   lifecycleStage,
+  contextUsage,
   sendMessage: sendChatMessage,
   stopGeneration: stopChatGeneration,
   cancelQueued,
@@ -675,6 +778,8 @@ const {
           && meta.reason !== 'error') {
         await refreshCurrentConversationMessages(meta.conversationId)
       }
+      // 刷新产物列表（done 后产物已落表）
+      void loadArtifacts(meta.conversationId)
     }
   },
 })
@@ -693,9 +798,8 @@ const connectionStatusLabel = computed(() => {
 
 // ============ 计算属性 ============
 const currentAgent = computed(() => agents.value.find(a => String(a.id) === String(selectedAgentId.value)))
+const selectedTeam = computed(() => teams.value.find((t: any) => String(t.id) === String(selectedAgentId.value)))
 
-/** Human label for the agent's runtime mode — surfaces in the badge tooltip
- *  only, never in the visible header. */
 const currentAgentRuntimeMode = computed(() => {
   const a = currentAgent.value
   if (!a) return ''
@@ -1104,7 +1208,7 @@ onMounted(async () => {
   startMermaid()
   // 先同步模型状态，确保后续 loadModelState 拉到最新数据
   await modelApi.syncModels()
-  await Promise.all([loadAgents(), loadModelState(), loadConversations()])
+  await Promise.all([loadAgents(), loadTeams(), loadModelState(), loadConversations()])
   await hydrateStateFromRoute()
   applyPendingRouteAction()
   // 探测是否有外部渠道配置，决定是否启用轮询
@@ -1163,6 +1267,43 @@ watch(currentConversationId, async (cid) => {
     await goalStore.loadActiveForConversation(cid)
   }
 }, { immediate: true })
+
+// 监听 workspace 切换，重新加载页面数据（BS 端项目切换不跳转时触发）
+watch(currentWorkspaceId, async (newWsId, oldWsId) => {
+  // 客户端不处理
+  const { isElectron } = useMateClaw()
+  if (isElectron) return
+  // 首次挂载时 oldWsId 为 null，不触发重载（onMounted 已经加载过了）
+  if (oldWsId == null) return
+  // 同一个 workspace 不处理
+  if (newWsId === oldWsId) return
+
+  // 清空当前会话状态
+  currentConversationId.value = ''
+  messages.value = []
+  agents.value = []
+  selectedAgentId.value = ''
+  activeModels.value = null
+  currentConversationGeneratedFiles.value = []
+  pendingAttachments.value = []
+
+  await router.replace({ path: '/chat', query: {} })
+
+  // 断开当前流
+  resetForNewConversation()
+
+  // 重新加载 workspace 相关数据
+  await Promise.all([
+    loadAgents(),
+    loadTeams(),
+    loadModelState(),
+    loadConversations(),
+    loadArtifacts(),
+  ])
+
+  // 重新同步路由状态
+  await hydrateStateFromRoute()
+})
 
 
 // Derive props for the inline prompt + system-line slots that sit
@@ -1284,6 +1425,24 @@ async function loadAgents() {
   }
 }
 
+async function loadTeams() {
+  try {
+    const res: any = await teamApi.list()
+    teams.value = (res.data || []).map((item: any) => ({
+      id: item.team?.id ?? item.id,
+      name: item.team?.name ?? item.name,
+      icon: item.team?.icon ?? item.icon,
+      iconType: item.team?.iconType ?? item.iconType,
+      customIcon: item.team?.customIcon ?? item.customIcon,
+      description: item.team?.description ?? item.description,
+      leadName: item.leadName,
+      tags: item.team?.tags ?? item.tags,
+    }))
+  } catch {
+    // 助手团加载失败不影响主流程
+  }
+}
+
 function groupModelsByProvider(models: any[]) {
   const providerMap = new Map();
 
@@ -1314,6 +1473,24 @@ function groupModelsByProvider(models: any[]) {
 
   // 将 Map 转换为数组并返回
   return Array.from(providerMap.values());
+}
+
+function mergeModelRates(providers: ProviderInfo[], enabledModels: ModelConfig[]) {
+  const rateMap = new Map<string, { inputRate?: number; outputRate?: number }>()
+  for (const m of enabledModels) {
+    if (m.inputRate != null || m.outputRate != null) {
+      rateMap.set(`${m.provider}::${m.modelName}`, { inputRate: m.inputRate, outputRate: m.outputRate })
+    }
+  }
+  for (const provider of providers) {
+    for (const model of [...(provider.models || []), ...(provider.extraModels || [])]) {
+      const rates = rateMap.get(`${provider.id}::${model.id}`)
+      if (rates) {
+        model.inputRate = rates.inputRate
+        model.outputRate = rates.outputRate
+      }
+    }
+  }
 }
 
 async function loadModelState() {
@@ -1353,6 +1530,7 @@ async function loadModelState() {
   try {
     const providersRes: any = await modelApi.listProviders()
     providers.value = providersRes.data || []
+    mergeModelRates(providers.value, enabledModels.value)
     providersUnavailable.value = false
   } catch (e: any) {
     if (e?.response?.status === 403) {
@@ -1454,6 +1632,12 @@ async function hydrateStateFromRoute() {
 
   if (agentId && agentId !== String(selectedAgentId.value)) {
     selectedAgentId.value = agentId
+  }
+
+  const presetPrompt = sessionStorage.getItem('chat_preset_prompt')
+  if (presetPrompt && !inputText.value) {
+    inputText.value = presetPrompt
+    sessionStorage.removeItem('chat_preset_prompt')
   }
 
   if (conversationId && conversationId !== currentConversationId.value) {
@@ -1658,6 +1842,9 @@ async function selectConversation(conv: Conversation) {
       // Stream not running — discard any stale cache; DB is authoritative.
       generatingAssistantCache.delete(requestedConvId)
     }
+
+    // 加载产物列表（历史会话也用 API 获取）
+    void loadArtifacts(requestedConvId)
   } catch (e) {
     mcToast.error(t('chat.loadMessagesFailed'))
   }
@@ -1818,6 +2005,15 @@ async function handleSendMessage(content: string) {
   }
   if (blockingPrompt.value) {
     return
+  }
+
+  // 发送前拉取最新积分余额
+  if (!isApprovalCommand) {
+    await fetchCreditAccount()
+    if (creditInsufficient.value) {
+      mcToast.warning(t('nav.creditInsufficient'))
+      return
+    }
   }
 
   const outgoingAttachments = pendingAttachments.value.map((attachment) => ({ ...attachment }))
@@ -2035,6 +2231,7 @@ function normalizeMessage(raw: Message): Message {
   if ((raw as any).completionTokens) msg.completionTokens = (raw as any).completionTokens
   if ((raw as any).runtimeModel) msg.runtimeModel = (raw as any).runtimeModel
   if ((raw as any).runtimeProvider) msg.runtimeProvider = (raw as any).runtimeProvider
+  if ((raw as any).creditCost !== undefined) msg.creditCost = (raw as any).creditCost
 
   if (msg.contentParts.length === 0 && msg.content) {
     if (msg.role === 'assistant') {
@@ -2282,6 +2479,40 @@ function handleCodeCopy(e: MouseEvent) {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.web-search-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.web-search-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--mc-border);
+  background: var(--mc-panel-raised);
+  border-radius: 10px;
+}
+
+.web-search-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mc-text-secondary);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.web-search-hint {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  font-size: 11px;
+  color: var(--mc-text-tertiary, var(--mc-text-secondary));
+  white-space: nowrap;
 }
 
 .chat-stage-copy {

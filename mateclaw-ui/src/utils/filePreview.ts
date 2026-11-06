@@ -105,29 +105,14 @@ export interface GeneratedFileEntry {
   id: string
   url: string
   name: string
-}
-
-/**
- * Scan message contents for generated file links and return unique entries.
- * Deduplicates by canonical URL, preserving the first occurrence's link text as display name.
- */
-export function extractGeneratedFiles(messages: { content: string }[]): GeneratedFileEntry[] {
-  const seen = new Set<string>()
-  const result: GeneratedFileEntry[] = []
-  const mdLinkRe = /\[([^\]]*)\]\(([^)]+)\)/g
-  for (const msg of messages) {
-    if (!msg.content) continue
-    mdLinkRe.lastIndex = 0
-    let m: RegExpExecArray | null
-    while ((m = mdLinkRe.exec(msg.content)) !== null) {
-      const linkText = m[1]?.trim() || ''
-      const href = m[2]
-      const canonical = canonicalFileUrl(href)
-      if (!canonical || !isGeneratedFileUrl(href) || seen.has(canonical)) continue
-      seen.add(canonical)
-      const id = canonical.split('/').pop() || ''
-      result.push({ id, url: canonical, name: linkText || id })
-    }
-  }
-  return result
+  /** 下载链接（来自后端 artifact.downloadUrl） */
+  downloadUrl?: string
+  /** 服务端/本机绝对路径（来自后端 artifact.storagePath），仅桌面端使用 */
+  storagePath?: string | null
+  /** MIME 类型 */
+  mimeType?: string
+  /** 文件大小（Long → string） */
+  size?: string
+  /** 分类：document/spreadsheet/presentation/pdf/image/audio/video/other */
+  category?: string
 }
