@@ -8,9 +8,9 @@ const isDev = import.meta.env.DEV
 export const http = axios.create({
   /** 
    * 客户端或者开发环境，使用 /api/v1 基础 URL
-   ** bs生产环境，使用 /bsclaw/api/v1 基础 URL
+   ** bs生产环境，使用 /ai-glclaw/api/v1 基础 URL
   */
-  baseURL: (isElectron || isDev) ? '/api/v1' : '/bsclaw/api/v1',
+  baseURL: (isElectron || isDev) ? '/api/v1' : '/ai-glclaw/api/v1',
   timeout: 30000,
 })
 
