@@ -105,10 +105,11 @@
               />
             </label>
             <div class="conv-icon">
-              <template v-if="convAgentIcon(conv)">
+              <!-- <template v-if="convAgentIcon(conv)">
                 <SkillIcon :value="convAgentIcon(conv)" :size="18" fallback="🤖" />
               </template>
-              <img v-else :src="channelIconUrl(conv.source)" width="14" height="14" alt="" />
+              <img v-else :src="channelIconUrl(conv.source)" width="14" height="14" alt="" /> -->
+              <img :src="channelIconUrl(conv.source)" width="14" height="14" alt="" />
               <span
                 v-if="conv.streamStatus === 'running'"
                 class="conv-running-dot"

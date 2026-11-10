@@ -231,7 +231,7 @@
             ref="chatInputRef"
             v-model="inputText"
             :loading="isGenerating && !hasPendingApproval"
-            :disabled="blockingPrompt || (!currentAgent && !selectedTeam)"
+            :disabled="blockingPrompt || (!currentAgent && !selectedTeam) || isExternalChannel"
             :placeholder="$t('chat.messagePlaceholder')"
             :hint="currentRuntimeModel"
             :attachments="pendingAttachments"
@@ -449,6 +449,13 @@ const agentCapabilities = ref<import('@/types').AgentCapabilities | null>(null)
 const thinkingEnabled = ref(localStorage.getItem('mateclaw_thinking') !== 'off')
 const thinkingLevel = computed(() => thinkingEnabled.value ? 'high' : 'off')
 watch(thinkingEnabled, (v) => localStorage.setItem('mateclaw_thinking', v ? 'on' : 'off'))
+
+// 当前对话是否来自外部渠道（微信/钉钉/飞书/企业微信等），外部渠道对话仅可查看不可编辑
+const isExternalChannel = computed(() => {
+  const conv = conversations.value.find(c => c.conversationId === currentConversationId.value)
+  const source = conv?.source
+  return !!source && source !== 'web'
+})
 
 // Dropdowns & menus
 const headerMenuOpen = ref(false)
